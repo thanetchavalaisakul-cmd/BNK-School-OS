@@ -178,6 +178,67 @@ function toast(title, message = "", type = "default") {
   setTimeout(() => el.remove(), 3800);
 }
 
+
+function isSuperAdminUser(){
+  return state.profile?.role === "super_admin";
+}
+
+async function secureDeletionClient(password){
+  if(isSuperAdminUser()) return supabase;
+  const email=state.user?.email;
+  if(!email) throw new Error("บัญชีนี้ไม่มีอีเมลสำหรับยืนยันรหัสผ่าน");
+  const verifyClient=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{
+    auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}
+  });
+  const {data,error}=await verifyClient.auth.signInWithPassword({email,password});
+  if(error) throw new Error("รหัสผ่านไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง");
+  if(!data?.user?.id || data.user.id!==state.user.id) throw new Error("ไม่สามารถยืนยันบัญชีผู้ใช้งานปัจจุบันได้");
+  return verifyClient;
+}
+
+function secureDeleteModal({
+  title="ลบข้อมูล",
+  description="",
+  warning="ข้อมูลที่ลบแล้วไม่สามารถกู้คืนจากหน้าระบบได้",
+  confirmLabel="ลบข้อมูลถาวร",
+  action,
+  afterDelete=null
+}={}){
+  if(typeof action!=="function") return;
+  const admin=isSuperAdminUser(),m=document.createElement("div");
+  m.className="modal-backdrop";
+  m.innerHTML=`<div class="modal secure-delete-modal">
+    <div class="modal-head"><div><h3>${escapeHtml(title)}</h3><p>${escapeHtml(description)}</p></div><button class="modal-close">×</button></div>
+    <div class="secure-delete-warning"><strong>⚠ ยืนยันการลบ</strong><span>${escapeHtml(warning)}</span></div>
+    ${admin
+      ? `<div class="secure-delete-admin"><strong>Super Admin</strong><span>บัญชี Super Admin ไม่ต้องกรอกรหัสผ่าน แต่การลบจะถูกบันทึกในประวัติ Audit</span></div>`
+      : `<div class="field"><label>รหัสผ่านของคุณ</label><input class="input" id="secure-delete-password" type="password" autocomplete="current-password" placeholder="กรอกรหัสผ่านเพื่อยืนยันการลบ" required><small class="helper">ระบบใช้รหัสผ่านเพื่อยืนยันตัวตนครั้งนี้เท่านั้น และไม่บันทึกรหัสผ่านไว้</small></div>`
+    }
+    <label class="secure-delete-check"><input type="checkbox" id="secure-delete-ack"> ฉันเข้าใจว่าการลบรายการนี้เป็นการลบถาวร</label>
+    <div class="modal-actions"><button class="btn btn-ghost modal-cancel">ยกเลิก</button><button class="btn btn-danger" id="secure-delete-confirm" disabled>${escapeHtml(confirmLabel)}</button></div>
+  </div>`;
+  document.body.appendChild(m);
+  const close=()=>m.remove(),ack=m.querySelector("#secure-delete-ack"),confirm=m.querySelector("#secure-delete-confirm"),password=m.querySelector("#secure-delete-password");
+  m.querySelector(".modal-close").onclick=close;
+  m.querySelector(".modal-cancel").onclick=close;
+  ack.onchange=()=>{confirm.disabled=!ack.checked;};
+  password?.addEventListener("keydown",e=>{if(e.key==="Enter"&&!confirm.disabled)confirm.click();});
+  confirm.onclick=async()=>{
+    if(!ack.checked)return;
+    if(!admin&&!password?.value)return toast("กรุณากรอกรหัสผ่าน","","error");
+    buttonLoading(confirm,true,"กำลังลบ...");
+    try{
+      const client=await secureDeletionClient(password?.value||"");
+      await action(client);
+      close();
+      if(typeof afterDelete==="function") await afterDelete();
+    }catch(err){
+      toast("ลบข้อมูลไม่สำเร็จ",err?.message||String(err),"error");
+      buttonLoading(confirm,false);
+    }
+  };
+}
+
 function buttonLoading(button, loading, label = "กำลังดำเนินการ...") {
   if (!button) return;
   if (loading) {
@@ -1300,7 +1361,7 @@ function lessonDetailHtml() {
     ${p.assessment ? `<div class="long-detail"><h4>การวัดและประเมินผล</h4><p>${escapeHtml(p.assessment)}</p></div>` : ""}`}
     <div class="detail-actions">
       <button class="btn btn-secondary" id="preview-a4-plan">▤ ดูเอกสาร A4</button>
-      ${editable ? `<button class="btn btn-secondary" id="edit-lesson-plan">แก้ไขแผน</button><button class="btn btn-primary" id="submit-lesson-plan">${p.status === "revision_requested" ? "ส่งแผนอีกครั้ง" : "ส่งให้หัวหน้าตรวจ"}</button>${p.status === "draft" ? `<button class="btn btn-danger" id="delete-draft-plan">ลบฉบับร่าง</button>` : ""}` : ""}
+      ${editable ? `<button class="btn btn-secondary" id="edit-lesson-plan">แก้ไขแผน</button><button class="btn btn-primary" id="submit-lesson-plan">${p.status === "revision_requested" ? "ส่งแผนอีกครั้ง" : "ส่งให้หัวหน้าตรวจ"}</button><button class="btn btn-danger" id="delete-draft-plan">ลบแผน</button>` : ""}${isSuperAdminUser()&&!editable?`<button class="btn btn-danger" id="delete-draft-plan">ลบแผน</button>`:""}
       ${canHeadReview ? `<button class="btn btn-primary" data-review-role="head">ตรวจสอบแผน</button>` : ""}
       ${canDirectorReview ? `<button class="btn btn-primary" data-review-role="director">อนุมัติ / ลงนาม</button>` : ""}
     </div>
@@ -2407,7 +2468,7 @@ function leaveDetailHtml(request) {
       <div class="personnel-detail-actions">
         <button class="btn btn-secondary" id="leave-a4">▤ พิมพ์ / PDF</button>
         ${canOpenOwnSubstituteFromLeave(request) ? `<button class="btn btn-primary" data-open-leave-substitute="${request.id}">จัดสอนแทน</button>` : ""}
-        ${editable ? `<button class="btn btn-secondary" id="edit-leave-request">แก้ไข</button><button class="btn btn-primary" id="submit-leave-request">ส่งคำขอ</button><button class="btn btn-danger" id="delete-leave-draft">ลบฉบับร่าง</button>` : ""}
+        ${editable ? `<button class="btn btn-secondary" id="edit-leave-request">แก้ไข</button><button class="btn btn-primary" id="submit-leave-request">ส่งคำขอ</button><button class="btn btn-danger" id="delete-leave-draft">ลบคำขอลา</button>` : ""}${isSuperAdminUser()&&!editable?`<button class="btn btn-danger" id="delete-leave-draft">ลบคำขอลา</button>`:""}
         ${canPersonnelReview ? `<button class="btn btn-primary" data-leave-review="personnel">ตรวจคำขอ</button>` : ""}
         ${canDirectorReview ? `<button class="btn btn-primary" data-leave-review="director">อนุมัติขั้นสุดท้าย</button>` : ""}
       </div>
@@ -2571,14 +2632,24 @@ async function submitSelectedLeaveRequest() {
 }
 
 async function deleteLeaveDraft() {
-  const r = selectedLeaveRequest();
-  if (!r || r.status !== "draft") return;
-  if (!window.confirm(`ลบคำขอลา #${r.request_no} หรือไม่?`)) return;
-  const { error } = await supabase.from("leave_requests").delete().eq("id",r.id);
-  if (error) return toast("ลบไม่สำเร็จ",error.message,"error");
-  state.selectedLeaveRequestId = null;
-  toast("ลบฉบับร่างแล้ว","","success");
-  await renderDashboard();
+  const r=selectedLeaveRequest();
+  if(!r)return;
+  const normalAllowed=r.requester_id===state.user.id&&r.status==="draft";
+  if(!normalAllowed&&!isSuperAdminUser())return toast("ไม่มีสิทธิ์ลบคำขอนี้","ผู้ใช้งานทั่วไปลบได้เฉพาะฉบับร่างของตนเอง","error");
+  secureDeleteModal({
+    title:"ลบคำขอลา",
+    description:`คำขอลา #${r.request_no} · ${leaveTypeName(r.leave_type_code,r.other_leave_text)}`,
+    warning:"หากรายการนี้มีข้อมูลสอนแทนที่เชื่อมอยู่ รายการลูกที่ผูกด้วย Foreign Key จะถูกลบตามกติกาฐานข้อมูล",
+    action:async client=>{
+      const {error}=await client.from("leave_requests").delete().eq("id",r.id);
+      if(error)throw error;
+    },
+    afterDelete:async()=>{
+      state.selectedLeaveRequestId=null;
+      toast("ลบคำขอลาแล้ว","ระบบบันทึกประวัติการลบไว้ใน Audit Log","success");
+      await renderDashboard();
+    }
+  });
 }
 
 function leaveReviewModal(stage) {
@@ -4130,7 +4201,7 @@ function substituteTimelineHtml(row) {
 
 function substituteDetailHtml(row) {
   const manageable=canManageSubstituteLesson(row);
-  return `<section class="substitute-detail"><div class="personnel-detail-top"><div><button class="type-back-link" id="substitute-back">← กลับ</button><span class="eyebrow dark">Substitute Lesson</span></div><div class="personnel-detail-actions">${manageable?`<button class="btn ${row.status==="assigned"?"btn-secondary":"btn-primary"}" data-substitute-assign="${row.id}">${row.status==="assigned"?"เปลี่ยนครู":"เลือกครูสอนแทน"}</button>`:""}${manageable&&row.status==="assigned"?`<button class="btn btn-danger" id="unassign-substitute">ยกเลิกการมอบหมาย</button>`:""}</div></div><section class="substitute-detail-hero"><div><span class="eyebrow dark">${thaiDateOnly(row.leave_date)} · คาบ ${row.period_no}</span><h2>${escapeHtml(row.class_label)} · ${escapeHtml(row.subject_name)}</h2><p>${timeShort(row.start_time)}–${timeShort(row.end_time)} · ${escapeHtml(TIMETABLE_STAGE_LABEL[row.stage_code]||row.stage_code)}</p></div>${substituteStatusPill(row.status)}</section><div class="detail-grid substitute-detail-grid">${planField("ครูผู้ลา",row.absent_teacher_name)}${planField("เลขคำขอลา",`#${row.leave_request_no}`)}${planField("ครูสอนแทน",row.substitute_teacher_name||"ยังไม่ได้มอบหมาย")}${planField("ผู้จัดครูสอนแทน",row.assigned_by_name||"—")}${planField("เวลามอบหมาย",row.assigned_at?formatDate(row.assigned_at):"—")}${planField("หมายเหตุ",row.note||"—")}</div><section class="panel" style="margin-top:14px"><div class="panel-head"><div class="panel-title-wrap"><h3>Timeline การจัดสอนแทน</h3></div></div>${substituteTimelineHtml(row)}</section></section>`;
+  return `<section class="substitute-detail"><div class="personnel-detail-top"><div><button class="type-back-link" id="substitute-back">← กลับ</button><span class="eyebrow dark">Substitute Lesson</span></div><div class="personnel-detail-actions">${manageable?`<button class="btn ${row.status==="assigned"?"btn-secondary":"btn-primary"}" data-substitute-assign="${row.id}">${row.status==="assigned"?"เปลี่ยนครู":"เลือกครูสอนแทน"}</button>`:""}${manageable&&row.status==="assigned"?`<button class="btn btn-danger" id="unassign-substitute">ยกเลิกการมอบหมาย</button>`:""}${isSuperAdminUser()?`<button class="btn btn-danger" id="delete-substitute-record">ลบรายการสอนแทน</button>`:""}</div></div><section class="substitute-detail-hero"><div><span class="eyebrow dark">${thaiDateOnly(row.leave_date)} · คาบ ${row.period_no}</span><h2>${escapeHtml(row.class_label)} · ${escapeHtml(row.subject_name)}</h2><p>${timeShort(row.start_time)}–${timeShort(row.end_time)} · ${escapeHtml(TIMETABLE_STAGE_LABEL[row.stage_code]||row.stage_code)}</p></div>${substituteStatusPill(row.status)}</section><div class="detail-grid substitute-detail-grid">${planField("ครูผู้ลา",row.absent_teacher_name)}${planField("เลขคำขอลา",`#${row.leave_request_no}`)}${planField("ครูสอนแทน",row.substitute_teacher_name||"ยังไม่ได้มอบหมาย")}${planField("ผู้จัดครูสอนแทน",row.assigned_by_name||"—")}${planField("เวลามอบหมาย",row.assigned_at?formatDate(row.assigned_at):"—")}${planField("หมายเหตุ",row.note||"—")}</div><section class="panel" style="margin-top:14px"><div class="panel-head"><div class="panel-title-wrap"><h3>Timeline การจัดสอนแทน</h3></div></div>${substituteTimelineHtml(row)}</section></section>`;
 }
 
 function candidateDetailText(candidate) {
@@ -4294,8 +4365,8 @@ function budgetControlSettingsModal(){
   m.innerHTML=`<div class="modal"><div class="modal-head"><div><h3>ตั้งค่าเลขทะเบียนคุมการเบิกจ่าย</h3><p>Super Admin กำหนดปี พ.ศ. และเลขเริ่มต้นแยกแต่ละฝ่าย</p></div><button class="modal-close">×</button></div><form id="budget-control-form" class="form-grid"><div class="field"><label>กลุ่มงาน</label><select class="select" name="department_code">${Object.entries(PROJECT_DEPARTMENT_LABEL).filter(([c])=>c!=="other").map(([c,l])=>`<option value="${c}" ${c===state.budgetRegistryDepartmentFilter?"selected":""}>${escapeHtml(l)}</option>`).join("")}</select></div><div class="form-row"><div class="field"><label>ปี พ.ศ. ของเลขคุม</label><input class="input" name="control_year" type="number" min="2500" max="3000" required value="${current?.control_year||new Date().getFullYear()+543}"></div><div class="field"><label>เลขเริ่มต้น</label><input class="input" name="start_number" type="number" min="1" required value="${current?.start_number||1}"></div></div><div class="project-paper-note"><strong>ข้อควรทราบ</strong><span>เมื่อฝ่ายนั้นออกเลขคุมในปีเดียวกันไปแล้ว ระบบจะไม่ยอมย้อนเลขหรือเปลี่ยนเลขเริ่มต้น เพื่อรักษาทะเบียนคุมให้ตรวจสอบย้อนหลังได้ หากขึ้นปีใหม่ให้เปลี่ยนปี พ.ศ. แล้วระบบจะเริ่มจากเลขเริ่มต้นใหม่</span></div></form><div class="modal-actions"><button class="btn btn-ghost modal-cancel">ยกเลิก</button><button class="btn btn-primary" id="save-budget-control">บันทึกการตั้งค่า</button></div></div>`;
   document.body.appendChild(m);const close=()=>m.remove();m.querySelector(".modal-close").onclick=close;m.querySelector(".modal-cancel").onclick=close;m.querySelector("#save-budget-control").onclick=async e=>{const f=m.querySelector("#budget-control-form");if(!f.reportValidity())return;const d=new FormData(f),payload={department_code:String(d.get("department_code")),control_year:Number(d.get("control_year")),start_number:Number(d.get("start_number"))};buttonLoading(e.target,true,"กำลังบันทึก...");const {error}=await supabase.from("budget_control_settings").upsert(payload,{onConflict:"department_code"});buttonLoading(e.target,false);if(error)return toast("ตั้งค่าเลขคุมไม่สำเร็จ",error.message,"error");state.budgetRegistryDepartmentFilter=payload.department_code;close();toast("ตั้งค่าเลขคุมแล้ว",`${PROJECT_DEPARTMENT_LABEL[payload.department_code]} · เริ่ม ${payload.start_number}/${payload.control_year}`,"success");await renderDashboard();};
 }
-function projectDetailHtml(p){const acts=projectActivitiesFor(p.id),s=projectBudgetStats(p),own=p.owner_id===state.user.id;return `<section class="project-detail"><div class="personnel-detail-top"><div><button class="type-back-link" id="project-back">← กลับรายการ</button><span class="eyebrow dark">${escapeHtml(p.project_no)}</span></div><div class="personnel-detail-actions"><button class="btn btn-secondary" id="project-pdf">▤ Export PDF</button>${canActAsProjectTeacher()?`<button class="btn btn-primary" id="new-project-activity">＋ เพิ่มกิจกรรมย่อย</button>`:""}${own?`<button class="btn btn-ghost" data-edit-project="${p.id}">แก้ไข</button>`:""}</div></div><section class="project-detail-hero"><div><span class="pill neutral">${escapeHtml(projectDepartmentName(p))}</span><h2>${escapeHtml(p.project_name)}</h2><p>ผู้รับผิดชอบ: ${escapeHtml(p.owner_name)} · ปีการศึกษา ${p.academic_year}</p></div><div class="project-big-budget"><strong>${money(p.budget_amount)}</strong><span>บาท</span></div></section>${projectBudgetMeter(p)}<div class="detail-grid" style="margin-top:14px">${planField("เลขโครงการ",p.project_no)}${planField("ฝ่าย/แผนงาน",projectDepartmentName(p))}${planField("ผู้รับผิดชอบ",p.owner_name)}${planField("งบประมาณ",`${money(p.budget_amount)} บาท`)}${planField("จัดสรรแล้ว",`${money(s.allocated)} บาท`)}${planField("ยังไม่จัดสรร",`${money(s.unallocated)} บาท`)}${planField("เบิก/กันวงเงิน",`${money(s.committed)} บาท`)}${planField("จ่ายจริง",`${money(s.paid)} บาท`)}${planField("หมายเหตุ",p.notes||"—")}</div><section class="panel" style="margin-top:14px"><div class="panel-head"><div class="panel-title-wrap"><h3>กิจกรรมย่อย</h3><p>เลขกิจกรรมต้องขึ้นต้นด้วย ${escapeHtml(p.project_no)}.</p></div></div>${acts.length?`<div class="project-activity-detail-list">${acts.map(a=>{const x=activityBudgetStats(a);return `<article class="activity-detail-card"><div><span class="project-code">${escapeHtml(a.activity_no)}</span><h4>${escapeHtml(a.activity_name)}</h4><p>${escapeHtml(a.owner_name)}</p></div><div class="activity-budget"><strong>${money(a.budget_amount)}</strong><span>งบกิจกรรม</span><small>คงเหลือ ${money(x.remaining)}</small></div><div class="admin-actions"><button class="btn btn-ghost" data-open-activity="${a.id}">รายละเอียด</button>${a.owner_id===state.user.id?`<button class="btn btn-primary" data-new-budget-activity="${a.id}">ขอเบิก</button>`:""}</div></article>`}).join("")}</div>`:`<div class="empty"><strong>ยังไม่มีกิจกรรมย่อย</strong></div>`}</section>${own&&s.unallocated>0?`<section class="panel" style="margin-top:14px"><div class="panel-head"><div class="panel-title-wrap"><h3>งบส่วนที่ยังไม่จัดสรร</h3><p>ขอเบิกจากโครงการหลักได้เฉพาะส่วนนี้</p></div><button class="btn btn-primary" data-new-budget-project="${p.id}">ขอเบิกจากโครงการหลัก</button></div></section>`:""}</section>`;}
-function activityDetailHtml(a){const p=state.schoolProjects.find(x=>x.id===a.project_id),s=activityBudgetStats(a),rows=projectDisbursementsFor(a.project_id,a.id),isActivityOwner=a.owner_id===state.user.id;return `<section class="project-detail"><div class="personnel-detail-top"><div><button class="type-back-link" id="activity-back">← กลับโครงการ</button><span class="eyebrow dark">${escapeHtml(a.activity_no)}</span></div><div class="personnel-detail-actions"><button class="btn btn-secondary" id="activity-pdf">▤ Export PDF</button>${isActivityOwner?`<button class="btn btn-primary" data-new-budget-activity="${a.id}">ขอเบิก</button>`:""}</div></div><section class="project-detail-hero"><div><span class="pill neutral">กิจกรรมย่อย</span><h2>${escapeHtml(a.activity_name)}</h2><p>ผู้รับผิดชอบ: ${escapeHtml(a.owner_name)}</p></div><div class="project-big-budget"><strong>${money(a.budget_amount)}</strong><span>บาท</span></div></section>${!isActivityOwner?`<div class="activity-owner-rule"><strong>สิทธิ์การขอเบิกเป็นของผู้รับผิดชอบกิจกรรมเท่านั้น</strong><span>แม้คุณจะเป็นผู้รับผิดชอบโครงการหลัก ก็ไม่สามารถขอเบิกงบของกิจกรรมนี้แทน ${escapeHtml(a.owner_name)} ได้</span></div>`:""}<div class="detail-grid" style="margin-top:14px">${planField("เลขกิจกรรม",a.activity_no)}${planField("โครงการหลัก",`${p?.project_no||""} ${p?.project_name||""}`)}${planField("งบกิจกรรม",`${money(a.budget_amount)} บาท`)}${planField("เบิก/กันวงเงิน",`${money(s.committed)} บาท`)}${planField("คงเหลือ",`${money(s.remaining)} บาท`)}${planField("หมายเหตุ",a.notes||"—")}</div><section class="panel" style="margin-top:14px"><div class="panel-head"><div class="panel-title-wrap"><h3>ประวัติการขอเบิก</h3></div></div>${rows.length?`<div class="table-wrap"><table class="table"><thead><tr><th>ครั้งที่</th><th>วันที่</th><th>รายละเอียด</th><th>จำนวน</th><th>สถานะ</th><th></th></tr></thead><tbody>${rows.map(b=>`<tr><td>${b.request_round}</td><td>${thaiDateOnly(b.request_date)}</td><td>${escapeHtml(b.description)}</td><td>${money(b.amount)}</td><td>${budgetStatusPill(b.status)}</td><td><button class="btn btn-ghost" data-open-budget-request="${b.id}">รายละเอียด</button></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty compact"><strong>ยังไม่มีคำขอเบิก</strong></div>`}</section></section>`;}
+function projectDetailHtml(p){const acts=projectActivitiesFor(p.id),s=projectBudgetStats(p),own=p.owner_id===state.user.id;return `<section class="project-detail"><div class="personnel-detail-top"><div><button class="type-back-link" id="project-back">← กลับรายการ</button><span class="eyebrow dark">${escapeHtml(p.project_no)}</span></div><div class="personnel-detail-actions"><button class="btn btn-secondary" id="project-pdf">▤ Export PDF</button>${canActAsProjectTeacher()?`<button class="btn btn-primary" id="new-project-activity">＋ เพิ่มกิจกรรมย่อย</button>`:""}${own?`<button class="btn btn-ghost" data-edit-project="${p.id}">แก้ไข</button>`:""}${(own||isSuperAdminUser())?`<button class="btn btn-danger" id="delete-school-project">ลบโครงการ</button>`:""}</div></div><section class="project-detail-hero"><div><span class="pill neutral">${escapeHtml(projectDepartmentName(p))}</span><h2>${escapeHtml(p.project_name)}</h2><p>ผู้รับผิดชอบ: ${escapeHtml(p.owner_name)} · ปีการศึกษา ${p.academic_year}</p></div><div class="project-big-budget"><strong>${money(p.budget_amount)}</strong><span>บาท</span></div></section>${projectBudgetMeter(p)}<div class="detail-grid" style="margin-top:14px">${planField("เลขโครงการ",p.project_no)}${planField("ฝ่าย/แผนงาน",projectDepartmentName(p))}${planField("ผู้รับผิดชอบ",p.owner_name)}${planField("งบประมาณ",`${money(p.budget_amount)} บาท`)}${planField("จัดสรรแล้ว",`${money(s.allocated)} บาท`)}${planField("ยังไม่จัดสรร",`${money(s.unallocated)} บาท`)}${planField("เบิก/กันวงเงิน",`${money(s.committed)} บาท`)}${planField("จ่ายจริง",`${money(s.paid)} บาท`)}${planField("หมายเหตุ",p.notes||"—")}</div><section class="panel" style="margin-top:14px"><div class="panel-head"><div class="panel-title-wrap"><h3>กิจกรรมย่อย</h3><p>เลขกิจกรรมต้องขึ้นต้นด้วย ${escapeHtml(p.project_no)}.</p></div></div>${acts.length?`<div class="project-activity-detail-list">${acts.map(a=>{const x=activityBudgetStats(a);return `<article class="activity-detail-card"><div><span class="project-code">${escapeHtml(a.activity_no)}</span><h4>${escapeHtml(a.activity_name)}</h4><p>${escapeHtml(a.owner_name)}</p></div><div class="activity-budget"><strong>${money(a.budget_amount)}</strong><span>งบกิจกรรม</span><small>คงเหลือ ${money(x.remaining)}</small></div><div class="admin-actions"><button class="btn btn-ghost" data-open-activity="${a.id}">รายละเอียด</button>${a.owner_id===state.user.id?`<button class="btn btn-primary" data-new-budget-activity="${a.id}">ขอเบิก</button>`:""}</div></article>`}).join("")}</div>`:`<div class="empty"><strong>ยังไม่มีกิจกรรมย่อย</strong></div>`}</section>${own&&s.unallocated>0?`<section class="panel" style="margin-top:14px"><div class="panel-head"><div class="panel-title-wrap"><h3>งบส่วนที่ยังไม่จัดสรร</h3><p>ขอเบิกจากโครงการหลักได้เฉพาะส่วนนี้</p></div><button class="btn btn-primary" data-new-budget-project="${p.id}">ขอเบิกจากโครงการหลัก</button></div></section>`:""}</section>`;}
+function activityDetailHtml(a){const p=state.schoolProjects.find(x=>x.id===a.project_id),s=activityBudgetStats(a),rows=projectDisbursementsFor(a.project_id,a.id),isActivityOwner=a.owner_id===state.user.id;return `<section class="project-detail"><div class="personnel-detail-top"><div><button class="type-back-link" id="activity-back">← กลับโครงการ</button><span class="eyebrow dark">${escapeHtml(a.activity_no)}</span></div><div class="personnel-detail-actions"><button class="btn btn-secondary" id="activity-pdf">▤ Export PDF</button>${isActivityOwner?`<button class="btn btn-primary" data-new-budget-activity="${a.id}">ขอเบิก</button>`:""}${(isActivityOwner||isSuperAdminUser())?`<button class="btn btn-danger" id="delete-project-activity">ลบกิจกรรม</button>`:""}</div></div><section class="project-detail-hero"><div><span class="pill neutral">กิจกรรมย่อย</span><h2>${escapeHtml(a.activity_name)}</h2><p>ผู้รับผิดชอบ: ${escapeHtml(a.owner_name)}</p></div><div class="project-big-budget"><strong>${money(a.budget_amount)}</strong><span>บาท</span></div></section>${!isActivityOwner?`<div class="activity-owner-rule"><strong>สิทธิ์การขอเบิกเป็นของผู้รับผิดชอบกิจกรรมเท่านั้น</strong><span>แม้คุณจะเป็นผู้รับผิดชอบโครงการหลัก ก็ไม่สามารถขอเบิกงบของกิจกรรมนี้แทน ${escapeHtml(a.owner_name)} ได้</span></div>`:""}<div class="detail-grid" style="margin-top:14px">${planField("เลขกิจกรรม",a.activity_no)}${planField("โครงการหลัก",`${p?.project_no||""} ${p?.project_name||""}`)}${planField("งบกิจกรรม",`${money(a.budget_amount)} บาท`)}${planField("เบิก/กันวงเงิน",`${money(s.committed)} บาท`)}${planField("คงเหลือ",`${money(s.remaining)} บาท`)}${planField("หมายเหตุ",a.notes||"—")}</div><section class="panel" style="margin-top:14px"><div class="panel-head"><div class="panel-title-wrap"><h3>ประวัติการขอเบิก</h3></div></div>${rows.length?`<div class="table-wrap"><table class="table"><thead><tr><th>ครั้งที่</th><th>วันที่</th><th>รายละเอียด</th><th>จำนวน</th><th>สถานะ</th><th></th></tr></thead><tbody>${rows.map(b=>`<tr><td>${b.request_round}</td><td>${thaiDateOnly(b.request_date)}</td><td>${escapeHtml(b.description)}</td><td>${money(b.amount)}</td><td>${budgetStatusPill(b.status)}</td><td><button class="btn btn-ghost" data-open-budget-request="${b.id}">รายละเอียด</button></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty compact"><strong>ยังไม่มีคำขอเบิก</strong></div>`}</section></section>`;}
 function budgetLineItems(r){
   let items=r?.line_items;
   if(typeof items==="string"){
@@ -4315,7 +4386,7 @@ function budgetSignersFor(id){return state.budgetSignerAssignments.filter(s=>s.d
 const BUDGET_SIGNER_LABEL={requester:"ผู้ขอเบิก",department_head:"หัวหน้าฝ่ายเจ้าของโครงการ",plan_budget:"หัวหน้ากลุ่มงานบริหารแผนและงบประมาณ",director:"ผู้อำนวยการโรงเรียน",inspector1:"กรรมการตรวจรับคนที่ 1",inspector2:"กรรมการตรวจรับคนที่ 2",inspector3:"กรรมการตรวจรับคนที่ 3"};
 function budgetSignerMethodLabel(s){if(!s)return"ยังไม่ได้เลือก";if(s.method==="paper")return"เซ็นสดบนกระดาษ";if(s.method==="drawn")return"เซ็นสดในระบบแล้ว";if(s.method==="upload")return"อัปโหลดลายเซ็นแล้ว";if(s.method==="stored")return"ใช้ลายเซ็นที่บันทึกไว้";return s.method;}
 function budgetSignerPanelHtml(r){const slots=["requester","department_head","plan_budget","director","inspector1","inspector2","inspector3"],rows=budgetSignersFor(r.id),own=r.requester_id===state.user.id||state.profile.role==="super_admin";return `<section class="panel budget-signer-panel"><div class="panel-head"><div class="panel-title-wrap"><h3>ผู้ลงนามและคณะกรรมการตรวจรับ</h3><p>ผู้ถูกเลือกแต่ละคนเลือกได้ว่าจะเซ็นในระบบ อัปโหลดลายเซ็น ใช้ลายเซ็นที่บันทึกไว้ หรือเว้นไว้เซ็นบนกระดาษ</p></div>${own?`<button class="btn btn-primary" id="configure-budget-signers">เลือกผู้ลงนาม / กรรมการ</button>`:""}</div><div class="budget-signer-status-grid">${slots.map(slot=>{const s=rows.find(x=>x.slot===slot),mine=s?.user_id===state.user.id;return `<article class="budget-signer-status"><div><span>${escapeHtml(BUDGET_SIGNER_LABEL[slot])}</span><strong>${escapeHtml(s?.signer_name||"ยังไม่ได้เลือก")}</strong><small>${escapeHtml(s?.signer_position||"")}</small></div><div><span class="pill ${s?.signed_at?"active":s?"pending":"neutral"}">${escapeHtml(budgetSignerMethodLabel(s))}</span>${mine?`<button class="btn btn-secondary" data-sign-budget-slot="${slot}">จัดการลายเซ็นของฉัน</button>`:""}</div></article>`}).join("")}</div></section>`;}
-function budgetRequestDetailHtml(r){const p=state.schoolProjects.find(x=>x.id===r.project_id),a=state.projectActivities.find(x=>x.id===r.activity_id),own=r.requester_id===state.user.id;return `<section class="project-detail"><div class="personnel-detail-top"><div><button class="type-back-link" id="budget-request-back">← กลับรายการเบิก</button><span class="eyebrow dark">เลขคุม ${escapeHtml(r.control_number||"—")} · ครั้งที่ ${r.request_round}</span></div><div class="personnel-detail-actions">${own&&r.status==="draft"?`<button class="btn btn-primary" id="prepare-budget-request">จัดทำเอกสาร</button>`:""}${["document_ready","printed","paid"].includes(r.status)?`<button class="btn btn-secondary" id="budget-request-pdf">▤ Preview / Export PDF</button>`:""}${isPlanBudgetHead()&&["document_ready","printed"].includes(r.status)?`<button class="btn btn-success" id="mark-budget-paid">บันทึกว่าเบิกจ่ายแล้ว</button>`:""}</div></div><section class="project-detail-hero"><div>${budgetStatusPill(r.status)}<h2>${escapeHtml(a?`${a.activity_no} ${a.activity_name}`:`${p?.project_no||""} ${p?.project_name||""}`)}</h2><p>เลขทะเบียนคุมการเบิกจ่าย <strong>${escapeHtml(r.control_number||"—")}</strong> · ผู้ขอเบิก ${escapeHtml(r.requester_name)} · ${thaiDateOnly(r.request_date)}</p></div><div class="project-big-budget"><strong>${money(r.amount)}</strong><span>บาท</span></div></section>${budgetLineItemsTableHtml(r)}<div class="detail-grid" style="margin-top:14px">${planField("เลขคุม",r.control_number||"—")}${planField("โครงการ",`${p?.project_no||"—"} ${p?.project_name||""}`)}${planField("กิจกรรม",a?`${a.activity_no} ${a.activity_name}`:"เบิกจากโครงการหลัก")}${planField("ปีการศึกษา",r.academic_year)}${planField("ภาคเรียน",r.semester)}${planField("จำนวนเงินรวม",`${money(r.amount)} บาท`)}${planField("สถานะ",BUDGET_STATUS_LABEL[r.status]||r.status)}${planField("หมายเหตุ",r.notes||"—")}</div>${budgetSignerPanelHtml(r)}<div class="project-paper-note"><strong>ยืดหยุ่นเรื่องลายเซ็น</strong><span>การเลือกวิธีลงนามไม่ได้บังคับทุกคนให้เซ็นออนไลน์ หากตกลงเซ็นเอกสารต่อหน้า ให้เลือก “เซ็นสดบนกระดาษ” แล้ว PDF จะเว้นพื้นที่ลายเซ็นไว้</span></div></section>`;}
+function budgetRequestDetailHtml(r){const p=state.schoolProjects.find(x=>x.id===r.project_id),a=state.projectActivities.find(x=>x.id===r.activity_id),own=r.requester_id===state.user.id;return `<section class="project-detail"><div class="personnel-detail-top"><div><button class="type-back-link" id="budget-request-back">← กลับรายการเบิก</button><span class="eyebrow dark">เลขคุม ${escapeHtml(r.control_number||"—")} · ครั้งที่ ${r.request_round}</span></div><div class="personnel-detail-actions">${own&&r.status==="draft"?`<button class="btn btn-primary" id="prepare-budget-request">จัดทำเอกสาร</button>`:""}${["document_ready","printed","paid"].includes(r.status)?`<button class="btn btn-secondary" id="budget-request-pdf">▤ Preview / Export PDF</button>`:""}${isPlanBudgetHead()&&["document_ready","printed"].includes(r.status)?`<button class="btn btn-success" id="mark-budget-paid">บันทึกว่าเบิกจ่ายแล้ว</button>`:""}${((own&&r.status==="draft")||isSuperAdminUser())?`<button class="btn btn-danger" id="delete-budget-request">ลบคำขอเบิก</button>`:""}</div></div><section class="project-detail-hero"><div>${budgetStatusPill(r.status)}<h2>${escapeHtml(a?`${a.activity_no} ${a.activity_name}`:`${p?.project_no||""} ${p?.project_name||""}`)}</h2><p>เลขทะเบียนคุมการเบิกจ่าย <strong>${escapeHtml(r.control_number||"—")}</strong> · ผู้ขอเบิก ${escapeHtml(r.requester_name)} · ${thaiDateOnly(r.request_date)}</p></div><div class="project-big-budget"><strong>${money(r.amount)}</strong><span>บาท</span></div></section>${budgetLineItemsTableHtml(r)}<div class="detail-grid" style="margin-top:14px">${planField("เลขคุม",r.control_number||"—")}${planField("โครงการ",`${p?.project_no||"—"} ${p?.project_name||""}`)}${planField("กิจกรรม",a?`${a.activity_no} ${a.activity_name}`:"เบิกจากโครงการหลัก")}${planField("ปีการศึกษา",r.academic_year)}${planField("ภาคเรียน",r.semester)}${planField("จำนวนเงินรวม",`${money(r.amount)} บาท`)}${planField("สถานะ",BUDGET_STATUS_LABEL[r.status]||r.status)}${planField("หมายเหตุ",r.notes||"—")}</div>${budgetSignerPanelHtml(r)}<div class="project-paper-note"><strong>ยืดหยุ่นเรื่องลายเซ็น</strong><span>การเลือกวิธีลงนามไม่ได้บังคับทุกคนให้เซ็นออนไลน์ หากตกลงเซ็นเอกสารต่อหน้า ให้เลือก “เซ็นสดบนกระดาษ” แล้ว PDF จะเว้นพื้นที่ลายเซ็นไว้</span></div></section>`;}
 function projectWorkspaceHtml(){const r=selectedBudgetRequest();if(r)return budgetRequestDetailHtml(r);const p=selectedProject();if(p){if(state.selectedProjectActivityId){const a=state.projectActivities.find(x=>x.id===state.selectedProjectActivityId);if(a)return activityDetailHtml(a);}return projectDetailHtml(p);}return `${projectHeroHtml()}${projectTabsHtml()}${state.projectView==="overview"?projectOverviewHtml():state.projectView==="budget"?projectBudgetRequestsHtml():state.projectView==="registry"?budgetControlRegistryHtml():projectMineHtml()}`;}
 
 function projectModal(p=null){const x=p||{},period=currentAcademicPeriod(),m=document.createElement("div");m.className="modal-backdrop";m.innerHTML=`<div class="modal modal-wide"><div class="modal-head"><div><h3>${p?"แก้ไขโครงการ":"เพิ่มโครงการ"}</h3><p>ผู้สร้างคือผู้รับผิดชอบหลักอัตโนมัติ</p></div><button class="modal-close">×</button></div><form id="project-form" class="form-grid"><div class="form-row"><div class="field"><label>เลขโครงการ</label><input class="input" name="project_no" required value="${escapeHtml(x.project_no||"")}" placeholder="เช่น วช.1"></div><div class="field"><label>ปีการศึกษา</label><input class="input" name="academic_year" type="number" required value="${x.academic_year||period.academicYear}"></div></div><div class="field"><label>ชื่อโครงการ</label><input class="input" name="project_name" required value="${escapeHtml(x.project_name||"")}"></div><div class="form-row"><div class="field"><label>งบประมาณ</label><input class="input" name="budget_amount" type="number" min="0" step="0.01" required value="${x.budget_amount??0}"></div><div class="field"><label>ภาคเรียน</label><select class="select" name="semester"><option value="">ทั้งปี/ไม่ระบุ</option><option value="1" ${x.semester==1?"selected":""}>1</option><option value="2" ${x.semester==2?"selected":""}>2</option><option value="3" ${x.semester==3?"selected":""}>3</option></select></div></div><div class="field"><label>ฝ่าย / แผนงาน</label><select class="select" name="department_code" id="project-department">${Object.entries(PROJECT_DEPARTMENT_LABEL).map(([v,l])=>`<option value="${v}" ${x.department_code===v?"selected":""}>${escapeHtml(l)}</option>`).join("")}</select></div><div class="field ${x.department_code==="other"?"":"hidden"}" id="project-custom-wrap"><label>ชื่อฝ่าย/แผนงานอื่น</label><input class="input" name="department_custom" value="${escapeHtml(x.department_custom||"")}"></div><div class="field"><label>หมายเหตุ</label><textarea class="input textarea" name="notes">${escapeHtml(x.notes||"")}</textarea></div></form><div class="modal-actions"><button class="btn btn-ghost modal-cancel">ยกเลิก</button><button class="btn btn-primary" id="save-project">บันทึก</button></div></div>`;document.body.appendChild(m);const close=()=>m.remove();m.querySelector(".modal-close").onclick=close;m.querySelector(".modal-cancel").onclick=close;m.querySelector("#project-department").onchange=e=>m.querySelector("#project-custom-wrap").classList.toggle("hidden",e.target.value!=="other");m.querySelector("#save-project").onclick=async e=>{const f=m.querySelector("#project-form");if(!f.reportValidity())return;const d=new FormData(f),payload={project_no:String(d.get("project_no")).trim(),project_name:String(d.get("project_name")).trim(),academic_year:Number(d.get("academic_year")),semester:d.get("semester")?Number(d.get("semester")):null,department_code:String(d.get("department_code")),department_custom:String(d.get("department_custom")||"").trim()||null,budget_amount:Number(d.get("budget_amount")||0),owner_id:state.user.id,owner_name:state.profile.full_name||state.profile.email,notes:String(d.get("notes")||"").trim()||null};buttonLoading(e.target,true);const q=p?supabase.from("school_projects").update(payload).eq("id",p.id):supabase.from("school_projects").insert(payload);const {data,error}=await q.select().single();buttonLoading(e.target,false);if(error)return toast("บันทึกโครงการไม่สำเร็จ",error.message,"error");close();state.selectedProjectId=data.id;await renderDashboard();};}
@@ -4359,6 +4430,118 @@ function budgetSignerActionModal(r,slot){
   m.querySelectorAll("[data-budget-sign-method]").forEach(btn=>btn.onclick=()=>{const method=btn.dataset.budgetSignMethod;if(method==="paper")return savePaper();if(method==="drawn"){work.innerHTML=`<div class="signature-canvas-wrap"><canvas id="signature-canvas" width="900" height="300"></canvas></div><div class="signature-canvas-actions"><span>เซ็นในกรอบด้านบน</span><button class="btn btn-ghost" id="signature-clear" type="button">ล้าง</button><button class="btn btn-primary" id="budget-save-drawn" type="button">บันทึกลายเซ็น</button></div>`;setupSignatureCanvas(m);work.querySelector("#budget-save-drawn").onclick=async e=>{if(!m._signatureHasInk?.())return toast("ยังไม่มีลายเซ็น","กรุณาเซ็นก่อนบันทึก","error");buttonLoading(e.target,true,"กำลังบันทึก...");try{const blob=await canvasBlob(work.querySelector("#signature-canvas")),path=await budgetUploadSignatureAsset(r,slot,blob,"image/png"),{error}=await supabase.rpc("set_budget_signature",{p_disbursement_id:r.id,p_slot:slot,p_method:"drawn",p_signature_id:null,p_storage_path:path});if(error)throw error;if(assignment.storage_path)await supabase.storage.from("budget-signatures").remove([assignment.storage_path]);toast("บันทึกลายเซ็นแล้ว","ลายเซ็นจะแสดงใน PDF","success");close();await renderDashboard();}catch(err){toast("บันทึกลายเซ็นไม่สำเร็จ",err.message||String(err),"error")}finally{buttonLoading(e.target,false)}};}else if(method==="upload"){work.innerHTML=`<div class="field"><label>เลือกรูปลายเซ็น</label><input class="input" id="budget-sign-file" type="file" accept="image/png,image/jpeg,image/webp"></div><button class="btn btn-primary" id="budget-save-upload">อัปโหลดและบันทึก</button>`;work.querySelector("#budget-save-upload").onclick=async e=>{const file=work.querySelector("#budget-sign-file").files[0];if(!file)return toast("กรุณาเลือกไฟล์","","error");buttonLoading(e.target,true,"กำลังอัปโหลด...");try{const path=await budgetUploadSignatureAsset(r,slot,file,file.type),{error}=await supabase.rpc("set_budget_signature",{p_disbursement_id:r.id,p_slot:slot,p_method:"upload",p_signature_id:null,p_storage_path:path});if(error)throw error;if(assignment.storage_path)await supabase.storage.from("budget-signatures").remove([assignment.storage_path]);toast("บันทึกลายเซ็นแล้ว","","success");close();await renderDashboard();}catch(err){toast("บันทึกลายเซ็นไม่สำเร็จ",err.message||String(err),"error")}finally{buttonLoading(e.target,false)}};}else{work.innerHTML=`<div class="field"><label>ลายเซ็นที่บันทึกไว้</label><select class="select" id="budget-stored-signature"><option value="">เลือกลายเซ็น</option>${state.signatures.map(s=>`<option value="${s.id}" ${s.is_default?"selected":""}>${escapeHtml(s.label||"ลายเซ็น")}${s.is_default?" · ค่าเริ่มต้น":""}</option>`).join("")}</select></div><button class="btn btn-primary" id="budget-save-stored">ใช้ลายเซ็นนี้</button>`;work.querySelector("#budget-save-stored").onclick=async e=>{const id=work.querySelector("#budget-stored-signature").value,sig=state.signatures.find(x=>x.id===id);if(!sig)return toast("เลือกลายเซ็นก่อน","","error");buttonLoading(e.target,true,"กำลังบันทึก...");try{const {data,error}=await supabase.storage.from(sig.bucket_id||"signatures").download(sig.storage_path);if(error)throw error;const mime=data.type||"image/png",path=await budgetUploadSignatureAsset(r,slot,data,mime),res=await supabase.rpc("set_budget_signature",{p_disbursement_id:r.id,p_slot:slot,p_method:"stored",p_signature_id:sig.id,p_storage_path:path});if(res.error)throw res.error;if(assignment.storage_path)await supabase.storage.from("budget-signatures").remove([assignment.storage_path]);toast("ใช้ลายเซ็นที่บันทึกไว้แล้ว","","success");close();await renderDashboard();}catch(err){toast("บันทึกลายเซ็นไม่สำเร็จ",err.message||String(err),"error")}finally{buttonLoading(e.target,false)}};}});}
 function projectPdfStyles(){return `${a4DocumentStyles()} @page{size:A4 portrait;margin:10mm}.a4-document{width:190mm;min-height:277mm;padding:0;box-shadow:none}.a4-document-inner{padding:7mm 9mm}.project-doc-head{text-align:center}.project-doc-head .a4-school-logo{height:22mm;max-width:30mm}.project-doc-head h1{font-size:18pt;margin:2mm 0 0}.project-doc-head h2{font-size:15pt;margin:0}.project-doc-meta{text-align:center;font-size:11pt}.project-doc-info{display:grid;grid-template-columns:1fr 1fr;gap:1mm 6mm;margin:5mm 0;font-size:12pt}.project-doc-info div{border-bottom:1px dotted #777;padding:1.3mm 0}.project-doc-table{width:100%;border-collapse:collapse;font-size:11pt}.project-doc-table th,.project-doc-table td{border:1px solid #222;padding:1.5mm;text-align:center}.project-doc-table th{background:#fafafa}`;}
 async function projectPdfPreview(p,a=null){const logo=await schoolLogoDataUrl(),body=a?`<article class="a4-document"><div class="a4-document-inner"><header class="project-doc-head">${logo?`<img class="a4-school-logo" src="${logo}">`:""}<h1>${escapeHtml(schoolName())}</h1><div class="project-doc-meta">${escapeHtml(schoolAddress())}<br>${escapeHtml(educationOffice())}</div><h2>รายละเอียดกิจกรรม</h2></header><div class="project-doc-info"><div><strong>เลขกิจกรรม:</strong> ${escapeHtml(a.activity_no)}</div><div><strong>ชื่อกิจกรรม:</strong> ${escapeHtml(a.activity_name)}</div><div><strong>โครงการ:</strong> ${escapeHtml(p.project_no)} ${escapeHtml(p.project_name)}</div><div><strong>ผู้รับผิดชอบ:</strong> ${escapeHtml(a.owner_name)}</div><div><strong>งบกิจกรรม:</strong> ${money(a.budget_amount)} บาท</div><div><strong>คงเหลือ:</strong> ${money(activityBudgetStats(a).remaining)} บาท</div></div></div></article>`:`<article class="a4-document"><div class="a4-document-inner"><header class="project-doc-head">${logo?`<img class="a4-school-logo" src="${logo}">`:""}<h1>${escapeHtml(schoolName())}</h1><div class="project-doc-meta">${escapeHtml(schoolAddress())}<br>${escapeHtml(educationOffice())}</div><h2>รายละเอียดโครงการ</h2></header><div class="project-doc-info"><div><strong>เลขโครงการ:</strong> ${escapeHtml(p.project_no)}</div><div><strong>ชื่อโครงการ:</strong> ${escapeHtml(p.project_name)}</div><div><strong>ฝ่าย:</strong> ${escapeHtml(projectDepartmentName(p))}</div><div><strong>ผู้รับผิดชอบ:</strong> ${escapeHtml(p.owner_name)}</div><div><strong>งบประมาณ:</strong> ${money(p.budget_amount)} บาท</div><div><strong>ยังไม่จัดสรร:</strong> ${money(projectBudgetStats(p).unallocated)} บาท</div></div><table class="project-doc-table"><thead><tr><th>เลขกิจกรรม</th><th>กิจกรรม</th><th>ผู้รับผิดชอบ</th><th>งบ</th><th>คงเหลือ</th></tr></thead><tbody>${projectActivitiesFor(p.id).map(x=>`<tr><td>${escapeHtml(x.activity_no)}</td><td>${escapeHtml(x.activity_name)}</td><td>${escapeHtml(x.owner_name)}</td><td>${money(x.budget_amount)}</td><td>${money(activityBudgetStats(x).remaining)}</td></tr>`).join("")||`<tr><td colspan="5">ยังไม่มีกิจกรรม</td></tr>`}</tbody></table></div></article>`;openPrintPreview(body,projectPdfStyles(),a?"รายละเอียดกิจกรรม":"รายละเอียดโครงการ");}
+
+async function deleteSelectedBudgetRequest(){
+  const r=selectedBudgetRequest();if(!r)return;
+  const normalAllowed=r.requester_id===state.user.id&&r.status==="draft";
+  if(!normalAllowed&&!isSuperAdminUser())return toast("ไม่มีสิทธิ์ลบคำขอเบิกนี้","ผู้ขอเบิกลบได้เฉพาะฉบับร่างของตนเอง","error");
+  secureDeleteModal({
+    title:"ลบคำขอเบิกงบประมาณ",
+    description:`เลขคุม ${r.control_number||"—"} · ครั้งที่ ${r.request_round} · ${money(r.amount)} บาท`,
+    warning:isSuperAdminUser()&&r.status!=="draft"
+      ?"รายการนี้ไม่ใช่ฉบับร่าง การลบอาจทำให้เลขทะเบียนคุมมีช่วงว่าง แต่ระบบจะไม่ย้อนเลขทะเบียนคุมกลับไปใช้ซ้ำ"
+      :"เลขทะเบียนคุมที่เคยถูกออกแล้วจะไม่ถูกนำกลับมาใช้ซ้ำหลังลบ",
+    action:async client=>{
+      const signaturePaths=budgetSignersFor(r.id).map(x=>x.storage_path).filter(Boolean);
+      if(signaturePaths.length){
+        const {error}=await client.storage.from("budget-signatures").remove(signaturePaths);
+        if(error)throw new Error(`ลบไฟล์ลายเซ็นไม่สำเร็จ: ${error.message}`);
+      }
+      const {error}=await client.from("budget_disbursements").delete().eq("id",r.id);
+      if(error)throw error;
+    },
+    afterDelete:async()=>{
+      state.selectedDisbursementId=null;state.projectView="budget";
+      toast("ลบคำขอเบิกแล้ว","เลขคุมเดิมจะไม่ถูกนำกลับมาใช้ซ้ำ","success");
+      await renderDashboard();
+    }
+  });
+}
+
+async function deleteSelectedProject(){
+  const p=state.schoolProjects.find(x=>x.id===state.selectedProjectId);if(!p)return;
+  if(p.owner_id!==state.user.id&&!isSuperAdminUser())return;
+  const linked=projectDisbursementsFor(p.id);
+  if(linked.length)return toast("ยังลบโครงการไม่ได้",`มีเอกสารขอเบิกเชื่อมอยู่ ${linked.length} รายการ กรุณาจัดการเอกสารเหล่านั้นก่อน`,"error");
+  secureDeleteModal({
+    title:"ลบโครงการ",
+    description:`${p.project_no} ${p.project_name}`,
+    warning:"กิจกรรมย่อยภายใต้โครงการนี้จะถูกลบตามไปด้วย หากไม่มีเอกสารงบประมาณที่อ้างอิงอยู่",
+    action:async client=>{
+      const {error}=await client.from("school_projects").delete().eq("id",p.id);
+      if(error)throw error;
+    },
+    afterDelete:async()=>{
+      state.selectedProjectId=null;state.selectedProjectActivityId=null;
+      toast("ลบโครงการแล้ว","","success");await renderDashboard();
+    }
+  });
+}
+
+async function deleteSelectedProjectActivity(){
+  const a=state.projectActivities.find(x=>x.id===state.selectedProjectActivityId);if(!a)return;
+  if(a.owner_id!==state.user.id&&!isSuperAdminUser())return;
+  const linked=projectDisbursementsFor(a.project_id,a.id);
+  if(linked.length)return toast("ยังลบกิจกรรมไม่ได้",`กิจกรรมนี้มีเอกสารขอเบิกเชื่อมอยู่ ${linked.length} รายการ กรุณาจัดการเอกสารเหล่านั้นก่อน`,"error");
+  secureDeleteModal({
+    title:"ลบกิจกรรมย่อย",
+    description:`${a.activity_no} ${a.activity_name}`,
+    warning:"งบที่จัดสรรให้กิจกรรมนี้จะกลับไปเป็นวงเงินที่ยังไม่จัดสรรของโครงการหลัก",
+    action:async client=>{
+      const {error}=await client.from("project_activities").delete().eq("id",a.id);
+      if(error)throw error;
+    },
+    afterDelete:async()=>{
+      state.selectedProjectActivityId=null;
+      toast("ลบกิจกรรมแล้ว","","success");await renderDashboard();
+    }
+  });
+}
+
+async function deleteSelectedHomeVisitRecord(){
+  const r=homeVisitRecord();if(!r)return;
+  const normalAllowed=r.status==="draft"&&(r.recorder_id===state.user.id||r.homeroom_teacher_id===state.user.id||canManageAllHomeVisits());
+  if(!normalAllowed&&!isSuperAdminUser())return;
+  secureDeleteModal({
+    title:"ลบข้อมูลเยี่ยมบ้านนักเรียน",
+    description:`${r.class_label} · ${r.student_first_name} ${r.student_last_name}`,
+    warning:"สมาชิกครัวเรือน รูปภาพ และลายเซ็นที่ผูกกับนักเรียนรายนี้จะถูกลบตามไปด้วย",
+    action:async client=>{
+      const photoPaths=homeVisitPhotosFor(r.id).map(x=>x.storage_path).filter(Boolean);
+      const signPaths=homeVisitSignaturesFor(r.id).map(x=>x.storage_path).filter(Boolean);
+      const paths=[...new Set([...photoPaths,...signPaths])];
+      if(paths.length){
+        const {error}=await client.storage.from("home-visits").remove(paths);
+        if(error)throw new Error(`ลบรูป/ลายเซ็นไม่สำเร็จ: ${error.message}`);
+      }
+      const {error}=await client.from("home_visit_records").delete().eq("id",r.id);
+      if(error)throw error;
+    },
+    afterDelete:async()=>{
+      state.selectedHomeVisitId=null;state.homeVisitStep=1;
+      toast("ลบข้อมูลเยี่ยมบ้านแล้ว","","success");await renderDashboard();
+    }
+  });
+}
+
+async function deleteSelectedSubstituteRecord(){
+  const row=state.substituteLessons.find(x=>x.id===state.selectedSubstituteLessonId);
+  if(!row||!isSuperAdminUser())return;
+  secureDeleteModal({
+    title:"ลบรายการจัดสอนแทน",
+    description:`${thaiDateOnly(row.leave_date)} · คาบ ${row.period_no} · ${row.class_label} ${row.subject_name}`,
+    warning:"รายการสอนแทนเป็นข้อมูลที่สร้างจากใบลาและตาราง Published หากซิงก์ระบบใหม่ รายการอาจถูกสร้างขึ้นอีกถ้าเงื่อนไขต้นทางยังอยู่",
+    action:async client=>{
+      const {error}=await client.from("substitute_lessons").delete().eq("id",row.id);
+      if(error)throw error;
+    },
+    afterDelete:async()=>{
+      state.selectedSubstituteLessonId=null;
+      toast("ลบรายการสอนแทนแล้ว","","success");await renderDashboard();
+    }
+  });
+}
+
 function budgetPdfBalanceStats(r,p,a){
   const reservedStatuses=new Set(["document_ready","printed","paid"]);
   if(a){
@@ -4458,7 +4641,7 @@ function homeVisitPhotoSlot(r,kind,label){
 function signatureMethodBlock(r,type,label){const s=homeVisitSignaturesFor(r.id).find(x=>x.signer_type===type);return `<div class="hv-sign-card"><strong>${escapeHtml(label)}</strong><div class="field"><label>ชื่อผู้ลงนาม</label><input class="input" data-hv-signer-name="${type}" value="${escapeHtml(s?.signer_name||"")}"></div><div class="field"><label>วิธีลงนาม</label><select class="select" data-hv-sign-method="${type}"><option value="blank" ${!s?"selected":""}>เว้นไว้เซ็นบนกระดาษ</option><option value="drawn" ${s?.method==="drawn"?"selected":""}>เซ็นสดบนหน้าจอ</option><option value="upload" ${s?.method==="upload"?"selected":""}>อัปโหลดรูปลายเซ็น</option><option value="stored" ${s?.method==="stored"?"selected":""}>ใช้ลายเซ็นที่บันทึกไว้ในระบบ</option></select></div><button class="btn btn-secondary" type="button" data-hv-sign="${type}">ตั้งค่า / ลงนาม</button>${s?`<span class="pill active">บันทึกแล้ว · ${escapeHtml(s.method)}</span>`:""}</div>`}
 function homeVisitStep5(r){return `<div class="hv-step-card"><div class="project-paper-note"><strong>การรับรองข้อมูล</strong><span>ข้อมูลข้อ 1-7 ต้องถูกต้องตามความเป็นจริง และข้อมูลส่วนบุคคลใช้ตามวัตถุประสงค์ของแบบ นร./กสศ.01</span></div><div class="hv-sign-grid">${signatureMethodBlock(r,"student","นักเรียน")}${signatureMethodBlock(r,"guardian","ผู้ปกครอง")}${signatureMethodBlock(r,"state_officer","เจ้าหน้าที่ของรัฐ")}${signatureMethodBlock(r,"director","ผู้อำนวยการสถานศึกษา")}${signatureMethodBlock(r,"home_visit_teacher","ครูผู้เยี่ยมบ้าน/สำรวจข้อมูล")}</div></div>`}
 function homeVisitStep6(r){return `<div class="hv-step-card"><section class="project-detail-hero"><div>${homeVisitStatusPill(r)}<h2>${escapeHtml(r.student_first_name)} ${escapeHtml(r.student_last_name)}</h2><p>${escapeHtml(r.class_label)} · ครูประจำชั้น ${escapeHtml(r.homeroom_teacher_name||"—")} · ผู้บันทึก ${escapeHtml(r.recorder_name)}</p></div></section><div class="detail-grid" style="margin-top:14px">${planField("เลขประชาชน/รหัส G",r.student_citizen_or_g||"—")}${planField("สมาชิกครัวเรือน",`${homeVisitMembersFor(r.id).length} คน`)}${planField("รูปภาพ",`${homeVisitPhotosFor(r.id).length} รูป`)}${planField("ลายเซ็นในระบบ",`${homeVisitSignaturesFor(r.id).length} รายการ`)}</div><div class="admin-actions hv-final-actions"><button class="btn btn-secondary" data-export-home-visit="${r.id}">▤ Preview / Export PDF รายบุคคล</button><button class="btn ${r.status==="complete"?"btn-secondary":"btn-primary"}" id="toggle-home-visit-complete">${r.status==="complete"?"กลับเป็นฉบับร่าง":"ทำเครื่องหมายข้อมูลครบแล้ว"}</button></div></div>`}
-function homeVisitRecordHtml(r){return `<section class="home-visit-record"><div class="personnel-detail-top"><div><button class="type-back-link" id="home-visit-back">← กลับรายชื่อ</button><span class="eyebrow dark">${escapeHtml(r.class_label)} · ${escapeHtml(r.student_first_name)} ${escapeHtml(r.student_last_name)}</span></div><div class="personnel-detail-actions"><button class="btn btn-secondary" data-export-home-visit="${r.id}">PDF รายบุคคล</button></div></div><div class="hv-step-tabs">${HOME_VISIT_STEPS.map((s,i)=>`<button class="hv-step-tab ${state.homeVisitStep===i+1?"active":""}" data-hv-step="${i+1}"><span>${i+1}</span>${escapeHtml(s)}</button>`).join("")}</div><form id="home-visit-form">${state.homeVisitStep===1?homeVisitStep1(r):state.homeVisitStep===2?homeVisitStep2(r):state.homeVisitStep===3?homeVisitStep3(r):state.homeVisitStep===4?homeVisitStep4(r):state.homeVisitStep===5?homeVisitStep5(r):homeVisitStep6(r)}</form><div class="hv-step-nav"><button class="btn btn-ghost" id="hv-prev" ${state.homeVisitStep===1?"disabled":""}>← ก่อนหน้า</button><button class="btn btn-primary" id="hv-save-step" ${state.homeVisitStep===6?"disabled":""}>บันทึกขั้นตอนนี้</button><button class="btn btn-secondary" id="hv-next" ${state.homeVisitStep===6?"disabled":""}>ถัดไป →</button></div></section>`}
+function homeVisitRecordHtml(r){return `<section class="home-visit-record"><div class="personnel-detail-top"><div><button class="type-back-link" id="home-visit-back">← กลับรายชื่อ</button><span class="eyebrow dark">${escapeHtml(r.class_label)} · ${escapeHtml(r.student_first_name)} ${escapeHtml(r.student_last_name)}</span></div><div class="personnel-detail-actions"><button class="btn btn-secondary" data-export-home-visit="${r.id}">PDF รายบุคคล</button>${((r.status==="draft"&&(r.recorder_id===state.user.id||r.homeroom_teacher_id===state.user.id||canManageAllHomeVisits()))||isSuperAdminUser())?`<button class="btn btn-danger" id="delete-home-visit-record">ลบข้อมูลเยี่ยมบ้าน</button>`:""}</div></div><div class="hv-step-tabs">${HOME_VISIT_STEPS.map((s,i)=>`<button class="hv-step-tab ${state.homeVisitStep===i+1?"active":""}" data-hv-step="${i+1}"><span>${i+1}</span>${escapeHtml(s)}</button>`).join("")}</div><form id="home-visit-form">${state.homeVisitStep===1?homeVisitStep1(r):state.homeVisitStep===2?homeVisitStep2(r):state.homeVisitStep===3?homeVisitStep3(r):state.homeVisitStep===4?homeVisitStep4(r):state.homeVisitStep===5?homeVisitStep5(r):homeVisitStep6(r)}</form><div class="hv-step-nav"><button class="btn btn-ghost" id="hv-prev" ${state.homeVisitStep===1?"disabled":""}>← ก่อนหน้า</button><button class="btn btn-primary" id="hv-save-step" ${state.homeVisitStep===6?"disabled":""}>บันทึกขั้นตอนนี้</button><button class="btn btn-secondary" id="hv-next" ${state.homeVisitStep===6?"disabled":""}>ถัดไป →</button></div></section>`}
 function homeVisitWorkspaceHtml(){const r=homeVisitRecord();return r?homeVisitRecordHtml(r):`${homeVisitListHtml()}`}
 function homeVisitCreateModal(){const classes=homeVisitAllowedClasses();if(!classes.length)return toast("ยังไม่มีชั้นเรียนที่รับผิดชอบ","ต้องกำหนดครูประจำชั้นหรือใช้บัญชีหัวหน้าบริหารทั่วไปก่อน","error");const m=document.createElement("div");m.className="modal-backdrop";m.innerHTML=`<div class="modal"><div class="modal-head"><div><h3>เพิ่มนักเรียนสำหรับเยี่ยมบ้าน</h3><p>สร้างแบบข้อมูลใหม่แยกตามปีการศึกษา/ภาคเรียน</p></div><button class="modal-close">×</button></div><form id="hv-create" class="form-grid"><div class="field"><label>ชั้น / ห้อง</label><select class="select" name="class_id">${classes.map(c=>`<option value="${c.id}" ${c.id===state.homeVisitClassId?"selected":""}>${escapeHtml(schoolClassLabel(c))}</option>`).join("")}</select></div><div class="form-row"><div class="field"><label>ชื่อนักเรียน</label><input class="input" name="first_name" required></div><div class="field"><label>นามสกุล</label><input class="input" name="last_name" required></div></div><div class="field"><label>เลขประจำตัวประชาชน / เลขรหัส G</label><input class="input" name="citizen"></div></form><div class="modal-actions"><button class="btn btn-ghost modal-cancel">ยกเลิก</button><button class="btn btn-primary" id="hv-create-save">สร้างแบบฟอร์ม</button></div></div>`;document.body.appendChild(m);const close=()=>m.remove();m.querySelector(".modal-close").onclick=close;m.querySelector(".modal-cancel").onclick=close;m.querySelector("#hv-create-save").onclick=async e=>{const f=m.querySelector("#hv-create");if(!f.reportValidity())return;const d=new FormData(f);buttonLoading(e.target,true,"กำลังสร้าง...");const {data,error}=await supabase.from("home_visit_records").insert({class_id:d.get("class_id"),student_first_name:String(d.get("first_name")).trim(),student_last_name:String(d.get("last_name")).trim(),student_citizen_or_g:String(d.get("citizen")||"").trim()||null,academic_year:"0",semester:1,class_label:"-",recorder_id:state.user.id,recorder_name:state.profile.full_name||state.profile.email,form_data:{}}).select().single();buttonLoading(e.target,false);if(error)return toast("สร้างแบบฟอร์มไม่สำเร็จ",error.message,"error");close();state.selectedHomeVisitId=data.id;state.homeVisitStep=1;await renderDashboard();};}
 function formValuesObject(form){const obj={};const fd=new FormData(form);for(const [k,v] of fd.entries()){if(obj[k]!==undefined){if(!Array.isArray(obj[k]))obj[k]=[obj[k]];obj[k].push(v)}else obj[k]=v}return obj}
@@ -4882,25 +5065,35 @@ async function deleteLessonFile(file) {
 }
 
 async function deleteDraftLessonPlan() {
-  const p = state.lessonDetail?.plan;
-  if (!p || p.status !== "draft" || p.teacher_id !== state.user.id) return;
-  if (!window.confirm(`ลบฉบับร่าง “${p.subject_name}${p.plan_type === "semester" ? " — แผนรายภาคเรียน" : ` — ${p.topic || "แผนรายสัปดาห์"}`}” หรือไม่?
-
-ไฟล์ PDF ใน Storage และลิงก์ Google Drive ที่แนบกับฉบับร่างนี้จะถูกลบออกจากรายการด้วย และไม่สามารถกู้คืนได้`)) return;
-
-  const paths = (state.lessonDetail?.files || []).map(f => f.storage_path).filter(Boolean);
-  if (paths.length) {
-    const { error: storageError } = await supabase.storage.from("lesson-plans").remove(paths);
-    if (storageError) return toast("ลบฉบับร่างไม่สำเร็จ", `ลบไฟล์ PDF ไม่สำเร็จ: ${storageError.message}`, "error");
-  }
-
-  const { error } = await supabase.from("lesson_plans").delete().eq("id", p.id);
-  if (error) return toast("ลบฉบับร่างไม่สำเร็จ", error.message, "error");
-
-  state.selectedLessonPlanId = null;
-  state.lessonDetail = null;
-  toast("ลบฉบับร่างแล้ว", "แผนและเอกสารแนบของฉบับร่างถูกลบออกจากระบบ", "success");
-  await renderDashboard();
+  const p=state.lessonDetail?.plan;
+  if(!p)return;
+  const normalAllowed=p.teacher_id===state.user.id&&["draft","revision_requested"].includes(p.status);
+  if(!normalAllowed&&!isSuperAdminUser())return toast("ไม่มีสิทธิ์ลบแผนนี้","ครูผู้สอนลบได้เฉพาะฉบับร่างหรือรายการที่ถูกส่งกลับแก้ไข","error");
+  const label=`${p.subject_name}${p.plan_type==="semester"?" — แผนรายภาคเรียน":` — ${p.topic||"แผนรายสัปดาห์"}`}`;
+  secureDeleteModal({
+    title:"ลบแผนการสอน",
+    description:label,
+    warning:"แผน Timeline และเอกสารแนบที่ผูกกับรายการนี้จะถูกลบออกจากระบบด้วย",
+    action:async client=>{
+      const paths=(state.lessonDetail?.files||[]).map(f=>f.storage_path).filter(Boolean);
+      if(paths.length){
+        const {error}=await client.storage.from("lesson-plans").remove(paths);
+        if(error)throw new Error(`ลบไฟล์แนบไม่สำเร็จ: ${error.message}`);
+      }
+      const approved=state.lessonDetail?.approvedDocument;
+      if(approved?.storage_path){
+        const {error}=await client.storage.from(approved.bucket_id||"approved-lesson-plans").remove([approved.storage_path]);
+        if(error&&isSuperAdminUser())throw new Error(`ลบ Approved PDF ไม่สำเร็จ: ${error.message}`);
+      }
+      const {error}=await client.from("lesson_plans").delete().eq("id",p.id);
+      if(error)throw error;
+    },
+    afterDelete:async()=>{
+      state.selectedLessonPlanId=null;state.lessonDetail=null;
+      toast("ลบแผนการสอนแล้ว","ระบบบันทึกประวัติการลบไว้ใน Audit Log","success");
+      await renderDashboard();
+    }
+  });
 }
 
 async function submitSelectedLessonPlan() {
@@ -5707,6 +5900,7 @@ function bindDashboardEvents() {
   }));
   document.querySelector("#substitute-back")?.addEventListener("click",()=>{state.selectedSubstituteLessonId=null;renderDashboard();});
   document.querySelector("#unassign-substitute")?.addEventListener("click",()=>unassignSelectedSubstitute());
+  document.querySelector("#delete-substitute-record")?.addEventListener("click",()=>deleteSelectedSubstituteRecord());
   document.querySelectorAll("[data-open-leave-substitute]").forEach(btn=>btn.addEventListener("click",async()=>{
     const leaveId=btn.dataset.openLeaveSubstitute;
     state.currentView="module:substitute_teaching"; state.substituteView="absent"; state.selectedSubstituteLeaveId=leaveId; state.selectedSubstituteLessonId=null; state.selectedSubstituteDate=null; state.substituteCandidateMap={};
@@ -5775,6 +5969,8 @@ function bindDashboardEvents() {
   document.querySelector("#hv-class")?.addEventListener("change",e=>{state.homeVisitClassId=e.currentTarget.value;renderDashboard();});
   document.querySelectorAll("[data-open-home-visit]").forEach(btn=>btn.addEventListener("click",()=>{state.selectedHomeVisitId=btn.dataset.openHomeVisit;state.homeVisitStep=1;renderDashboard();}));
   document.querySelector("#home-visit-back")?.addEventListener("click",()=>{state.selectedHomeVisitId=null;state.homeVisitStep=1;renderDashboard();});
+  document.querySelector("#delete-home-visit-record")?.addEventListener("click",()=>deleteSelectedHomeVisitRecord());
+
   document.querySelectorAll("[data-hv-step]").forEach(btn=>btn.addEventListener("click",()=>{state.homeVisitStep=Number(btn.dataset.hvStep);renderDashboard();}));
   document.querySelector("#hv-prev")?.addEventListener("click",()=>{state.homeVisitStep=Math.max(1,state.homeVisitStep-1);renderDashboard();});
   document.querySelector("#hv-next")?.addEventListener("click",async()=>{const r=homeVisitRecord();if(r&&await saveHomeVisitStep(r)){state.homeVisitStep=Math.min(6,state.homeVisitStep+1);renderDashboard();}});
@@ -5803,13 +5999,19 @@ function bindDashboardEvents() {
   document.querySelectorAll("[data-toggle-project]").forEach(btn=>btn.addEventListener("click",()=>{btn.classList.toggle("open");document.querySelector(`[data-project-activities="${btn.dataset.toggleProject}"]`)?.classList.toggle("open");}));
   document.querySelectorAll("[data-open-project]").forEach(btn=>btn.addEventListener("click",()=>{state.selectedProjectId=btn.dataset.openProject;state.selectedProjectActivityId=null;state.selectedDisbursementId=null;renderDashboard();}));
   document.querySelector("#project-back")?.addEventListener("click",()=>{state.selectedProjectId=null;state.selectedProjectActivityId=null;renderDashboard();});
+  document.querySelector("#delete-school-project")?.addEventListener("click",()=>deleteSelectedProject());
+
   document.querySelector("#new-project-activity")?.addEventListener("click",()=>{const p=selectedProject();if(p)projectActivityModal(p);});
   document.querySelectorAll("[data-open-activity]").forEach(btn=>btn.addEventListener("click",()=>{const a=state.projectActivities.find(x=>x.id===btn.dataset.openActivity);if(a){state.selectedProjectId=a.project_id;state.selectedProjectActivityId=a.id;renderDashboard();}}));
   document.querySelector("#activity-back")?.addEventListener("click",()=>{state.selectedProjectActivityId=null;renderDashboard();});
+  document.querySelector("#delete-project-activity")?.addEventListener("click",()=>deleteSelectedProjectActivity());
+
   document.querySelectorAll("[data-new-budget-activity]").forEach(btn=>btn.addEventListener("click",()=>{const a=state.projectActivities.find(x=>x.id===btn.dataset.newBudgetActivity),p=state.schoolProjects.find(x=>x.id===a?.project_id);if(p&&a)budgetRequestModal(p,a);}));
   document.querySelectorAll("[data-new-budget-project]").forEach(btn=>btn.addEventListener("click",()=>{const p=state.schoolProjects.find(x=>x.id===btn.dataset.newBudgetProject);if(p)budgetRequestModal(p);}));
   document.querySelectorAll("[data-open-budget-request]").forEach(btn=>btn.addEventListener("click",()=>{state.selectedProjectId=null;state.selectedProjectActivityId=null;state.selectedDisbursementId=btn.dataset.openBudgetRequest;state.projectView="budget";renderDashboard();}));
   document.querySelector("#budget-request-back")?.addEventListener("click",()=>{state.selectedDisbursementId=null;state.projectView="budget";renderDashboard();});
+  document.querySelector("#delete-budget-request")?.addEventListener("click",()=>deleteSelectedBudgetRequest());
+
   document.querySelector("#prepare-budget-request")?.addEventListener("click",()=>{const r=selectedBudgetRequest();if(r)prepareBudgetRequest(r);});
   document.querySelector("#budget-request-pdf")?.addEventListener("click",()=>{const r=selectedBudgetRequest();if(r)budgetRequestPdfPreview(r);});
   document.querySelector("#mark-budget-paid")?.addEventListener("click",async()=>{const r=selectedBudgetRequest();if(!r||!confirm(`บันทึกว่าเบิกจ่าย ${money(r.amount)} บาท แล้วหรือไม่?`))return;const {error}=await supabase.from("budget_disbursements").update({status:"paid"}).eq("id",r.id);if(error)return toast("บันทึกไม่สำเร็จ",error.message,"error");await renderDashboard();});
