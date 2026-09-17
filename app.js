@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 import html2canvas from "https://esm.sh/html2canvas@1.4.1";
 import { jsPDF } from "https://esm.sh/jspdf@2.5.2";
+import * as XLSX from "https://esm.sh/xlsx@0.18.5";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, APP_NAME } from "./config.js";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
@@ -32,6 +33,7 @@ const state = {
   lessonTeacherView: "all",
   lessonTeacherId: null,
   subjectGroups: [],
+  academicTerms: [],
   systemSettings: null,
   personnelOwnRecord: null,
   personnelRecords: [],
@@ -103,8 +105,58 @@ const state = {
   homeVisitClassId: null,
   selectedHomeVisitId: null,
   homeVisitStep: 1,
+  homeVisitStudents: [],
+  homeVisitEnrollments: [],
+  homeVisitSettings: [],
+  studentRegistryStudents: [],
+  studentRegistryEnrollments: [],
+  studentRegistryClasses: [],
+  studentRegistryHomerooms: [],
+  studentRegistryTeacherRoster: [],
+  studentRegistryImportBatches: [],
+  studentRegistryPromotionBatches: [],
+  studentRegistryPromotionItems: [],
+  studentRegistryView: "students",
+  studentRegistryAcademicYear: null,
+  studentRegistrySemester: 1,
+  studentRegistryStageCode: "all",
+  studentRegistryLevelName: "all",
+  studentRegistryRoomName: "all",
+  studentRegistrySearch: "",
+  studentRegistryImportPreview: null,
+  studentRegistryOwnClassId: null,
+  studentRegistryClassRoster: [],
+  studentCards: [],
+  studentCardStudents: [],
+  studentCardEnrollments: [],
+  studentCardClasses: [],
+  studentCardHomerooms: [],
+  studentCardOwnClassId: null,
+  studentCardAcademicYear: null,
+  studentCardSemester: 1,
+  studentCardStageCode: "all",
+  studentCardLevelName: "all",
+  studentCardRoomName: "all",
+  studentCardSearch: "",
+  academicCalendarSettings: null,
+  academicCalendars: [],
+  academicCalendarOverrides: [],
+  academicCalendarActivities: [],
+  academicCalendarAcademicYear: null,
+  academicCalendarSemester: null,
+  academicCalendarSection: "hundred",
+  academicSupervisionSettings: null,
+  academicSupervisionWeeks: [],
+  academicSupervisionSlots: [],
+  academicSupervisorCandidates: [],
+  academicPlcPlans: [],
+  academicPlcSessions: [],
+  academicCalendarClasses: [],
+  academicStageTeachers: {},
+  academicMyStages: [],
   currentView: "dashboard",
   sidebarOpen: false,
+  sidebarExpandedDepartments: new Set(),
 };
 
 const ROLE_LABEL = {
@@ -183,6 +235,29 @@ function isSuperAdminUser(){
   return state.profile?.role === "super_admin";
 }
 
+function canDeleteLessonPlanUi(p){
+  if(!p)return false;
+  return isSuperAdminUser() || p.teacher_id===state.user.id || isAcademicHead() || state.profile?.role==="director";
+}
+
+function canDeleteLeaveUi(r){
+  if(!r)return false;
+  return isSuperAdminUser() || r.requester_id===state.user.id || isPersonnelHeadUser() || state.profile?.role==="director";
+}
+
+function canDeleteBudgetRequestUi(r){
+  if(!r)return false;
+  if(isSuperAdminUser())return true;
+  if(r.status==="paid")return false;
+  return r.requester_id===state.user.id || isPlanBudgetHead();
+}
+
+function canDeleteHomeVisitUi(r){
+  if(!r)return false;
+  return isSuperAdminUser() || r.recorder_id===state.user.id || r.homeroom_teacher_id===state.user.id || canManageAllHomeVisits();
+}
+
+
 async function secureDeletionClient(password){
   if(isSuperAdminUser()) return supabase;
   const email=state.user?.email;
@@ -211,7 +286,7 @@ function secureDeleteModal({
     <div class="modal-head"><div><h3>${escapeHtml(title)}</h3><p>${escapeHtml(description)}</p></div><button class="modal-close">×</button></div>
     <div class="secure-delete-warning"><strong>⚠ ยืนยันการลบ</strong><span>${escapeHtml(warning)}</span></div>
     ${admin
-      ? `<div class="secure-delete-admin"><strong>Super Admin</strong><span>บัญชี Super Admin ไม่ต้องกรอกรหัสผ่าน แต่การลบจะถูกบันทึกในประวัติ Audit</span></div>`
+      ? `<div class="secure-delete-admin"><strong>Super Admin</strong><span>บัญชี Super Admin ไม่ต้องกรอกรหัสผ่าน แต่ยังต้องยืนยันการลบ และระบบจะบันทึกใน Audit Log</span></div>`
       : `<div class="field"><label>รหัสผ่านของคุณ</label><input class="input" id="secure-delete-password" type="password" autocomplete="current-password" placeholder="กรอกรหัสผ่านเพื่อยืนยันการลบ" required><small class="helper">ระบบใช้รหัสผ่านเพื่อยืนยันตัวตนครั้งนี้เท่านั้น และไม่บันทึกรหัสผ่านไว้</small></div>`
     }
     <label class="secure-delete-check"><input type="checkbox" id="secure-delete-ack"> ฉันเข้าใจว่าการลบรายการนี้เป็นการลบถาวร</label>
@@ -276,18 +351,18 @@ function authLayout(inner) {
       <section class="auth-layout">
         <div class="hero-panel">
           <div class="brand">
-            <div class="brand-mark">${escapeHtml(brandShort())}</div>
-            <div class="brand-copy"><strong>${escapeHtml(appName())}</strong><span>School Management Platform</span></div>
+            <div class="brand-mark auth-school-logo-wrap"><img class="auth-school-logo" src="./school-logo.png" alt="โลโก้โรงเรียนบ้านหนองเขียว"></div>
+            <div class="brand-copy"><strong>BNK School OS</strong><span>โรงเรียนบ้านหนองเขียว</span></div>
           </div>
           <div class="hero-copy">
             <span class="eyebrow">● Powered by Supabase</span>
-            <h1>ระบบโรงเรียน<br>ที่ไหลลื่นในที่เดียว</h1>
+            <h1>BNK School OS<br><span class="hero-school-name">โรงเรียนบ้านหนองเขียว</span></h1>
             <p>จัดการงานวิชาการ บุคคล บริหารทั่วไป และแผนงบประมาณด้วยสิทธิ์ที่ชัดเจน Workflow ที่ตรวจสอบย้อนหลังได้ และการแจ้งเตือนแบบเรียลไทม์</p>
           </div>
           <div class="hero-features">
-            <div class="hero-feature"><strong>Role-based</strong><span>สิทธิ์แยกตามหน้าที่</span></div>
-            <div class="hero-feature"><strong>Approval Flow</strong><span>อนุมัติเป็นขั้นตอน</span></div>
-            <div class="hero-feature"><strong>Realtime</strong><span>แจ้งเตือนทันที</span></div>
+            <div class="hero-feature"><strong>B = Build</strong><span>สร้างสรรค์ / สร้างรากฐาน</span></div>
+            <div class="hero-feature"><strong>N = Nurture</strong><span>ฟูมฟัก / ดูแลใส่ใจ</span></div>
+            <div class="hero-feature"><strong>K = Knowledge</strong><span>คลังความรู้ / ภูมิปัญญา</span></div>
           </div>
         </div>
         ${inner}
@@ -557,16 +632,22 @@ function renderPending() {
 
 async function loadActiveUserData() {
   await loadPublicData();
-  const [departmentsRes, modulesRes, notificationsRes, personnelOwnRes] = await Promise.all([
+  const [departmentsRes, modulesRes, notificationsRes, personnelOwnRes, academicTermsRes, academicCalendarSettingsRes, academicSupervisionSettingsRes] = await Promise.all([
     supabase.from("departments").select("*").eq("is_active", true).order("sort_order"),
     supabase.from("modules").select("*, departments(code,name_th,name_en)").eq("is_active", true).order("sort_order"),
     supabase.from("notifications").select("*").is("dismissed_at", null).order("created_at", { ascending: false }).limit(20),
     supabase.from("personnel_records").select("*").eq("user_id", state.user.id).maybeSingle(),
+    supabase.from("academic_terms").select("*").order("academic_year", { ascending: false }).order("semester"),
+    supabase.from("academic_calendar_settings").select("*").eq("id",1).maybeSingle(),
+    supabase.from("academic_supervision_settings").select("*").eq("id",1).maybeSingle(),
   ]);
 
   state.departments = departmentsRes.data || [];
   state.modules = modulesRes.data || [];
   state.notifications = notificationsRes.data || [];
+  state.academicTerms = academicTermsRes.error ? [] : (academicTermsRes.data || []);
+  state.academicCalendarSettings = academicCalendarSettingsRes.error ? null : (academicCalendarSettingsRes.data || null);
+  state.academicSupervisionSettings = academicSupervisionSettingsRes.error ? null : (academicSupervisionSettingsRes.data || null);
   state.personnelOwnRecord = personnelOwnRes.error ? null : (personnelOwnRes.data || null);
 
   if (state.profile.role === "super_admin") {
@@ -601,9 +682,10 @@ function sidebarHtml() {
   const grouped = state.departments.map(dep => {
     const modules = state.modules.filter(m => m.department_id === dep.id);
     if (!modules.length) return "";
+    const expanded = state.sidebarExpandedDepartments?.has(dep.id);
     return `
-      <div class="nav-group open">
-        <button class="nav-toggle">
+      <div class="nav-group ${expanded ? "open" : ""}">
+        <button class="nav-toggle" data-department-toggle="${dep.id}" aria-expanded="${expanded ? "true" : "false"}">
           <span class="nav-icon">▦</span>
           <span class="nav-label">${escapeHtml(dep.name_th)}</span>
           <span class="chev">⌄</span>
@@ -617,7 +699,7 @@ function sidebarHtml() {
   return `
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-mark">${escapeHtml(brandShort())}</div>
+        <div class="brand-mark sidebar-school-logo-wrap"><img class="sidebar-school-logo" src="./school-logo.png" alt="โลโก้โรงเรียน"></div>
         <div class="brand-copy"><strong>${escapeHtml(appName())}</strong><span>Management Platform</span></div>
       </div>
       <div class="nav-section-title">ภาพรวม</div>
@@ -639,6 +721,9 @@ function sidebarHtml() {
 }
 
 async function renderDashboard() {
+  if (state.currentView === "module:academic_calendar") {
+    await loadAcademicCalendarWorkspace();
+  }
   if (state.currentView === "module:lesson_plans") {
     await loadLessonPlanWorkspace();
   }
@@ -660,8 +745,15 @@ async function renderDashboard() {
   if (state.currentView === "module:home_visit_management") {
     await loadHomeVisitWorkspace();
   }
+  if (state.currentView === "module:student_registry") {
+    await loadStudentRegistryWorkspace();
+  }
+  if (state.currentView === "module:student_cards") {
+    await loadStudentCardWorkspace();
+  }
   const metrics = await dashboardMetrics();
   const unread = state.notifications.filter(n => !n.read_at).length;
+  const activePeriod = currentAcademicPeriod();
   const content = state.currentView === "users" && state.profile.role === "super_admin"
     ? usersView()
     : state.currentView === "settings" && state.profile.role === "super_admin"
@@ -683,6 +775,7 @@ async function renderDashboard() {
             </div>
           </div>
           <div class="topbar-actions">
+            <div class="topbar-academic-period"><span>ปีการศึกษา <strong>${activePeriod.academicYear}</strong></span><i>ภาคเรียนที่ ${activePeriod.semester}</i></div>
             <button class="icon-btn" id="notification-btn" title="การแจ้งเตือน">🔔${unread ? `<span class="badge">${unread}</span>` : ""}</button>
           </div>
         </header>
@@ -851,6 +944,7 @@ function homeView(metrics) {
     <section class="welcome">
       <h2>สวัสดี, ${escapeHtml(state.profile.full_name || "ผู้ใช้งาน")} 👋</h2>
       <p>คุณเข้าสู่ระบบในสิทธิ์ <strong>${escapeHtml(ROLE_LABEL[role] || role)}</strong> ข้อมูลและเมนูที่แสดงจะถูกกรองตามสิทธิ์ของคุณโดย RLS ที่ฐานข้อมูล</p>
+      <div class="dashboard-period-chip"><span>ปีการศึกษา <strong>${currentAcademicPeriod().academicYear}</strong></span><span>ภาคเรียนที่ <strong>${currentAcademicPeriod().semester}</strong></span></div>
     </section>
     ${personnelProfileReminderHtml()}
 
@@ -958,6 +1052,25 @@ function settingsView() {
         <div class="field"><label>ชื่อโรงเรียน</label><input class="input" id="setting-school-name" required maxlength="180" value="${escapeHtml(s.school_name_th || schoolName())}"></div>
         <div class="field"><label>ที่อยู่โรงเรียน</label><input class="input" id="setting-school-address" required maxlength="240" value="${escapeHtml(s.school_address_th || schoolAddress())}"></div>
         <div class="field"><label>หน่วยงานต้นสังกัด</label><input class="input" id="setting-education-office" required maxlength="240" value="${escapeHtml(s.education_office_th || educationOffice())}"></div>
+        <div class="settings-rule-box current-academic-term-box">
+          <div><strong>ปีการศึกษาและภาคเรียนปัจจุบันของระบบ</strong><span>ค่าที่กำหนดตรงนี้จะแสดงบน Dashboard ของผู้ใช้ทุกสิทธิ์ และเป็นค่าเริ่มต้นของระบบย่อยต่าง ๆ โดยข้อมูลปี/ภาคเรียนเก่ายังคงเก็บไว้</span></div>
+          <div class="form-row">
+            <div class="field"><label>ปีการศึกษาปัจจุบัน</label><input class="input" id="setting-current-academic-year" type="number" min="2500" max="2800" required value="${currentAcademicPeriod().academicYear}"></div>
+            <div class="field"><label>ภาคเรียนปัจจุบัน</label><select class="select" id="setting-current-semester"><option value="1" ${currentAcademicPeriod().semester===1?"selected":""}>ภาคเรียนที่ 1</option><option value="2" ${currentAcademicPeriod().semester===2?"selected":""}>ภาคเรียนที่ 2</option></select></div>
+          </div>
+        </div>
+        <div class="settings-rule-box">
+          <div><strong>ผู้รับผิดชอบปฏิทินวิชาการเพิ่มเติม</strong><span>Super Admin และหัวหน้าวิชาการมีสิทธิ์จัดการอยู่แล้ว ตรงนี้แต่งตั้งผู้รับผิดชอบเพิ่มได้อีก 1 คน โดยไม่เพิ่มสิทธิ์ให้ระบบอื่น</span></div>
+          <div class="field"><label>ผู้รับผิดชอบเพิ่มเติม</label><select class="select" id="setting-academic-calendar-editor"><option value="">— ไม่แต่งตั้งเพิ่มเติม —</option>${(state.pendingUsers||[]).filter(u=>u.account_status==="active"&&u.id!==state.user?.id).sort((a,b)=>(a.full_name||"").localeCompare(b.full_name||"","th")).map(u=>`<option value="${u.id}" ${state.academicCalendarSettings?.editor_user_id===u.id?"selected":""}>${escapeHtml(u.full_name||u.email)} · ${escapeHtml(ROLE_LABEL[u.role]||u.role)}</option>`).join("")}</select><span class="helper">ผู้ที่ได้รับมอบหมายสามารถสร้างและแก้ไขปฏิทิน 100 วันได้</span></div>
+        </div>
+        <div class="settings-rule-box">
+          <div><strong>สิทธิ์จัดปฏิทินนิเทศการศึกษา</strong><span>Super Admin กำหนด “รองผู้อำนวยการฝ่ายวิชาการ” และผู้รับผิดชอบนิเทศเพิ่มเติม 1 คน สิทธิ์นี้ใช้เฉพาะปฏิทินนิเทศ ไม่กระทบระบบอื่น</span></div>
+          <div class="form-row">
+            <div class="field"><label>รองผู้อำนวยการฝ่ายวิชาการ</label><select class="select" id="setting-supervision-deputy"><option value="">— ยังไม่กำหนด —</option>${(state.pendingUsers||[]).filter(u=>u.account_status==="active"&&u.id!==state.user?.id).sort((a,b)=>(a.full_name||"").localeCompare(b.full_name||"","th")).map(u=>`<option value="${u.id}" ${state.academicSupervisionSettings?.deputy_academic_user_id===u.id?"selected":""}>${escapeHtml(u.full_name||u.email)} · ${escapeHtml(ROLE_LABEL[u.role]||u.role)}</option>`).join("")}</select></div>
+            <div class="field"><label>ผู้รับผิดชอบนิเทศเพิ่มเติม</label><select class="select" id="setting-supervision-coordinator"><option value="">— ยังไม่แต่งตั้ง —</option>${(state.pendingUsers||[]).filter(u=>u.account_status==="active"&&u.id!==state.user?.id).sort((a,b)=>(a.full_name||"").localeCompare(b.full_name||"","th")).map(u=>`<option value="${u.id}" ${state.academicSupervisionSettings?.coordinator_user_id===u.id?"selected":""}>${escapeHtml(u.full_name||u.email)} · ${escapeHtml(ROLE_LABEL[u.role]||u.role)}</option>`).join("")}</select></div>
+          </div>
+          <span class="helper">ผู้กำหนด PLC ยังคงเป็น Super Admin และหัวหน้าวิชาการเท่านั้น</span>
+        </div>
         <div class="settings-rule-box">
           <div><strong>เกณฑ์ติดตามความก้าวหน้าวิทยฐานะ</strong><span>ใช้เป็นตัวช่วยแจ้งเตือนเท่านั้น ควรตรวจสอบหลักเกณฑ์ ก.ค.ศ. ก่อนยื่นจริง</span></div>
           <label class="settings-check"><input type="checkbox" id="setting-special-area" ${s.special_area_school !== false ? "checked" : ""}> โรงเรียนใช้เกณฑ์พื้นที่พิเศษ</label>
@@ -1361,7 +1474,7 @@ function lessonDetailHtml() {
     ${p.assessment ? `<div class="long-detail"><h4>การวัดและประเมินผล</h4><p>${escapeHtml(p.assessment)}</p></div>` : ""}`}
     <div class="detail-actions">
       <button class="btn btn-secondary" id="preview-a4-plan">▤ ดูเอกสาร A4</button>
-      ${editable ? `<button class="btn btn-secondary" id="edit-lesson-plan">แก้ไขแผน</button><button class="btn btn-primary" id="submit-lesson-plan">${p.status === "revision_requested" ? "ส่งแผนอีกครั้ง" : "ส่งให้หัวหน้าตรวจ"}</button><button class="btn btn-danger" id="delete-draft-plan">ลบแผน</button>` : ""}${isSuperAdminUser()&&!editable?`<button class="btn btn-danger" id="delete-draft-plan">ลบแผน</button>`:""}
+      ${editable ? `<button class="btn btn-secondary" id="edit-lesson-plan">แก้ไขแผน</button><button class="btn btn-primary" id="submit-lesson-plan">${p.status === "revision_requested" ? "ส่งแผนอีกครั้ง" : "ส่งให้หัวหน้าตรวจ"}</button>` : ""}${canDeleteLessonPlanUi(p)?`<button class="btn btn-danger" id="delete-draft-plan">ลบแผน</button>`:""}
       ${canHeadReview ? `<button class="btn btn-primary" data-review-role="head">ตรวจสอบแผน</button>` : ""}
       ${canDirectorReview ? `<button class="btn btn-primary" data-review-role="director">อนุมัติ / ลงนาม</button>` : ""}
     </div>
@@ -1946,6 +2059,8 @@ function inclusiveLeaveDays(start, end) {
 }
 
 function currentAcademicPeriod(dateValue = new Date()) {
+  const configured = (state.academicTerms || []).find(t => t.is_current);
+  if (configured) return { academicYear: Number(configured.academic_year), semester: Number(configured.semester) };
   const d = dateValue instanceof Date ? dateValue : dateOnly(dateValue);
   const date = d || new Date();
   const month = date.getMonth() + 1;
@@ -2468,7 +2583,7 @@ function leaveDetailHtml(request) {
       <div class="personnel-detail-actions">
         <button class="btn btn-secondary" id="leave-a4">▤ พิมพ์ / PDF</button>
         ${canOpenOwnSubstituteFromLeave(request) ? `<button class="btn btn-primary" data-open-leave-substitute="${request.id}">จัดสอนแทน</button>` : ""}
-        ${editable ? `<button class="btn btn-secondary" id="edit-leave-request">แก้ไข</button><button class="btn btn-primary" id="submit-leave-request">ส่งคำขอ</button><button class="btn btn-danger" id="delete-leave-draft">ลบคำขอลา</button>` : ""}${isSuperAdminUser()&&!editable?`<button class="btn btn-danger" id="delete-leave-draft">ลบคำขอลา</button>`:""}
+        ${editable ? `<button class="btn btn-secondary" id="edit-leave-request">แก้ไข</button><button class="btn btn-primary" id="submit-leave-request">ส่งคำขอ</button>` : ""}${canDeleteLeaveUi(request)?`<button class="btn btn-danger" id="delete-leave-draft">ลบคำขอลา</button>`:""}
         ${canPersonnelReview ? `<button class="btn btn-primary" data-leave-review="personnel">ตรวจคำขอ</button>` : ""}
         ${canDirectorReview ? `<button class="btn btn-primary" data-leave-review="director">อนุมัติขั้นสุดท้าย</button>` : ""}
       </div>
@@ -2634,12 +2749,13 @@ async function submitSelectedLeaveRequest() {
 async function deleteLeaveDraft() {
   const r=selectedLeaveRequest();
   if(!r)return;
-  const normalAllowed=r.requester_id===state.user.id&&r.status==="draft";
-  if(!normalAllowed&&!isSuperAdminUser())return toast("ไม่มีสิทธิ์ลบคำขอนี้","ผู้ใช้งานทั่วไปลบได้เฉพาะฉบับร่างของตนเอง","error");
+  if(!canDeleteLeaveUi(r))return toast("ไม่มีสิทธิ์ลบคำขอนี้","เจ้าของคำขอ หัวหน้าบุคคล ผู้บริหาร หรือ Super Admin ตามสิทธิ์ที่กำหนดจึงจะลบได้","error");
   secureDeleteModal({
     title:"ลบคำขอลา",
     description:`คำขอลา #${r.request_no} · ${leaveTypeName(r.leave_type_code,r.other_leave_text)}`,
-    warning:"หากรายการนี้มีข้อมูลสอนแทนที่เชื่อมอยู่ รายการลูกที่ผูกด้วย Foreign Key จะถูกลบตามกติกาฐานข้อมูล",
+    warning:r.status==="approved"
+      ? "คำขอนี้ได้รับอนุมัติแล้ว เมื่อลบ ระบบจะไม่นับวันลารายการนี้ในโควตาอีกต่อไป และรายการสอนแทนที่ผูกกับใบลานี้จะถูกลบตามไปด้วย"
+      : "เมื่อลบ รายการสอนแทนและ Timeline ที่ผูกกับคำขอนี้จะถูกลบตามไปด้วย และวันลารายการนี้จะไม่ถูกนำไปคำนวณโควตา",
     action:async client=>{
       const {error}=await client.from("leave_requests").delete().eq("id",r.id);
       if(error)throw error;
@@ -4386,7 +4502,7 @@ function budgetSignersFor(id){return state.budgetSignerAssignments.filter(s=>s.d
 const BUDGET_SIGNER_LABEL={requester:"ผู้ขอเบิก",department_head:"หัวหน้าฝ่ายเจ้าของโครงการ",plan_budget:"หัวหน้ากลุ่มงานบริหารแผนและงบประมาณ",director:"ผู้อำนวยการโรงเรียน",inspector1:"กรรมการตรวจรับคนที่ 1",inspector2:"กรรมการตรวจรับคนที่ 2",inspector3:"กรรมการตรวจรับคนที่ 3"};
 function budgetSignerMethodLabel(s){if(!s)return"ยังไม่ได้เลือก";if(s.method==="paper")return"เซ็นสดบนกระดาษ";if(s.method==="drawn")return"เซ็นสดในระบบแล้ว";if(s.method==="upload")return"อัปโหลดลายเซ็นแล้ว";if(s.method==="stored")return"ใช้ลายเซ็นที่บันทึกไว้";return s.method;}
 function budgetSignerPanelHtml(r){const slots=["requester","department_head","plan_budget","director","inspector1","inspector2","inspector3"],rows=budgetSignersFor(r.id),own=r.requester_id===state.user.id||state.profile.role==="super_admin";return `<section class="panel budget-signer-panel"><div class="panel-head"><div class="panel-title-wrap"><h3>ผู้ลงนามและคณะกรรมการตรวจรับ</h3><p>ผู้ถูกเลือกแต่ละคนเลือกได้ว่าจะเซ็นในระบบ อัปโหลดลายเซ็น ใช้ลายเซ็นที่บันทึกไว้ หรือเว้นไว้เซ็นบนกระดาษ</p></div>${own?`<button class="btn btn-primary" id="configure-budget-signers">เลือกผู้ลงนาม / กรรมการ</button>`:""}</div><div class="budget-signer-status-grid">${slots.map(slot=>{const s=rows.find(x=>x.slot===slot),mine=s?.user_id===state.user.id;return `<article class="budget-signer-status"><div><span>${escapeHtml(BUDGET_SIGNER_LABEL[slot])}</span><strong>${escapeHtml(s?.signer_name||"ยังไม่ได้เลือก")}</strong><small>${escapeHtml(s?.signer_position||"")}</small></div><div><span class="pill ${s?.signed_at?"active":s?"pending":"neutral"}">${escapeHtml(budgetSignerMethodLabel(s))}</span>${mine?`<button class="btn btn-secondary" data-sign-budget-slot="${slot}">จัดการลายเซ็นของฉัน</button>`:""}</div></article>`}).join("")}</div></section>`;}
-function budgetRequestDetailHtml(r){const p=state.schoolProjects.find(x=>x.id===r.project_id),a=state.projectActivities.find(x=>x.id===r.activity_id),own=r.requester_id===state.user.id;return `<section class="project-detail"><div class="personnel-detail-top"><div><button class="type-back-link" id="budget-request-back">← กลับรายการเบิก</button><span class="eyebrow dark">เลขคุม ${escapeHtml(r.control_number||"—")} · ครั้งที่ ${r.request_round}</span></div><div class="personnel-detail-actions">${own&&r.status==="draft"?`<button class="btn btn-primary" id="prepare-budget-request">จัดทำเอกสาร</button>`:""}${["document_ready","printed","paid"].includes(r.status)?`<button class="btn btn-secondary" id="budget-request-pdf">▤ Preview / Export PDF</button>`:""}${isPlanBudgetHead()&&["document_ready","printed"].includes(r.status)?`<button class="btn btn-success" id="mark-budget-paid">บันทึกว่าเบิกจ่ายแล้ว</button>`:""}${((own&&r.status==="draft")||isSuperAdminUser())?`<button class="btn btn-danger" id="delete-budget-request">ลบคำขอเบิก</button>`:""}</div></div><section class="project-detail-hero"><div>${budgetStatusPill(r.status)}<h2>${escapeHtml(a?`${a.activity_no} ${a.activity_name}`:`${p?.project_no||""} ${p?.project_name||""}`)}</h2><p>เลขทะเบียนคุมการเบิกจ่าย <strong>${escapeHtml(r.control_number||"—")}</strong> · ผู้ขอเบิก ${escapeHtml(r.requester_name)} · ${thaiDateOnly(r.request_date)}</p></div><div class="project-big-budget"><strong>${money(r.amount)}</strong><span>บาท</span></div></section>${budgetLineItemsTableHtml(r)}<div class="detail-grid" style="margin-top:14px">${planField("เลขคุม",r.control_number||"—")}${planField("โครงการ",`${p?.project_no||"—"} ${p?.project_name||""}`)}${planField("กิจกรรม",a?`${a.activity_no} ${a.activity_name}`:"เบิกจากโครงการหลัก")}${planField("ปีการศึกษา",r.academic_year)}${planField("ภาคเรียน",r.semester)}${planField("จำนวนเงินรวม",`${money(r.amount)} บาท`)}${planField("สถานะ",BUDGET_STATUS_LABEL[r.status]||r.status)}${planField("หมายเหตุ",r.notes||"—")}</div>${budgetSignerPanelHtml(r)}<div class="project-paper-note"><strong>ยืดหยุ่นเรื่องลายเซ็น</strong><span>การเลือกวิธีลงนามไม่ได้บังคับทุกคนให้เซ็นออนไลน์ หากตกลงเซ็นเอกสารต่อหน้า ให้เลือก “เซ็นสดบนกระดาษ” แล้ว PDF จะเว้นพื้นที่ลายเซ็นไว้</span></div></section>`;}
+function budgetRequestDetailHtml(r){const p=state.schoolProjects.find(x=>x.id===r.project_id),a=state.projectActivities.find(x=>x.id===r.activity_id),own=r.requester_id===state.user.id;return `<section class="project-detail"><div class="personnel-detail-top"><div><button class="type-back-link" id="budget-request-back">← กลับรายการเบิก</button><span class="eyebrow dark">เลขคุม ${escapeHtml(r.control_number||"—")} · ครั้งที่ ${r.request_round}</span></div><div class="personnel-detail-actions">${own&&r.status==="draft"?`<button class="btn btn-primary" id="prepare-budget-request">จัดทำเอกสาร</button>`:""}${["document_ready","printed","paid"].includes(r.status)?`<button class="btn btn-secondary" id="budget-request-pdf">▤ Preview / Export PDF</button>`:""}${isPlanBudgetHead()&&["document_ready","printed"].includes(r.status)?`<button class="btn btn-success" id="mark-budget-paid">บันทึกว่าเบิกจ่ายแล้ว</button>`:""}${canDeleteBudgetRequestUi(r)?`<button class="btn btn-danger" id="delete-budget-request">ลบคำขอเบิก</button>`:""}</div></div><section class="project-detail-hero"><div>${budgetStatusPill(r.status)}<h2>${escapeHtml(a?`${a.activity_no} ${a.activity_name}`:`${p?.project_no||""} ${p?.project_name||""}`)}</h2><p>เลขทะเบียนคุมการเบิกจ่าย <strong>${escapeHtml(r.control_number||"—")}</strong> · ผู้ขอเบิก ${escapeHtml(r.requester_name)} · ${thaiDateOnly(r.request_date)}</p></div><div class="project-big-budget"><strong>${money(r.amount)}</strong><span>บาท</span></div></section>${budgetLineItemsTableHtml(r)}<div class="detail-grid" style="margin-top:14px">${planField("เลขคุม",r.control_number||"—")}${planField("โครงการ",`${p?.project_no||"—"} ${p?.project_name||""}`)}${planField("กิจกรรม",a?`${a.activity_no} ${a.activity_name}`:"เบิกจากโครงการหลัก")}${planField("ปีการศึกษา",r.academic_year)}${planField("ภาคเรียน",r.semester)}${planField("จำนวนเงินรวม",`${money(r.amount)} บาท`)}${planField("สถานะ",BUDGET_STATUS_LABEL[r.status]||r.status)}${planField("หมายเหตุ",r.notes||"—")}</div>${budgetSignerPanelHtml(r)}<div class="project-paper-note"><strong>ยืดหยุ่นเรื่องลายเซ็น</strong><span>การเลือกวิธีลงนามไม่ได้บังคับทุกคนให้เซ็นออนไลน์ หากตกลงเซ็นเอกสารต่อหน้า ให้เลือก “เซ็นสดบนกระดาษ” แล้ว PDF จะเว้นพื้นที่ลายเซ็นไว้</span></div></section>`;}
 function projectWorkspaceHtml(){const r=selectedBudgetRequest();if(r)return budgetRequestDetailHtml(r);const p=selectedProject();if(p){if(state.selectedProjectActivityId){const a=state.projectActivities.find(x=>x.id===state.selectedProjectActivityId);if(a)return activityDetailHtml(a);}return projectDetailHtml(p);}return `${projectHeroHtml()}${projectTabsHtml()}${state.projectView==="overview"?projectOverviewHtml():state.projectView==="budget"?projectBudgetRequestsHtml():state.projectView==="registry"?budgetControlRegistryHtml():projectMineHtml()}`;}
 
 function projectModal(p=null){const x=p||{},period=currentAcademicPeriod(),m=document.createElement("div");m.className="modal-backdrop";m.innerHTML=`<div class="modal modal-wide"><div class="modal-head"><div><h3>${p?"แก้ไขโครงการ":"เพิ่มโครงการ"}</h3><p>ผู้สร้างคือผู้รับผิดชอบหลักอัตโนมัติ</p></div><button class="modal-close">×</button></div><form id="project-form" class="form-grid"><div class="form-row"><div class="field"><label>เลขโครงการ</label><input class="input" name="project_no" required value="${escapeHtml(x.project_no||"")}" placeholder="เช่น วช.1"></div><div class="field"><label>ปีการศึกษา</label><input class="input" name="academic_year" type="number" required value="${x.academic_year||period.academicYear}"></div></div><div class="field"><label>ชื่อโครงการ</label><input class="input" name="project_name" required value="${escapeHtml(x.project_name||"")}"></div><div class="form-row"><div class="field"><label>งบประมาณ</label><input class="input" name="budget_amount" type="number" min="0" step="0.01" required value="${x.budget_amount??0}"></div><div class="field"><label>ภาคเรียน</label><select class="select" name="semester"><option value="">ทั้งปี/ไม่ระบุ</option><option value="1" ${x.semester==1?"selected":""}>1</option><option value="2" ${x.semester==2?"selected":""}>2</option><option value="3" ${x.semester==3?"selected":""}>3</option></select></div></div><div class="field"><label>ฝ่าย / แผนงาน</label><select class="select" name="department_code" id="project-department">${Object.entries(PROJECT_DEPARTMENT_LABEL).map(([v,l])=>`<option value="${v}" ${x.department_code===v?"selected":""}>${escapeHtml(l)}</option>`).join("")}</select></div><div class="field ${x.department_code==="other"?"":"hidden"}" id="project-custom-wrap"><label>ชื่อฝ่าย/แผนงานอื่น</label><input class="input" name="department_custom" value="${escapeHtml(x.department_custom||"")}"></div><div class="field"><label>หมายเหตุ</label><textarea class="input textarea" name="notes">${escapeHtml(x.notes||"")}</textarea></div></form><div class="modal-actions"><button class="btn btn-ghost modal-cancel">ยกเลิก</button><button class="btn btn-primary" id="save-project">บันทึก</button></div></div>`;document.body.appendChild(m);const close=()=>m.remove();m.querySelector(".modal-close").onclick=close;m.querySelector(".modal-cancel").onclick=close;m.querySelector("#project-department").onchange=e=>m.querySelector("#project-custom-wrap").classList.toggle("hidden",e.target.value!=="other");m.querySelector("#save-project").onclick=async e=>{const f=m.querySelector("#project-form");if(!f.reportValidity())return;const d=new FormData(f),payload={project_no:String(d.get("project_no")).trim(),project_name:String(d.get("project_name")).trim(),academic_year:Number(d.get("academic_year")),semester:d.get("semester")?Number(d.get("semester")):null,department_code:String(d.get("department_code")),department_custom:String(d.get("department_custom")||"").trim()||null,budget_amount:Number(d.get("budget_amount")||0),owner_id:state.user.id,owner_name:state.profile.full_name||state.profile.email,notes:String(d.get("notes")||"").trim()||null};buttonLoading(e.target,true);const q=p?supabase.from("school_projects").update(payload).eq("id",p.id):supabase.from("school_projects").insert(payload);const {data,error}=await q.select().single();buttonLoading(e.target,false);if(error)return toast("บันทึกโครงการไม่สำเร็จ",error.message,"error");close();state.selectedProjectId=data.id;await renderDashboard();};}
@@ -4433,14 +4549,15 @@ async function projectPdfPreview(p,a=null){const logo=await schoolLogoDataUrl(),
 
 async function deleteSelectedBudgetRequest(){
   const r=selectedBudgetRequest();if(!r)return;
-  const normalAllowed=r.requester_id===state.user.id&&r.status==="draft";
-  if(!normalAllowed&&!isSuperAdminUser())return toast("ไม่มีสิทธิ์ลบคำขอเบิกนี้","ผู้ขอเบิกลบได้เฉพาะฉบับร่างของตนเอง","error");
+  if(!canDeleteBudgetRequestUi(r))return toast("ไม่มีสิทธิ์ลบคำขอเบิกนี้",r.status==="paid"?"รายการที่บันทึกว่าเบิกจ่ายแล้วเก็บเป็นประวัติการเงิน และลบได้เฉพาะ Super Admin":"เฉพาะผู้ขอเบิก หัวหน้าแผนงานและงบประมาณ หรือ Super Admin ตามสิทธิ์ที่กำหนด","error");
   secureDeleteModal({
     title:"ลบคำขอเบิกงบประมาณ",
     description:`เลขคุม ${r.control_number||"—"} · ครั้งที่ ${r.request_round} · ${money(r.amount)} บาท`,
-    warning:isSuperAdminUser()&&r.status!=="draft"
-      ?"รายการนี้ไม่ใช่ฉบับร่าง การลบอาจทำให้เลขทะเบียนคุมมีช่วงว่าง แต่ระบบจะไม่ย้อนเลขทะเบียนคุมกลับไปใช้ซ้ำ"
-      :"เลขทะเบียนคุมที่เคยถูกออกแล้วจะไม่ถูกนำกลับมาใช้ซ้ำหลังลบ",
+    warning:r.status==="paid"
+      ?"รายการนี้ถูกบันทึกว่าเบิกจ่ายแล้ว การลบสำหรับ Super Admin จะลบข้อมูลใช้งานออก แต่เลขทะเบียนคุมเดิมจะไม่ถูกนำกลับมาใช้ซ้ำ และ Audit Log ยังเก็บ snapshot ก่อนลบ"
+      :r.status!=="draft"
+        ?"คำขอนี้เข้าสู่ขั้นตอนจัดทำเอกสารแล้ว เมื่อลบข้อมูลลายเซ็น/ผู้ลงนามที่ผูกกับคำขอจะถูกลบตามไปด้วย และเลขทะเบียนคุมเดิมจะไม่ถูกนำกลับมาใช้ซ้ำ"
+        :"เลขทะเบียนคุมที่เคยถูกออกแล้วจะไม่ถูกนำกลับมาใช้ซ้ำหลังลบ",
     action:async client=>{
       const signaturePaths=budgetSignersFor(r.id).map(x=>x.storage_path).filter(Boolean);
       if(signaturePaths.length){
@@ -4500,8 +4617,7 @@ async function deleteSelectedProjectActivity(){
 
 async function deleteSelectedHomeVisitRecord(){
   const r=homeVisitRecord();if(!r)return;
-  const normalAllowed=r.status==="draft"&&(r.recorder_id===state.user.id||r.homeroom_teacher_id===state.user.id||canManageAllHomeVisits());
-  if(!normalAllowed&&!isSuperAdminUser())return;
+  if(!canDeleteHomeVisitUi(r))return toast("ไม่มีสิทธิ์ลบข้อมูลเยี่ยมบ้านนี้","เฉพาะผู้บันทึก ครูประจำชั้น ผู้ดูแลบริหารทั่วไป หรือ Super Admin ตามสิทธิ์ที่กำหนด","error");
   secureDeleteModal({
     title:"ลบข้อมูลเยี่ยมบ้านนักเรียน",
     description:`${r.class_label} · ${r.student_first_name} ${r.student_last_name}`,
@@ -4611,11 +4727,335 @@ function homeVisitSignaturesFor(id){return state.homeVisitSignatures.filter(s=>s
 function canManageAllHomeVisits(){return state.profile?.role==="super_admin"||state.profile?.role==="director"||(state.profile?.role==="department_head"&&state.departments.find(d=>d.id===state.profile.department_id)?.code==="general")}
 function homeVisitAllowedClasses(){const p=homeVisitPeriod(),all=state.homeVisitClasses.filter(c=>String(c.academic_year)===p.academicYear&&Number(c.semester)===p.semester&&c.is_active);if(canManageAllHomeVisits())return all;const ids=new Set(state.homeVisitHomerooms.filter(h=>h.teacher_id===state.user.id).map(h=>h.class_id));return all.filter(c=>ids.has(c.id))}
 function homeVisitStatusPill(r){return `<span class="pill ${r.status==="complete"?"active":"pending"}">${HOME_VISIT_STATUS_LABEL[r.status]||r.status}</span>`}
-async function loadHomeVisitWorkspace(){const p=currentAcademicPeriod();if(!state.homeVisitAcademicYear)state.homeVisitAcademicYear=p.academicYear;if(!state.homeVisitSemester)state.homeVisitSemester=p.semester;const [rr,mr,pr,sr,cr,hr]=await Promise.all([supabase.from("home_visit_records").select("*").order("updated_at",{ascending:false}),supabase.from("home_visit_household_members").select("*").order("member_no"),supabase.from("home_visit_photos").select("*").order("created_at"),supabase.from("home_visit_signatures").select("*").order("signed_at"),supabase.from("school_classes").select("*").eq("is_active",true).order("sort_order").order("level_name"),supabase.from("homeroom_teachers").select("*")]);state.homeVisitRecords=rr.error?[]:(rr.data||[]);state.homeVisitMembers=mr.error?[]:(mr.data||[]);state.homeVisitPhotos=pr.error?[]:(pr.data||[]);state.homeVisitSignatures=sr.error?[]:(sr.data||[]);state.homeVisitClasses=cr.error?[]:(cr.data||[]);state.homeVisitHomerooms=hr.error?[]:(hr.data||[]);const allowed=homeVisitAllowedClasses();if(!state.homeVisitClassId||!allowed.some(c=>c.id===state.homeVisitClassId))state.homeVisitClassId=allowed[0]?.id||null;if(state.selectedHomeVisitId&&!state.homeVisitRecords.some(r=>r.id===state.selectedHomeVisitId))state.selectedHomeVisitId=null}
+
+const STUDENT_LEVEL_ORDER=["อ.2","อ.3","ป.1","ป.2","ป.3","ป.4","ป.5","ป.6","ม.1","ม.2","ม.3"];
+const STUDENT_STAGE_LABEL={early_childhood:"ปฐมวัย",stage1:"ประถมศึกษาตอนต้น",stage2:"ประถมศึกษาตอนปลาย",stage3:"มัธยมศึกษาตอนต้น"};
+const STUDENT_NEXT_LEVEL={"อ.2":"อ.3","อ.3":"ป.1","ป.1":"ป.2","ป.2":"ป.3","ป.3":"ป.4","ป.4":"ป.5","ป.5":"ป.6","ป.6":"ม.1","ม.1":"ม.2","ม.2":"ม.3"};
+
+function canManageStudentMasterUi(){return isSuperAdminUser()||isAcademicHead();}
+function canViewAllStudentDataUi(){return canManageStudentMasterUi()||state.profile?.role==="director";}
+function canViewStudentRoomsUi(){return canManageStudentMasterUi()||state.profile?.role==="director";}
+function studentRegistryCurrentPeriod(){const p=currentAcademicPeriod();return {academicYear:String(state.studentRegistryAcademicYear||p.academicYear),semester:Number(state.studentRegistrySemester||p.semester)};}
+function studentClassSort(a,b){return STUDENT_LEVEL_ORDER.indexOf(a.level_name)-STUDENT_LEVEL_ORDER.indexOf(b.level_name)||String(a.room_name).localeCompare(String(b.room_name),'th',{numeric:true});}
+function studentClassOptions(){const p=studentRegistryCurrentPeriod();return state.studentRegistryClasses.filter(c=>String(c.academic_year)===p.academicYear&&Number(c.semester)===p.semester&&c.is_active).sort(studentClassSort);}
+function studentOwnHomeroomClasses(){const p=studentRegistryCurrentPeriod(),ids=new Set(state.studentRegistryHomerooms.filter(h=>h.teacher_id===state.user?.id).map(h=>h.class_id));return state.studentRegistryClasses.filter(c=>ids.has(c.id)&&c.is_active&&String(c.academic_year)===p.academicYear&&Number(c.semester)===p.semester).sort(studentClassSort);}
+function canUseStudentPromotionUi(){return canManageStudentMasterUi()||studentOwnHomeroomClasses().length>0;}
+function studentRegistryAllowedViews(){const out=["students","class_list"];if(canUseStudentPromotionUi())out.push("promotion");if(canViewStudentRoomsUi())out.push("rooms");if(canManageStudentMasterUi())out.push("import_export");return out;}
+function studentById(id){return state.studentRegistryStudents.find(s=>s.id===id);}
+function studentEnrollmentClass(e){return state.studentRegistryClasses.find(c=>c.id===e.class_id);}
+function studentFullName(s){return s?`${s.prefix||""}${s.first_name||""} ${s.last_name||""}`.trim():"—";}
+function studentAge(s){if(!s?.birth_date)return "—";const b=new Date(`${s.birth_date}T00:00:00`),n=new Date();let y=n.getFullYear()-b.getFullYear();if(n<new Date(n.getFullYear(),b.getMonth(),b.getDate()))y--;return Math.max(0,y);}
+function studentStageForLevel(level){if(/^อ\./.test(level))return "early_childhood";if(["ป.1","ป.2","ป.3"].includes(level))return "stage1";if(["ป.4","ป.5","ป.6"].includes(level))return "stage2";return "stage3";}
+function studentGenderRank(e){const g=String(studentById(e?.student_id)?.gender||"").trim();return g==="ชาย"?0:g==="หญิง"?1:2;}
+function studentCodeCompare(a,b){const sa=String(studentById(a?.student_id)?.student_code||""),sb=String(studentById(b?.student_id)?.student_code||"");return sa.localeCompare(sb,"th",{numeric:true,sensitivity:"base"});}
+function studentApplyRoleScope(){
+  if(!["students","promotion"].includes(state.studentRegistryView))return;
+  const privileged=state.studentRegistryView==="promotion"?canManageStudentMasterUi():canViewAllStudentDataUi();
+  if(privileged)return;
+  const own=studentOwnHomeroomClasses();
+  if(!own.length){state.studentRegistryOwnClassId=null;state.studentRegistryStageCode="all";state.studentRegistryLevelName="all";state.studentRegistryRoomName="all";state.studentRegistrySearch="";return;}
+  let chosen=own.find(c=>c.id===state.studentRegistryOwnClassId)||own[0];
+  state.studentRegistryOwnClassId=chosen.id;
+  state.studentRegistryStageCode=chosen.stage_code;
+  state.studentRegistryLevelName=chosen.level_name;
+  state.studentRegistryRoomName=String(chosen.room_name);
+  state.studentRegistrySearch="";
+}
+function studentVisibleEnrollments(){
+  const p=studentRegistryCurrentPeriod(),q=String(state.studentRegistrySearch||"").trim().toLowerCase();
+  const scoped=["students","promotion"].includes(state.studentRegistryView)&&(state.studentRegistryView==="promotion"?!canManageStudentMasterUi():!canViewAllStudentDataUi());
+  const ownClassId=scoped?state.studentRegistryOwnClassId:null;
+  return state.studentRegistryEnrollments.filter(e=>String(e.academic_year)===p.academicYear&&Number(e.semester)===p.semester).filter(e=>{
+    const c=studentEnrollmentClass(e),s=studentById(e.student_id);if(!c||!s)return false;
+    if(scoped&&(!ownClassId||e.class_id!==ownClassId))return false;
+    if(!scoped&&state.studentRegistryStageCode!=="all"&&c.stage_code!==state.studentRegistryStageCode)return false;
+    if(!scoped&&state.studentRegistryLevelName!=="all"&&c.level_name!==state.studentRegistryLevelName)return false;
+    if(!scoped&&state.studentRegistryRoomName!=="all"&&String(c.room_name)!==String(state.studentRegistryRoomName))return false;
+    if(q&&!`${s.student_code} ${s.citizen_id} ${s.prefix} ${s.first_name} ${s.last_name}`.toLowerCase().includes(q))return false;
+    return true;
+  }).sort((a,b)=>{const ca=studentEnrollmentClass(a),cb=studentEnrollmentClass(b);return studentClassSort(ca,cb)||studentGenderRank(a)-studentGenderRank(b)||studentCodeCompare(a,b)});
+}
+function studentActiveRows(rows=studentVisibleEnrollments()){return rows.filter(e=>e.enrollment_status==="active");}
+function studentRegistrySelectedClass(){const list=studentClassOptions().filter(c=>(state.studentRegistryStageCode==="all"||c.stage_code===state.studentRegistryStageCode)&&(state.studentRegistryLevelName==="all"||c.level_name===state.studentRegistryLevelName)&&(state.studentRegistryRoomName==="all"||String(c.room_name)===String(state.studentRegistryRoomName)));return list.length===1?list[0]:null;}
+function studentEnrollmentStatusLabel(e){return {active:"กำลังเรียน",inactive:"ไม่เรียนต่อ",transferred_out:"ย้ายออก",graduated:"จบการศึกษา"}[e?.enrollment_status]||e?.enrollment_status||"—";}
+function studentEnrollmentStatusClass(e){return e?.enrollment_status==="active"?"active":e?.enrollment_status==="transferred_out"?"warning":"neutral";}
+function studentHomeroomTeacherNames(classId){const ids=state.studentRegistryHomerooms.filter(h=>h.class_id===classId).map(h=>h.teacher_id);const names=ids.map(id=>state.studentRegistryTeacherRoster.find(p=>p.id===id)).filter(p=>p&&p.account_status==="active"&&!p.deleted_at).map(p=>p.full_name).filter(Boolean);return [...new Set(names)];}
+function studentAcademicYears(){return [...new Set([...(state.academicTerms||[]).map(t=>String(t.academic_year)),...state.studentRegistryClasses.map(c=>String(c.academic_year))])].filter(Boolean).sort((a,b)=>Number(b)-Number(a));}
+function studentClassRosterRows(){return Array.isArray(state.studentRegistryClassRoster)?state.studentRegistryClassRoster:[];}
+function studentClassRosterFullName(r){return `${r?.prefix||""}${r?.first_name||""} ${r?.last_name||""}`.trim();}
+function studentClassRosterTeachers(){const row=studentClassRosterRows()[0];return Array.isArray(row?.homeroom_teacher_names)?row.homeroom_teacher_names.filter(Boolean):[];}
+function studentTeacherScopePanel(){
+  const own=studentOwnHomeroomClasses();
+  if(!own.length)return `<section class="student-filter-panel student-role-scope"><div class="student-filter-head"><div><strong>ยังไม่ได้กำหนดครูประจำชั้น</strong><span>เมนูนี้จะแสดงข้อมูลเฉพาะห้องที่ Super Admin กำหนดให้คุณเป็นครูประจำชั้น</span></div></div></section>`;
+  const chosen=own.find(c=>c.id===state.studentRegistryOwnClassId)||own[0],p=studentRegistryCurrentPeriod();
+  return `<section class="student-filter-panel student-role-scope"><div class="student-filter-head"><div><strong>ห้องที่รับผิดชอบ · ${escapeHtml(schoolClassLabel(chosen))}</strong><span>ปีการศึกษา ${escapeHtml(p.academicYear)} ภาคเรียน ${p.semester} · ระบบจำกัดข้อมูลให้อัตโนมัติตามครูประจำชั้น</span></div>${own.length>1?`<div class="field student-own-class-field"><label>เลือกห้องที่รับผิดชอบ</label><select class="select" id="student-own-class">${own.map(c=>`<option value="${c.id}" ${c.id===chosen.id?"selected":""}>${escapeHtml(schoolClassLabel(c))}</option>`).join("")}</select></div>`:""}</div></section>`;
+}
+
+
+async function loadStudentRegistryWorkspace(){
+  const p=currentAcademicPeriod();if(!state.studentRegistryAcademicYear)state.studentRegistryAcademicYear=p.academicYear;if(!state.studentRegistrySemester)state.studentRegistrySemester=p.semester;
+  const [sr,er,cr,hr,ar]=await Promise.all([
+    supabase.from("students").select("*").order("last_name").order("first_name"),
+    supabase.from("student_enrollments").select("*").order("academic_year").order("semester").order("student_number"),
+    supabase.from("school_classes").select("*").order("academic_year",{ascending:false}).order("sort_order").order("level_name").order("room_name"),
+    supabase.from("homeroom_teachers").select("*"),
+    supabase.from("academic_terms").select("*").order("academic_year",{ascending:false}).order("semester")
+  ]);
+  state.studentRegistryStudents=sr.data||[];state.studentRegistryEnrollments=er.data||[];state.studentRegistryClasses=cr.data||[];state.studentRegistryHomerooms=hr.data||[];
+  if(!ar.error)state.academicTerms=ar.data||[];
+  const teacherIds=[...new Set(state.studentRegistryHomerooms.map(h=>h.teacher_id).filter(Boolean))];
+  if(teacherIds.length){const tr=await supabase.from("profiles").select("id,full_name,account_status,deleted_at").in("id",teacherIds);state.studentRegistryTeacherRoster=tr.error?[]:(tr.data||[]);}else state.studentRegistryTeacherRoster=[];
+
+  const allowed=studentRegistryAllowedViews();
+  if(!allowed.includes(state.studentRegistryView))state.studentRegistryView="students";
+  studentApplyRoleScope();
+
+  state.studentRegistryClassRoster=[];
+  if(state.studentRegistryView==="class_list"){
+    const cls=studentRegistrySelectedClass();
+    if(cls){const rr=await supabase.rpc("get_student_class_roster",{p_class_id:cls.id});state.studentRegistryClassRoster=rr.error?[]:(rr.data||[]);}
+  }
+
+  if(canManageStudentMasterUi()){
+    const ir=await supabase.from("student_import_batches").select("*").order("created_at",{ascending:false}).limit(20);
+    state.studentRegistryImportBatches=ir.data||[];
+  }else state.studentRegistryImportBatches=[];
+
+  if(canUseStudentPromotionUi()){
+    const [br,pr]=await Promise.all([
+      supabase.from("student_promotion_batches").select("*").order("created_at",{ascending:false}),
+      supabase.from("student_promotion_items").select("*")
+    ]);
+    state.studentRegistryPromotionBatches=br.data||[];state.studentRegistryPromotionItems=pr.data||[];
+  }else{state.studentRegistryPromotionBatches=[];state.studentRegistryPromotionItems=[];}
+}
+
+
+function studentRegistryHero(){
+  const p=studentRegistryCurrentPeriod(),selectedClass=studentRegistrySelectedClass();
+  const classRoster=state.studentRegistryView==="class_list"?studentClassRosterRows():[];
+  const rows=state.studentRegistryView==="class_list"?classRoster:studentActiveRows(studentVisibleEnrollments());
+  const male=rows.filter(x=>(state.studentRegistryView==="class_list"?x.gender:studentById(x.student_id)?.gender)==="ชาย").length;
+  const female=rows.filter(x=>(state.studentRegistryView==="class_list"?x.gender:studentById(x.student_id)?.gender)==="หญิง").length;
+  const scope=selectedClass?schoolClassLabel(selectedClass):(state.studentRegistryLevelName!=="all"?state.studentRegistryLevelName:"ทุกระดับชั้น");
+  return `<section class="student-registry-hero-v2"><div class="student-hero-main"><div class="student-hero-kicker"><span>ฝ่ายบริหารงานวิชาการ</span><i></i><span>Student Registry</span></div><h2>ระบบบัญชีรายชื่อนักเรียน</h2><p>ศูนย์กลางข้อมูลนักเรียนของโรงเรียน สำหรับใบรายชื่อ บัญชีเลื่อนชั้น ระบบเยี่ยมบ้าน และบัตรนักเรียน</p><div class="student-hero-context"><span>ปีการศึกษา <strong>${escapeHtml(p.academicYear)}</strong></span><span>ภาคเรียน <strong>${p.semester}</strong></span><span>มุมมอง <strong>${escapeHtml(scope)}</strong></span></div></div><div class="student-hero-side"><div class="student-hero-stats"><article><span>นักเรียนปัจจุบัน</span><strong>${rows.length}</strong><small>คน</small></article><article><span>ห้องเรียน</span><strong>${studentClassOptions().length}</strong><small>ห้อง</small></article><article><span>ชาย</span><strong>${male}</strong><small>คน</small></article><article><span>หญิง</span><strong>${female}</strong><small>คน</small></article></div>${canManageStudentMasterUi()?`<button class="student-hero-import" id="student-import-open"><span>＋</span><div><strong>นำเข้ารายชื่อนักเรียน</strong><small>Excel (.xlsx / .xls)</small></div></button>`:""}</div></section>`;
+}
+
+
+function studentRegistryTabs(){
+  const all={students:["students","👥","ข้อมูลนักเรียน","ข้อมูลเฉพาะห้องที่รับผิดชอบ"],class_list:["class_list","▤","ใบรายชื่อ","ทุกสิทธิ์เลือกและดาวน์โหลดได้ทุกห้อง"],promotion:["promotion","↗","บัญชีเลื่อนชั้น","ครูประจำชั้นจัดการเฉพาะห้องของตน"],rooms:["rooms","▦","ระดับชั้น / ห้องเรียน","สำหรับผู้บริหารและฝ่ายวิชาการ"],import_export:["import_export","⇅","Import / Export","เฉพาะ Super Admin และหัวหน้าวิชาการ"]};
+  const tabs=studentRegistryAllowedViews().map(v=>all[v]).filter(Boolean);
+  return `<nav class="student-registry-tabs tabs-${tabs.length}" aria-label="เมนูระบบบัญชีรายชื่อนักเรียน">${tabs.map(([v,icon,label,sub])=>`<button class="student-registry-tab ${state.studentRegistryView===v?"active":""}" data-student-view="${v}"><span class="student-registry-tab-icon">${icon}</span><span class="student-registry-tab-copy"><strong>${label}</strong><small>${sub}</small></span></button>`).join("")}</nav>`;
+}
+
+
+function studentRegistryFilters(){
+  if(state.studentRegistryView==="students"&&!canViewAllStudentDataUi())return studentTeacherScopePanel();
+  if(state.studentRegistryView==="promotion"&&!canManageStudentMasterUi())return studentTeacherScopePanel();
+  const years=studentAcademicYears(),p=studentRegistryCurrentPeriod(),classes=state.studentRegistryClasses.filter(c=>String(c.academic_year)===p.academicYear&&Number(c.semester)===p.semester),stages=[...new Set(classes.map(c=>c.stage_code))],levels=[...new Set(classes.filter(c=>state.studentRegistryStageCode==="all"||c.stage_code===state.studentRegistryStageCode).map(c=>c.level_name))].sort((a,b)=>STUDENT_LEVEL_ORDER.indexOf(a)-STUDENT_LEVEL_ORDER.indexOf(b)),rooms=[...new Set(classes.filter(c=>(state.studentRegistryStageCode==="all"||c.stage_code===state.studentRegistryStageCode)&&(state.studentRegistryLevelName==="all"||c.level_name===state.studentRegistryLevelName)).map(c=>String(c.room_name)))].sort((a,b)=>a.localeCompare(b,'th',{numeric:true}));
+  const hasFilter=state.studentRegistryStageCode!=="all"||state.studentRegistryLevelName!=="all"||state.studentRegistryRoomName!=="all"||String(state.studentRegistrySearch||"").trim();
+  const allowSearch=state.studentRegistryView==="students";
+  return `<section class="student-filter-panel"><div class="student-filter-head"><div><strong>${state.studentRegistryView==="class_list"?"เลือกห้องสำหรับใบรายชื่อ":"ตัวกรองข้อมูล"}</strong><span>${state.studentRegistryView==="class_list"?"ครูทุกคนสามารถเลือกชั้น/ห้องใดก็ได้ แล้วดาวน์โหลด PDF หรือ Excel":"เลือกปีการศึกษา ระดับชั้น หรือห้องเรียน"}</span></div>${hasFilter?`<button class="student-filter-reset" id="student-filter-reset">ล้างตัวกรอง</button>`:""}</div><div class="student-filter-grid-v2"><div class="field"><label>ปีการศึกษา</label><select class="select" id="student-year">${years.map(y=>`<option value="${y}" ${y===p.academicYear?"selected":""}>${y}</option>`).join("")}</select></div><div class="field"><label>ภาคเรียน</label><select class="select" id="student-sem"><option value="1" ${p.semester===1?"selected":""}>ภาคเรียนที่ 1</option><option value="2" ${p.semester===2?"selected":""}>ภาคเรียนที่ 2</option></select></div><div class="field"><label>ช่วงชั้น</label><select class="select" id="student-stage"><option value="all">ทุกช่วงชั้น</option>${stages.map(v=>`<option value="${v}" ${state.studentRegistryStageCode===v?"selected":""}>${escapeHtml(STUDENT_STAGE_LABEL[v]||v)}</option>`).join("")}</select></div><div class="field"><label>ระดับชั้น</label><select class="select" id="student-level"><option value="all">ทุกระดับชั้น</option>${levels.map(v=>`<option value="${escapeHtml(v)}" ${state.studentRegistryLevelName===v?"selected":""}>${escapeHtml(v)}</option>`).join("")}</select></div><div class="field"><label>ห้อง</label><select class="select" id="student-room"><option value="all">ทุกห้อง</option>${rooms.map(v=>`<option value="${escapeHtml(v)}" ${String(state.studentRegistryRoomName)===v?"selected":""}>ห้อง ${escapeHtml(v)}</option>`).join("")}</select></div>${allowSearch?`<div class="field student-search-field-v2"><label>ค้นหานักเรียน</label><div class="student-search-wrap"><span>⌕</span><input class="input" id="student-search" value="${escapeHtml(state.studentRegistrySearch)}" placeholder="ชื่อ / เลขประจำตัว / เลขประชาชน"></div></div>`:""}</div></section>`;
+}
+
+
+function studentRegistryStudentsHtml(){
+  const rows=studentVisibleEnrollments(),p=studentRegistryCurrentPeriod(),c=studentRegistrySelectedClass();
+  const scope=c?schoolClassLabel(c):state.studentRegistryLevelName!=="all"?state.studentRegistryLevelName:"ทุกระดับชั้น";
+  const counters={};
+  return `<section class="student-content-card">
+    <div class="student-content-head">
+      <div class="student-content-title"><span class="student-section-icon">👥</span><div><h3>ข้อมูลนักเรียน</h3><p>${escapeHtml(scope)} · ปี ${escapeHtml(p.academicYear)} ภาคเรียน ${p.semester}</p></div><span class="student-count-badge">${rows.length} รายการ</span></div>
+      ${canManageStudentMasterUi()?`<div class="student-export-actions"><button class="btn btn-secondary" id="student-export-pdf"><span>PDF</span> ส่งออก PDF</button><button class="btn btn-secondary" id="student-export-xlsx"><span>XLSX</span> สำรอง Excel</button></div>`:""}
+    </div>
+    ${rows.length?`<div class="student-data-table-wrap"><table class="student-data-table"><thead><tr><th class="num">เลขที่</th><th>นักเรียน</th><th>เลขประจำตัว</th><th>เลขประชาชน / G</th><th>วันเกิด</th><th>ชั้น / ห้อง</th><th>สถานะ</th><th></th></tr></thead><tbody>${rows.map(e=>{const s=studentById(e.student_id),cl=studentEnrollmentClass(e),initial=(s.first_name||"น").trim().slice(0,1),no=(counters[e.class_id]=(counters[e.class_id]||0)+1);return `<tr><td class="num"><strong>${no}</strong></td><td><div class="student-person-cell"><span class="student-avatar-mini">${escapeHtml(initial)}</span><div><strong>${escapeHtml(studentFullName(s))}</strong><small>${escapeHtml(s.gender||"ไม่ระบุเพศ")}</small></div></div></td><td><span class="student-code-pill">${escapeHtml(s.student_code)}</span></td><td><span class="student-citizen-id">${escapeHtml(s.citizen_id)}</span></td><td>${thaiDateOnly(s.birth_date)}</td><td><span class="student-class-pill">${escapeHtml(schoolClassLabel(cl))}</span></td><td><span class="student-enrollment-pill ${studentEnrollmentStatusClass(e)}">${escapeHtml(studentEnrollmentStatusLabel(e))}</span>${e.exit_reason?`<small class="student-exit-note">${escapeHtml(e.exit_note||"")}</small>`:""}</td><td class="action"><div class="student-row-actions"><button class="student-detail-btn" data-student-detail="${s.id}">ดูรายละเอียด <span>›</span></button>${canManageStudentMasterUi()&&e.enrollment_status==="active"?`<button class="student-exit-btn" data-student-exit="${e.id}">นำออกจากรายชื่อ</button>`:""}</div></td></tr>`}).join("")}</tbody></table></div>`:`<div class="student-empty-state"><div class="student-empty-icon">👥</div><strong>ไม่พบรายชื่อนักเรียนในตัวกรองนี้</strong><span>${canManageStudentMasterUi()?"ลองเปลี่ยนตัวกรอง หรือนำเข้ารายชื่อจาก Excel":"ลองเปลี่ยนปีการศึกษา ระดับชั้น หรือห้องเรียน"}</span>${canManageStudentMasterUi()?`<button class="btn btn-primary" id="student-empty-import">＋ นำเข้า Excel</button>`:""}</div>`}
+  </section>`;
+}
+function studentClassListHtml(){
+  const c=studentRegistrySelectedClass(),p=studentRegistryCurrentPeriod(),rows=c?studentClassRosterRows():[];
+  const male=rows.filter(r=>r.gender==="ชาย").length,female=rows.filter(r=>r.gender==="หญิง").length,teachers=studentClassRosterTeachers();
+  return `<section class="student-content-card"><div class="student-content-head"><div class="student-content-title"><span class="student-section-icon">▤</span><div><h3>ใบรายชื่อนักเรียน${c?` · ${escapeHtml(schoolClassLabel(c))}`:""}</h3><p>${c?`ปี ${p.academicYear} · ${rows.length} คน · ชาย ${male} · หญิง ${female} · ครูประจำชั้น ${escapeHtml(teachers.join(" / ")||"ยังไม่ได้กำหนด")}`:"เลือกชั้นและห้องใดก็ได้ เพื่อจัดทำใบรายชื่อ"}</p></div></div><div class="student-export-actions"><button class="btn btn-secondary" id="student-list-pdf" ${c&&rows.length?"":"disabled"}><span>PDF</span> ใบรายชื่อ PDF</button><button class="btn btn-secondary" id="student-list-xlsx" ${c&&rows.length?"":"disabled"}><span>XLSX</span> ใบรายชื่อ Excel</button></div></div>${c&&rows.length?`<div class="student-list-note"><span>ℹ</span><div><strong>ใบรายชื่อใช้ร่วมกันทั้งโรงเรียน</strong><p>ผู้ใช้งานทุกสิทธิ์สามารถดาวน์โหลดรายชื่อของทุกชั้นได้ โดยเปิดเผยเฉพาะเลขประจำตัว ชื่อ-สกุล เพศ และครูประจำชั้นที่จำเป็นต่อใบรายชื่อ</p></div></div><div class="student-list-preview"><table><thead><tr><th>เลขที่</th><th>เลขประจำตัว</th><th class="name">ชื่อ-สกุล</th>${Array.from({length:10},(_,i)=>`<th>${i+1}</th>`).join("")}</tr></thead><tbody>${rows.map((r,i)=>`<tr><td>${i+1}</td><td>${escapeHtml(r.student_code)}</td><td class="name">${escapeHtml(studentClassRosterFullName(r))}</td>${"<td></td>".repeat(10)}</tr>`).join("")}</tbody></table></div>`:`<div class="student-empty-state compact"><div class="student-empty-icon">▤</div><strong>${c?"ห้องนี้ยังไม่มีนักเรียน":"เลือกชั้นและห้องก่อนสร้างใบรายชื่อ"}</strong><span>${c?"ไม่มีนักเรียนสถานะกำลังเรียนในห้องนี้":"กำหนด ปีการศึกษา → ระดับชั้น → ห้อง จากด้านบน"}</span></div>`}</section>`;
+}
+
+function studentPromotionHtml(){
+  if(!canUseStudentPromotionUi())return `<section class="student-content-card"><div class="student-empty-state compact"><strong>ไม่มีสิทธิ์เข้าถึงบัญชีเลื่อนชั้น</strong></div></section>`;
+  const source=studentRegistrySelectedClass(),rows=source?studentActiveRows(studentVisibleEnrollments().filter(e=>e.class_id===source.id)):[],p=studentRegistryCurrentPeriod(),nextLevel=source?STUDENT_NEXT_LEVEL[source.level_name]:null,targetYear=String(Number(p.academicYear)+1),targets=state.studentRegistryClasses.filter(c=>String(c.academic_year)===targetYear&&Number(c.semester)===1&&c.is_active&&(!nextLevel||c.level_name===nextLevel)).sort(studentClassSort);
+  if(!source)return `<section class="student-content-card"><div class="student-empty-state compact"><div class="student-empty-icon">↗</div><strong>เลือกให้เหลือ 1 ห้องก่อนทำบัญชีเลื่อนชั้น</strong><span>กำหนด “ช่วงชั้น → ระดับชั้น → ห้อง” จากตัวกรองด้านบน</span></div></section>`;
+  return `<section class="student-content-card"><div class="student-content-head"><div class="student-content-title"><span class="student-section-icon">↗</span><div><h3>บัญชีเลื่อนชั้น ${escapeHtml(schoolClassLabel(source))}</h3><p>ปี ${p.academicYear} → ${targetYear} ${nextLevel?`· แนะนำ ${escapeHtml(nextLevel)}`:"· ชั้นปลายทางสุดท้าย"}</p></div><span class="student-count-badge">${rows.length} คน</span></div>${isSuperAdminUser()?`<button class="btn btn-secondary" id="student-academic-year-add">＋ เพิ่มปีการศึกษา ${targetYear}</button>`:""}</div>${!targets.length&&nextLevel?`<div class="project-paper-note danger"><strong>ยังไม่มีห้อง ${escapeHtml(nextLevel)} ปี ${targetYear}</strong><span>กด “เพิ่มปีการศึกษา ${targetYear}” เพื่อสร้างปีใหม่และคัดลอกโครงสร้างห้อง หรือสร้างห้องปลายทางในแท็บ “ระดับชั้น / ห้องเรียน” ก่อนยืนยันเลื่อนชั้น</span></div>`:""}<div class="student-data-table-wrap"><table class="student-data-table promotion"><thead><tr><th class="num">เลขที่</th><th>นักเรียน</th><th>ผลการพิจารณา</th><th>ชั้น/ห้องปลายทาง</th></tr></thead><tbody>${rows.map((e,i)=>{const s=studentById(e.student_id),graduating=!nextLevel;return `<tr data-promotion-row data-enrollment-id="${e.id}" data-student-id="${s.id}"><td class="num"><strong>${i+1}</strong></td><td><div class="student-person-cell"><span class="student-avatar-mini">${escapeHtml((s.first_name||"น").slice(0,1))}</span><div><strong>${escapeHtml(studentFullName(s))}</strong><small>${escapeHtml(s.student_code)}</small></div></div></td><td><select class="select promotion-decision"><option value="${graduating?"graduated":"promoted"}">${graduating?"จบการศึกษา":"เลื่อนชั้น"}</option><option value="not_promoted">ไม่ได้เลื่อนชั้น</option><option value="transferred_out">ย้ายออก</option></select></td><td><select class="select promotion-target" ${graduating?"disabled":""}><option value="">${graduating?"—":"เลือกห้องปลายทาง"}</option>${targets.map(c=>`<option value="${c.id}">${escapeHtml(schoolClassLabel(c))}</option>`).join("")}</select></td></tr>`}).join("")}</tbody></table></div><div class="student-bottom-action"><div><strong>ตรวจสอบก่อนยืนยัน</strong><span>การยืนยันจะสร้างข้อมูลการเรียนสำหรับปี ${targetYear}</span></div><button class="btn btn-primary" id="student-promotion-apply" ${rows.length?"":"disabled"}>ยืนยันบัญชีเลื่อนชั้น ${rows.length} คน</button></div></section>`;
+}
+function studentRoomsHtml(){
+  if(!canViewStudentRoomsUi())return `<section class="student-content-card"><div class="student-empty-state compact"><strong>ไม่มีสิทธิ์ดูระดับชั้น / ห้องเรียน</strong></div></section>`;
+  const p=studentRegistryCurrentPeriod(),classes=studentClassOptions(),current=(state.academicTerms||[]).find(t=>t.is_current);
+  return `<section class="student-content-card"><div class="student-content-head"><div class="student-content-title"><span class="student-section-icon">▦</span><div><h3>ระดับชั้น / ห้องเรียน</h3><p>ปีการศึกษา ${p.academicYear} ภาคเรียน ${p.semester} · ${classes.length} ห้อง${current?` · ภาคเรียนปัจจุบันของระบบ ${escapeHtml(current.academic_year)}/${current.semester}`:""}</p></div></div><div class="admin-actions">${isSuperAdminUser()?`<button class="btn btn-secondary" id="student-academic-year-add">＋ เพิ่มปีการศึกษา</button><button class="btn btn-secondary" id="student-set-current-term">◎ ตั้งเป็นภาคเรียนปัจจุบัน</button>`:""}${canManageStudentMasterUi()&&p.semester===1?`<button class="btn btn-secondary" id="student-copy-semester">⇢ คัดลอกไปภาคเรียน 2</button>`:""}${canManageStudentMasterUi()?`<button class="btn btn-primary" id="student-room-add">＋ เพิ่มห้องเรียน</button>`:""}</div></div><div class="student-room-grid-v2">${classes.map(c=>{const count=state.studentRegistryEnrollments.filter(e=>e.class_id===c.id&&e.enrollment_status==="active").length,teachers=studentHomeroomTeacherNames(c.id);return `<article class="student-room-card-v2"><div class="student-room-card-top"><span>${escapeHtml(STUDENT_STAGE_LABEL[c.stage_code]||c.stage_code)}</span><i class="${c.is_active?"on":"off"}">${c.is_active?"เปิดใช้งาน":"ปิดใช้งาน"}</i></div><strong>${escapeHtml(schoolClassLabel(c))}</strong><div class="student-room-count"><b>${count}</b><span>นักเรียน</span></div><div class="student-room-homeroom"><span>ครูประจำชั้น</span><strong>${escapeHtml(teachers.join(" / ")||"ยังไม่ได้กำหนด")}</strong></div><div class="student-room-card-foot"><small>ภาคเรียน ${c.semester}</small>${canManageStudentMasterUi()?`<button data-student-room-toggle="${c.id}">${c.is_active?"ปิดห้อง":"เปิดห้อง"}</button>`:""}</div></article>`}).join("")||`<div class="student-empty-state compact"><div class="student-empty-icon">▦</div><strong>ยังไม่มีห้องเรียนในปี/ภาคเรียนนี้</strong><span>${isSuperAdminUser()?"สร้างปีการศึกษาหรือเพิ่มห้องเรียนเพื่อเตรียมบัญชีเลื่อนชั้น":"เพิ่มห้องเรียนเพื่อเริ่มจัดนักเรียนเข้าชั้น"}</span></div>`}</div></section>`;
+}
+function studentImportExportHtml(){
+  if(!canManageStudentMasterUi())return `<section class="student-content-card"><div class="student-empty-state compact"><strong>เมนูนี้สำหรับ Super Admin และหัวหน้าฝ่ายวิชาการเท่านั้น</strong></div></section>`;
+  const batches=state.studentRegistryImportBatches||[],p=studentRegistryCurrentPeriod();
+  return `<section class="student-content-card"><div class="student-content-head"><div class="student-content-title"><span class="student-section-icon">⇅</span><div><h3>Import / Export ข้อมูลนักเรียน</h3><p>ปี ${p.academicYear} ภาคเรียน ${p.semester} · นำเข้า ตรวจสอบ และสำรองข้อมูล</p></div></div></div><div class="student-action-grid-v2"><button class="student-action-card-v2 template" id="student-template-download"><span class="icon">↓</span><div><strong>ดาวน์โหลดแบบฟอร์ม Excel</strong><small>แบบฟอร์มเปล่าสำหรับกรอกข้อมูลนักเรียน</small></div><em>ดาวน์โหลด</em></button>${canManageStudentMasterUi()?`<button class="student-action-card-v2 import" id="student-import-open-2"><span class="icon">↑</span><div><strong>นำเข้ารายชื่อจาก Excel</strong><small>Preview และตรวจข้อมูลก่อนบันทึกจริง</small></div><em>อัปโหลด</em></button>`:""}<button class="student-action-card-v2 export" id="student-export-xlsx-2"><span class="icon">⇩</span><div><strong>Export รายชื่อปัจจุบัน</strong><small>ส่งออกตามตัวกรองที่กำลังเลือก</small></div><em>.xlsx</em></button>${canManageStudentMasterUi()&&state.studentRegistryStudents.length===0?`<button class="student-action-card-v2 seed" id="student-seed-import"><span class="icon">★</span><div><strong>นำเข้าข้อมูลเริ่มต้นของโรงเรียน</strong><small>ชุดรายชื่อนักเรียนที่แนบมากับระบบ</small></div><em>เริ่มต้น</em></button>`:""}</div>${canManageStudentMasterUi()?`<div class="student-import-history"><div class="student-history-head"><strong>ประวัติการนำเข้า</strong><span>${batches.length} รายการล่าสุด</span></div>${batches.length?`<div class="student-data-table-wrap"><table class="student-data-table"><thead><tr><th>ไฟล์</th><th>ปี / ภาคเรียน</th><th>จำนวน</th><th>เพิ่มใหม่</th><th>อัปเดต</th><th>สถานะ</th><th>เวลา</th></tr></thead><tbody>${batches.map(b=>`<tr><td><strong>${escapeHtml(b.source_filename)}</strong></td><td>${escapeHtml(b.academic_year)} / ${b.semester}</td><td>${b.total_rows}</td><td>${b.inserted_count}</td><td>${b.updated_count}</td><td><span class="student-active-pill">${escapeHtml(b.status)}</span></td><td>${formatDate(b.created_at)}</td></tr>`).join("")}</tbody></table></div>`:`<div class="student-empty-state compact"><strong>ยังไม่มีประวัติการนำเข้า</strong><span>เมื่อมีการนำเข้า Excel ประวัติจะแสดงที่นี่</span></div>`}</div>`:""}</section>`;
+}
+
+function studentRegistryWorkspaceHtml(){let body=studentRegistryStudentsHtml();if(state.studentRegistryView==="class_list")body=studentClassListHtml();if(state.studentRegistryView==="promotion")body=studentPromotionHtml();if(state.studentRegistryView==="rooms")body=studentRoomsHtml();if(state.studentRegistryView==="import_export")body=studentImportExportHtml();return `<div class="student-registry-workspace">${studentRegistryHero()}${studentRegistryTabs()}${studentRegistryFilters()}${body}</div>`;}
+function downloadBlob(blob,filename){const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=filename||"download";a.style.display="none";document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);}
+function xlsxDownloadFromRows(rows,filename,sheetName="ข้อมูล"){try{const ws=XLSX.utils.json_to_sheet(rows),wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,sheetName);const data=XLSX.write(wb,{bookType:"xlsx",type:"array"});downloadBlob(new Blob([data],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}),filename);}catch(err){console.error(err);toast("ดาวน์โหลด Excel ไม่สำเร็จ",err.message||"กรุณาลองใหม่","error");}}
+function studentRowsForExport(){const rows=studentVisibleEnrollments(),counters={};return rows.map(e=>{const s=studentById(e.student_id),c=studentEnrollmentClass(e),no=(counters[e.class_id]=(counters[e.class_id]||0)+1);return {"เลขที่":no,"เลขประจำตัวนักเรียน":s?.student_code||"","เลขประชาชน/G":s?.citizen_id||"","ชื่อ-สกุล":studentFullName(s),"วันเกิด":s?.birth_date?thaiDateOnly(s.birth_date):"","ชั้น/ห้อง":schoolClassLabel(c),"ปีการศึกษา":e.academic_year,"ภาคเรียน":e.semester,"สถานะ":studentEnrollmentStatusLabel(e),"เหตุผลออกจากรายชื่อ":e.exit_note||""};});}
+function studentExportXlsx(){if(!canManageStudentMasterUi())return;const p=studentRegistryCurrentPeriod(),rows=studentRowsForExport();if(!rows.length)return toast("ไม่มีข้อมูลสำหรับ Export","เลือกปี/ภาคเรียนหรือห้องที่มีรายชื่อนักเรียนก่อน","error");xlsxDownloadFromRows(rows,`บัญชีรายชื่อนักเรียน_${p.academicYear}_ภาค${p.semester}.xlsx`,`รายชื่อนักเรียน`);}
+function studentTemplateDownload(){
+  if(!canManageStudentMasterUi())return;
+  try{
+    
+    const p=studentRegistryCurrentPeriod(),headers=["เลขประจำตัวประชาชน/เลข G","ระดับชั้น","ห้อง","เลขที่","เลขประจำตัวนักเรียน","คำนำหน้าชื่อ","ชื่อ","นามสกุล","วันเกิด","น้ำหนัก","ส่วนสูง","กลุ่มเลือด","ศาสนา","เชื้อชาติ","สัญชาติ","บ้านเลขที่","หมู่","ถนน/ซอย","ตำบล","อำเภอ","จังหวัด","คำนำหน้าชื่อผู้ปกครอง","ชื่อผู้ปกครอง","นามสกุลผู้ปกครอง","อาชีพของผู้ปกครอง","ความเกี่ยวข้องของผู้ปกครองกับนักเรียน","คำนำหน้าชื่อบิดา","ชื่อบิดา","นามสกุลบิดา","อาชีพของบิดา","คำนำหน้าชื่อมารดา","ชื่อมารดา","นามสกุลมารดา","อาชีพของมารดา","ความด้อยโอกาส","ยังไม่สามารถจำหน่ายได้ (3.1.8)"];
+    const ws=XLSX.utils.aoa_to_sheet([headers]),book=XLSX.utils.book_new();ws["!cols"]=headers.map((h,i)=>({wch:i===0?23:i>=5&&i<=7?18:15}));XLSX.utils.book_append_sheet(book,ws,"กรอกข้อมูลนักเรียน");
+    const info=XLSX.utils.aoa_to_sheet([["แบบฟอร์มนำเข้าระบบบัญชีรายชื่อนักเรียน"],[`ปีการศึกษา ${p.academicYear} ภาคเรียน ${p.semester}`],["ระบบจะตรวจสอบข้อมูลและแสดง Preview ก่อนบันทึกจริง"],["ช่องเลขที่ไม่จำเป็นต้องกรอก ระบบจะเรียงใหม่อัตโนมัติ: ชายก่อน → รหัสนักเรียนน้อยไปมาก → หญิง → รหัสนักเรียนน้อยไปมาก"],["วันเกิดให้กรอกเป็น วัน/เดือน/ปี พ.ศ. เช่น 03/11/2564"],["หากเป็นเลข G ให้ใส่ตัวอักษร G ต่อเนื่องกับตัวเลข โดยไม่เว้นวรรค"],["ระดับชั้นและห้องต้องตรงกับห้องที่สร้างไว้ในระบบ"]]);XLSX.utils.book_append_sheet(book,info,"คำแนะนำ");
+    const data=XLSX.write(book,{bookType:"xlsx",type:"array"});downloadBlob(new Blob([data],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}),`BNK_แบบฟอร์มบัญชีรายชื่อนักเรียน_${p.academicYear}.xlsx`);
+  }catch(err){console.error(err);toast("ดาวน์โหลดแบบฟอร์มไม่สำเร็จ",err.message||"กรุณาลองใหม่","error");}
+}
+function studentClassListXlsx(){const c=studentRegistrySelectedClass(),p=studentRegistryCurrentPeriod();if(!c)return toast("กรุณาเลือกห้อง","เลือกให้เหลือ 1 ห้องก่อน Export","error");const rows=studentClassRosterRows().map((r,i)=>{const o={"เลขที่":i+1,"เลขประจำตัว":r.student_code,"ชื่อ-สกุล":studentClassRosterFullName(r)};for(let x=1;x<=10;x++)o[`ช่อง ${x}`]="";return o;});if(!rows.length)return toast("ไม่มีรายชื่อ","ห้องนี้ยังไม่มีนักเรียนกำลังเรียน","error");xlsxDownloadFromRows(rows,`ใบรายชื่อ_${schoolClassLabel(c)}_${p.academicYear}.xlsx`,`ใบรายชื่อ`);}
+
+async function studentPdfBase(title,subtitle,tableHtml,{landscape=false,extraHeader="",compactSchoolHeader=false,classListFit=false}={}){
+  const logo=await schoolLogoDataUrl(),school=escapeHtml(schoolName()),styles=`${a4DocumentStyles()} @page{size:A4 ${landscape?"landscape":"portrait"};margin:${classListFit?"7mm":"9mm"}}.a4-document{width:${landscape?"277mm":classListFit?"196mm":"190mm"};min-height:${landscape?"190mm":classListFit?"283mm":"277mm"};padding:0;box-shadow:none}.a4-document-inner{overflow:hidden}.student-pdf-head{text-align:center;margin-bottom:${classListFit?"2mm":"3mm"}}.student-pdf-head .a4-school-logo{height:${compactSchoolHeader?"17mm":"24mm"};max-width:${compactSchoolHeader?"25mm":"34mm"};margin-bottom:${compactSchoolHeader?".5mm":"1mm"}}.student-pdf-head h1{margin:0;font-size:${compactSchoolHeader?"16pt":"18pt"};font-weight:700}.student-pdf-head h2{margin:${compactSchoolHeader?".5mm":"1mm"} 0 0;font-size:${compactSchoolHeader?"16pt":"17pt"}}.student-pdf-head p{margin:0;font-size:${compactSchoolHeader?"12.5pt":"14pt"};line-height:1.05}.student-pdf-extra{margin:${classListFit?"1mm 0 2mm":"2mm 0 3mm"};font-size:${classListFit?"12.5pt":"14pt"};line-height:1.08}.student-pdf-table{width:100%;border-collapse:collapse;table-layout:fixed;page-break-inside:avoid}.student-pdf-table th,.student-pdf-table td{border:1px solid #222;padding:1mm;font-size:${landscape?"9pt":"10.5pt"};vertical-align:middle}.student-pdf-table th{text-align:center;font-weight:700}.student-pdf-table td.center{text-align:center}.student-pdf-table.class-list th,.student-pdf-table.class-list td{font-size:${classListFit?"11pt":"9.7pt"};padding:${classListFit?".42mm":".8mm"};line-height:1.05}.student-pdf-table.class-list th.blank{width:10mm}.student-pdf-table.class-list td{height:${classListFit?"5.25mm":"7.4mm"}}.student-pdf-table.class-list .name{white-space:nowrap;overflow:hidden}`;
+  const schoolDetails=compactSchoolHeader?"":`<p>${escapeHtml(schoolAddress())}</p><p>${escapeHtml(educationOffice())}</p>`;
+  const body=`<article class="a4-document"><div class="a4-document-inner"><div class="student-pdf-head">${logo?`<img class="a4-school-logo" src="${logo}" alt="ตราโรงเรียน">`:""}<h1>${school}</h1>${schoolDetails}<h2>${escapeHtml(title)}</h2><p>${escapeHtml(subtitle)}</p>${extraHeader?`<div class="student-pdf-extra">${extraHeader}</div>`:""}</div>${tableHtml}</div></article>`;
+  const w=window.open("","_blank");if(!w)return toast("เปิดหน้าพิมพ์ไม่ได้","กรุณาอนุญาต Pop-up","error");w.document.write(`<!doctype html><html lang="th"><head><meta charset="UTF-8"><title>${escapeHtml(title)}</title><style>${styles}</style></head><body class="a4-print-body">${body}<script>window.addEventListener('load',()=>{const imgs=[...document.images];Promise.all([document.fonts?document.fonts.ready:Promise.resolve(),...imgs.map(img=>img.complete?Promise.resolve():new Promise(r=>{img.onload=r;img.onerror=r;}))]).finally(()=>setTimeout(()=>window.print(),400));});<\/script></body></html>`);w.document.close();
+}
+async function studentRegistryPdf(){if(!canManageStudentMasterUi())return;const rows=studentVisibleEnrollments(),p=studentRegistryCurrentPeriod(),c=studentRegistrySelectedClass(),counters={},table=`<table class="student-pdf-table"><thead><tr><th style="width:12mm">เลขที่</th><th style="width:24mm">เลขประจำตัว</th><th style="width:38mm">เลขประชาชน/G</th><th>ชื่อ-นามสกุล</th><th style="width:28mm">วันเกิด</th><th style="width:24mm">ชั้น</th><th style="width:24mm">สถานะ</th></tr></thead><tbody>${rows.map(e=>{const st=studentById(e.student_id),cl=studentEnrollmentClass(e),no=(counters[e.class_id]=(counters[e.class_id]||0)+1);return `<tr><td class="center">${no}</td><td>${escapeHtml(st.student_code)}</td><td>${escapeHtml(st.citizen_id)}</td><td>${escapeHtml(studentFullName(st))}</td><td>${thaiDateOnly(st.birth_date)}</td><td class="center">${escapeHtml(schoolClassLabel(cl))}</td><td class="center">${escapeHtml(studentEnrollmentStatusLabel(e))}</td></tr>`}).join("")}</tbody></table>`;await studentPdfBase("บัญชีรายชื่อนักเรียน",`ปีการศึกษา ${p.academicYear} ภาคเรียน ${p.semester}${c?` · ${schoolClassLabel(c)}`:""}`,table,{landscape:false});}
+async function studentClassListPdf(){const p=studentRegistryCurrentPeriod(),c=studentRegistrySelectedClass();if(!c)return toast("กรุณาเลือกห้อง","เลือกให้เหลือ 1 ห้องก่อน Export","error");const rows=studentClassRosterRows(),male=rows.filter(r=>r.gender==="ชาย").length,female=rows.filter(r=>r.gender==="หญิง").length,teachers=studentClassRosterTeachers();if(!rows.length)return toast("ไม่มีรายชื่อ","ห้องนี้ยังไม่มีนักเรียนกำลังเรียน","error");const table=`<table class="student-pdf-table class-list"><thead><tr><th style="width:10mm">เลขที่</th><th style="width:23mm">เลขประจำตัว</th><th style="width:47mm">ชื่อ-สกุล</th>${Array.from({length:10},(_,i)=>`<th class="blank">${i+1}</th>`).join("")}</tr></thead><tbody>${rows.map((r,i)=>`<tr><td class="center">${i+1}</td><td class="center">${escapeHtml(r.student_code)}</td><td class="name">${escapeHtml(studentClassRosterFullName(r))}</td>${"<td>&nbsp;</td>".repeat(10)}</tr>`).join("")}</tbody></table>`,extra=`<div><strong>จำนวนนักเรียนทั้งหมด ${rows.length} คน</strong> · ชาย ${male} คน · หญิง ${female} คน</div><div><strong>ครูประจำชั้น:</strong> ${escapeHtml(teachers.join(" / ")||"ยังไม่ได้กำหนดครูประจำชั้น")}</div>`;await studentPdfBase(`รายชื่อนักเรียน ${schoolClassLabel(c)}`,`ปีการศึกษา ${p.academicYear} ภาคเรียนที่ ${p.semester}`,table,{landscape:false,extraHeader:extra,compactSchoolHeader:true,classListFit:true});}
+
+
+function parseStudentExcelDate(v){if(v instanceof Date)return v.toISOString().slice(0,10);if(typeof v==="number"){const d=XLSX.SSF.parse_date_code(v);if(d)return `${String(d.y).padStart(4,"0")}-${String(d.m).padStart(2,"0")}-${String(d.d).padStart(2,"0")}`;}const s=String(v||"").trim();if(/^\d{4}-\d{2}-\d{2}$/.test(s))return s;const m=s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);if(!m)return "";let y=Number(m[3]);if(y>2400)y-=543;return `${y}-${String(m[2]).padStart(2,"0")}-${String(m[1]).padStart(2,"0")}`;}
+function cleanExcelCell(v){const s=String(v??"").trim();return ["","-","—"].includes(s)?null:s;}
+function studentImportGenderRank(r){return r?.gender==="ชาย"?0:r?.gender==="หญิง"?1:2;}
+function studentImportCodeCompare(a,b){return String(a?.student_code||"").localeCompare(String(b?.student_code||""),"th",{numeric:true,sensitivity:"base"});}
+function normalizeStudentImportRoster(rows){
+  const groups=new Map();(rows||[]).forEach(raw=>{const r={...raw},key=`${r.level_name}/${r.room_name}`;if(!groups.has(key))groups.set(key,[]);groups.get(key).push(r)});
+  const keys=[...groups.keys()].sort((ka,kb)=>{const [la,ra]=ka.split("/"),[lb,rb]=kb.split("/");const ia=STUDENT_LEVEL_ORDER.indexOf(la),ib=STUDENT_LEVEL_ORDER.indexOf(lb);return (ia<0?999:ia)-(ib<0?999:ib)||String(ra).localeCompare(String(rb),"th",{numeric:true})});
+  const out=[];for(const key of keys){const list=groups.get(key).sort((a,b)=>studentImportGenderRank(a)-studentImportGenderRank(b)||studentImportCodeCompare(a,b)||String(a.first_name||"").localeCompare(String(b.first_name||""),"th")||String(a.last_name||"").localeCompare(String(b.last_name||""),"th"));list.forEach((r,i)=>{r.student_number=i+1;out.push(r)});}return out;
+}
+function buildStudentImportPreview(rows,baseErrors=[],academicYear=null,semester=null,filename=""){
+  const p=studentRegistryCurrentPeriod(),year=String(academicYear||p.academicYear),sem=Number(semester||p.semester),normalized=normalizeStudentImportRoster(rows),errors=[...(baseErrors||[])];
+  const dupCode=normalized.filter((x,i,a)=>a.findIndex(y=>y.student_code===x.student_code)!==i),dupCitizen=normalized.filter((x,i,a)=>a.findIndex(y=>y.citizen_id===x.citizen_id)!==i);if(dupCode.length)errors.push(`พบเลขประจำตัวนักเรียนซ้ำ ${dupCode.length} รายการ`);if(dupCitizen.length)errors.push(`พบเลขประชาชน/เลข G ซ้ำ ${dupCitizen.length} รายการ`);
+  const unknownGender=normalized.filter(x=>!['ชาย','หญิง'].includes(x.gender));if(unknownGender.length)errors.push(`ไม่สามารถระบุเพศจากคำนำหน้า ${unknownGender.length} รายการ`);
+  const classSet=new Set(state.studentRegistryClasses.filter(c=>String(c.academic_year)===year&&Number(c.semester)===sem&&c.is_active).map(c=>`${c.level_name}/${c.room_name}`)),missing=[...new Set(normalized.map(x=>`${x.level_name}/${x.room_name}`).filter(k=>!classSet.has(k)))];if(missing.length)errors.push(`ไม่พบห้องในปี ${year} ภาคเรียน ${sem}: ${missing.join(", ")}`);
+  const stats=new Map();normalized.forEach(r=>{const k=`${r.level_name}/${r.room_name}`,v=stats.get(k)||{key:k,total:0,male:0,female:0};v.total++;if(r.gender==='ชาย')v.male++;if(r.gender==='หญิง')v.female++;stats.set(k,v)});
+  return {rows:normalized,errors:[...new Set(errors)],classCounts:[...stats.values()].map(x=>[x.key,x.total]),classStats:[...stats.values()],academicYear:year,semester:sem,filename};
+}
+function parseStudentWorksheet(ws){
+  const data=XLSX.utils.sheet_to_json(ws,{header:1,defval:"",raw:true}),headers=(data[0]||[]).map(x=>String(x).trim()),legacy=headers[0]==="เลขประจำตัวนักเรียน"&&headers[3]==="เลขประจำตัวนักเรียน",map={};headers.forEach((h,i)=>{if(map[h]===undefined)map[h]=i});const ix=(name,fallback)=>map[name]!==undefined?map[name]:fallback,out=[],errors=[];
+  for(let ri=1;ri<data.length;ri++){
+    const r=data[ri];if(!r||r.every(v=>String(v??"").trim()===""))continue;
+    const citizen=String(r[legacy?0:ix("เลขประจำตัวประชาชน/เลข G",0)]??"").trim(),level=String(r[legacy?1:ix("ระดับชั้น",1)]??"").trim(),room=String(r[legacy?2:ix("ห้อง",2)]??"").trim(),studentCode=String(r[legacy?3:ix("เลขประจำตัวนักเรียน",4)]??"").trim(),prefix=String(r[legacy?4:ix("คำนำหน้าชื่อ",5)]??"").trim(),first=String(r[legacy?5:ix("ชื่อ",6)]??"").trim(),last=String(r[legacy?6:ix("นามสกุล",7)]??"").trim(),birth=parseStudentExcelDate(r[legacy?7:ix("วันเกิด",8)]),gender=["เด็กชาย","นาย"].includes(prefix)?"ชาย":["เด็กหญิง","นางสาว"].includes(prefix)?"หญิง":null;
+    if(!citizen||!level||!room||!studentCode||!first||!last||!birth)errors.push(`แถว ${ri+1}: ข้อมูลบังคับไม่ครบ`);
+    if(!gender)errors.push(`แถว ${ri+1}: ไม่สามารถระบุเพศจากคำนำหน้า "${prefix||'-'}"`);
+    const o={citizen_id:citizen,level_name:level,room_name:room,student_number:0,student_code:studentCode,prefix,first_name:first,last_name:last,birth_date:birth,gender,_source_row:ri+1};const at=i=>r[i];Object.assign(o,{weight_kg:Number(at(9))||null,height_cm:Number(at(10))||null,blood_group:cleanExcelCell(at(11)),religion:cleanExcelCell(at(12)),ethnicity:cleanExcelCell(at(13)),nationality:cleanExcelCell(at(14)),house_no:cleanExcelCell(at(15)),village_no:cleanExcelCell(at(16)),road_soi:cleanExcelCell(at(17)),subdistrict:cleanExcelCell(at(18)),district:cleanExcelCell(at(19)),province:cleanExcelCell(at(20)),guardian_prefix:cleanExcelCell(at(21)),guardian_first_name:cleanExcelCell(at(22)),guardian_last_name:cleanExcelCell(at(23)),guardian_occupation:cleanExcelCell(at(24)),guardian_relationship:cleanExcelCell(at(25)),father_prefix:cleanExcelCell(at(26)),father_first_name:cleanExcelCell(at(27)),father_last_name:cleanExcelCell(at(28)),father_occupation:cleanExcelCell(at(29)),mother_prefix:cleanExcelCell(at(30)),mother_first_name:cleanExcelCell(at(31)),mother_last_name:cleanExcelCell(at(32)),mother_occupation:cleanExcelCell(at(33)),disadvantaged_status:cleanExcelCell(at(34)),pending_disposal_status:cleanExcelCell(at(35))});out.push(o);
+  }
+  return {rows:out,errors};
+}
+function studentImportPreviewHtml(p){
+  const sample=p.rows.slice(0,80),remaining=Math.max(0,p.rows.length-sample.length);return `<div class="student-import-summary"><article><strong>${p.rows.length}</strong><span>นักเรียน</span></article><article><strong>${p.classStats.length}</strong><span>ห้อง</span></article><article class="${p.errors.length?"bad":"good"}"><strong>${p.errors.length}</strong><span>ข้อผิดพลาด</span></article></div>${p.errors.length?`<div class="project-paper-note danger"><strong>ยังนำเข้าไม่ได้</strong><span>${p.errors.map(escapeHtml).join("<br>")}</span></div>`:`<div class="project-paper-note success"><strong>พร้อมนำเข้า</strong><span>ตรวจข้อมูลแล้ว และระบบคำนวณเลขที่ใหม่ตามกฎ: ชายก่อน → รหัสนักเรียนน้อยไปมาก → หญิง → รหัสนักเรียนน้อยไปมาก</span></div>`}<div class="table-wrap"><table class="table"><thead><tr><th>ชั้น/ห้อง</th><th>ทั้งหมด</th><th>ชาย</th><th>หญิง</th></tr></thead><tbody>${p.classStats.map(x=>`<tr><td>${escapeHtml(x.key)}</td><td>${x.total}</td><td>${x.male}</td><td>${x.female}</td></tr>`).join("")}</tbody></table></div><div class="student-import-roster-preview"><div class="student-history-head"><strong>ตัวอย่างลำดับก่อนบันทึกจริง</strong><span>${remaining?`แสดง 80 จาก ${p.rows.length} คน`:`${p.rows.length} คน`}</span></div><div class="table-wrap"><table class="table"><thead><tr><th>ชั้น/ห้อง</th><th>เลขที่ใหม่</th><th>เพศ</th><th>รหัสนักเรียน</th><th>ชื่อ-สกุล</th></tr></thead><tbody>${sample.map(r=>`<tr><td>${escapeHtml(`${r.level_name}/${r.room_name}`)}</td><td><strong>${r.student_number}</strong></td><td>${escapeHtml(r.gender||"—")}</td><td>${escapeHtml(r.student_code)}</td><td>${escapeHtml(`${r.prefix||""}${r.first_name||""} ${r.last_name||""}`.trim())}</td></tr>`).join("")}</tbody></table></div>${remaining?`<p class="helper">ยังมีอีก ${remaining} คน ระบบจะใช้กฎเดียวกันทุกห้องเมื่อบันทึกจริง</p>`:""}</div>`;}
+function studentImportModal(seedPreview=null){
+  if(!canManageStudentMasterUi())return;const p=studentRegistryCurrentPeriod(),m=document.createElement("div");m.className="modal-backdrop";m.innerHTML=`<div class="modal modal-wide"><div class="modal-head"><div><h3>นำเข้ารายชื่อนักเรียนจาก Excel</h3><p>ระบบจะตรวจข้อมูล จัดลำดับ และแสดงเลขที่ใหม่ให้ตรวจสอบก่อนเขียนลงฐานข้อมูล</p></div><button class="modal-close">×</button></div><div class="form-row"><div class="field"><label>ปีการศึกษา</label><input class="input" id="student-import-year" type="number" value="${p.academicYear}"></div><div class="field"><label>ภาคเรียน</label><select class="select" id="student-import-sem"><option value="1" ${p.semester===1?"selected":""}>1</option><option value="2" ${p.semester===2?"selected":""}>2</option></select></div></div><div class="field"><label>ไฟล์ Excel</label><input class="input" id="student-import-file" type="file" accept=".xlsx,.xls"></div><div id="student-import-preview"><div class="empty"><strong>เลือกไฟล์เพื่อ Preview</strong><span>เลขที่ใน Excel จะไม่ถูกใช้ ระบบจะคำนวณใหม่อัตโนมัติ</span></div></div><div class="modal-actions"><button class="btn btn-ghost modal-cancel">ยกเลิก</button><button class="btn btn-primary" id="student-import-confirm" disabled>ยืนยันนำเข้าระบบ</button></div></div>`;
+  document.body.appendChild(m);let parsedRows=seedPreview?.rows||null,baseErrors=seedPreview?.errors||[],filename=seedPreview?.filename||"BNK_Student_Master_รายชื่อนักเรียนทั้งโรงเรียน.xlsx",preview=null,worksheet=null;const close=()=>m.remove(),yearEl=m.querySelector("#student-import-year"),semEl=m.querySelector("#student-import-sem"),previewEl=m.querySelector("#student-import-preview"),confirmBtn=m.querySelector("#student-import-confirm");m.querySelector(".modal-close").onclick=close;m.querySelector(".modal-cancel").onclick=close;
+  const refresh=()=>{if(!parsedRows)return;preview=buildStudentImportPreview(parsedRows,baseErrors,String(yearEl.value),Number(semEl.value),filename);previewEl.innerHTML=studentImportPreviewHtml(preview);confirmBtn.disabled=!!preview.errors.length;};
+  if(parsedRows)refresh();
+  m.querySelector("#student-import-file").onchange=async e=>{const file=e.target.files?.[0];if(!file)return;filename=file.name;try{const ab=await file.arrayBuffer(),book=XLSX.read(ab,{type:"array",cellDates:true});worksheet=book.Sheets[book.SheetNames[0]];const parsed=parseStudentWorksheet(worksheet);parsedRows=parsed.rows;baseErrors=parsed.errors;refresh();}catch(err){console.error(err);toast("อ่านไฟล์ Excel ไม่สำเร็จ",err.message,"error")}};
+  yearEl.onchange=refresh;semEl.onchange=refresh;
+  confirmBtn.onclick=async e=>{if(!preview||preview.errors.length)return;buttonLoading(e.currentTarget,true,"กำลังนำเข้า...");const year=String(yearEl.value),sem=Number(semEl.value),payload=preview.rows.map(({_source_row,...r})=>r),{data,error}=await supabase.rpc("import_student_registry",{p_rows:payload,p_academic_year:year,p_semester:sem,p_source_filename:filename});buttonLoading(e.currentTarget,false);if(error)return toast("นำเข้าไม่สำเร็จ",error.message,"error");close();toast("นำเข้ารายชื่อนักเรียนสำเร็จ",`${data?.total_rows||preview.rows.length} คน · ระบบจัดเลขที่ใหม่แล้ว`,"success");state.studentRegistryAcademicYear=Number(year);state.studentRegistrySemester=sem;await renderDashboard();};
+}
+async function openStudentSeedImport(){try{const res=await fetch("./seed-students-2569.json",{cache:"no-store"});if(!res.ok)throw new Error("ไม่พบไฟล์ข้อมูลเริ่มต้น");const rows=await res.json();studentImportModal({rows,errors:[],filename:"BNK_Student_Master_รายชื่อนักเรียนทั้งโรงเรียน.xlsx"});}catch(err){toast("โหลดข้อมูลเริ่มต้นไม่สำเร็จ",err.message,"error")}}
+
+function studentDetailModal(studentId){
+  const s=studentById(studentId);if(!s)return;
+  const ens=state.studentRegistryEnrollments.filter(e=>e.student_id===s.id).sort((a,b)=>Number(b.academic_year)-Number(a.academic_year)||b.semester-a.semester),m=document.createElement("div");m.className="modal-backdrop";
+  m.innerHTML=`<div class="modal modal-wide"><div class="modal-head"><div><h3>${escapeHtml(studentFullName(s))}</h3><p>เลขประจำตัว ${escapeHtml(s.student_code)} · เลขประชาชน/G ${escapeHtml(s.citizen_id)}</p></div><button class="modal-close">×</button></div><div class="student-detail-grid"><div>${planField("วันเกิด",thaiDateOnly(s.birth_date))}${planField("อายุ",`${studentAge(s)} ปี`)}${planField("เพศ",s.gender||"—")}${planField("สัญชาติ",s.nationality||"—")}${planField("ศาสนา",s.religion||"—")}</div><div>${planField("ที่อยู่",`${s.house_no||""} หมู่ ${s.village_no||""} ${s.subdistrict||""} ${s.district||""} ${s.province||""}`)}${planField("ผู้ปกครอง",`${s.guardian_prefix||""}${s.guardian_first_name||""} ${s.guardian_last_name||""}`)}${planField("ความสัมพันธ์",s.guardian_relationship||"—")}${planField("ภาวะด้อยโอกาส",s.disadvantaged_status||"—")}</div></div><h3>ประวัติชั้นเรียน</h3><div class="table-wrap"><table class="table"><thead><tr><th>ปี</th><th>ภาค</th><th>ชั้น</th><th>เลขที่เดิม</th><th>สถานะ</th><th>เหตุผลออกจากรายชื่อ</th><th>ผลเลื่อนชั้น</th></tr></thead><tbody>${ens.map(e=>`<tr><td>${e.academic_year}</td><td>${e.semester}</td><td>${escapeHtml(schoolClassLabel(studentEnrollmentClass(e)))}</td><td>${e.student_number}</td><td>${escapeHtml(studentEnrollmentStatusLabel(e))}</td><td>${escapeHtml(e.exit_note||"—")}</td><td>${escapeHtml(e.promotion_status)}</td></tr>`).join("")}</tbody></table></div>${canManageStudentMasterUi()?`<div class="student-photo-action"><label class="btn btn-secondary">อัปโหลดรูปนักเรียน 1 นิ้ว<input id="student-photo-file" type="file" accept="image/jpeg,image/png,image/webp" hidden></label><span>รูปนี้จะใช้ในระบบบัตรนักเรียน</span></div>`:""}<div class="modal-actions"><button class="btn btn-ghost modal-cancel">ปิด</button></div></div>`;
+  document.body.appendChild(m);const close=()=>m.remove();m.querySelector(".modal-close").onclick=close;m.querySelector(".modal-cancel").onclick=close;const file=m.querySelector("#student-photo-file");if(file)file.onchange=async()=>{const f=file.files?.[0];if(!f)return;const ext=f.type==="image/png"?"png":f.type==="image/webp"?"webp":"jpg",path=`${s.id}/profile-${crypto.randomUUID()}.${ext}`;const up=await supabase.storage.from("student-photos").upload(path,f,{contentType:f.type});if(up.error)return toast("อัปโหลดรูปไม่สำเร็จ",up.error.message,"error");if(s.photo_path)await supabase.storage.from("student-photos").remove([s.photo_path]);const {error}=await supabase.from("students").update({photo_bucket:"student-photos",photo_path:path}).eq("id",s.id);if(error)return toast("บันทึกรูปไม่สำเร็จ",error.message,"error");toast("บันทึกรูปนักเรียนแล้ว","เตรียมพร้อมสำหรับบัตรนักเรียน","success");close();await renderDashboard();};
+}
+function studentExitEnrollmentModal(enrollmentId){
+  if(!canManageStudentMasterUi())return;const e=state.studentRegistryEnrollments.find(x=>x.id===enrollmentId),s=e&&studentById(e.student_id),c=e&&studentEnrollmentClass(e);if(!e||!s)return;
+  const m=document.createElement("div");m.className="modal-backdrop";m.innerHTML=`<div class="modal"><div class="modal-head"><div><h3>นำออกจากรายชื่อ ${escapeHtml(studentFullName(s))}</h3><p>${escapeHtml(schoolClassLabel(c))} · ปี ${escapeHtml(e.academic_year)} ภาคเรียน ${e.semester}</p></div><button class="modal-close">×</button></div><div class="project-paper-note"><strong>ระบบจะไม่ลบประวัตินักเรียน</strong><span>รายการเดิมจะถูกเก็บไว้สำหรับดูย้อนหลัง แต่จะไม่แสดงในใบรายชื่อปัจจุบัน บัตรนักเรียน หรือระบบเยี่ยมบ้านของภาคเรียนนี้</span></div><div class="form-grid"><div class="field"><label>เหตุผล</label><select class="select" id="student-exit-reason"><option value="transferred_out">ย้ายออก</option><option value="not_continuing">ไม่เรียนต่อ</option><option value="withdrawn">ลาออก / พ้นสภาพ</option><option value="deceased">เสียชีวิต</option><option value="other">อื่น ๆ</option></select></div><div class="field"><label>รายละเอียดเพิ่มเติม</label><textarea class="input textarea" id="student-exit-note" placeholder="เช่น ย้ายไปโรงเรียน... / ไม่เรียนต่อภาคเรียนที่ 2"></textarea></div></div><div class="modal-actions"><button class="btn btn-ghost modal-cancel">ยกเลิก</button><button class="btn btn-danger" id="student-exit-confirm">ยืนยันนำออกจากรายชื่อ</button></div></div>`;document.body.appendChild(m);const close=()=>m.remove();m.querySelector(".modal-close").onclick=close;m.querySelector(".modal-cancel").onclick=close;m.querySelector("#student-exit-confirm").onclick=async ev=>{const reason=m.querySelector("#student-exit-reason").value,note=m.querySelector("#student-exit-note").value.trim(),status=reason==="transferred_out"?"transferred_out":"inactive";buttonLoading(ev.currentTarget,true,"กำลังบันทึก...");const {error}=await supabase.from("student_enrollments").update({enrollment_status:status,exit_reason:reason,exit_note:note||({transferred_out:"ย้ายออก",not_continuing:"ไม่เรียนต่อ",withdrawn:"ลาออก / พ้นสภาพ",deceased:"เสียชีวิต",other:"อื่น ๆ"}[reason]),ended_at:new Date().toISOString(),ended_by:state.user.id}).eq("id",e.id);buttonLoading(ev.currentTarget,false);if(error)return toast("บันทึกไม่สำเร็จ",error.message,"error");close();toast("ปรับสถานะรายชื่อแล้ว","ประวัติเดิมยังถูกเก็บไว้","success");await renderDashboard();};
+}
+function studentAcademicYearModal(defaultYear=null){
+  if(!isSuperAdminUser())return;const p=studentRegistryCurrentPeriod(),suggested=String(defaultYear||Number(p.academicYear)+1),sourceYears=[...new Set(state.studentRegistryClasses.map(c=>String(c.academic_year)))].sort((a,b)=>Number(b)-Number(a)),m=document.createElement("div");m.className="modal-backdrop";
+  m.innerHTML=`<div class="modal"><div class="modal-head"><div><h3>เพิ่มปีการศึกษา</h3><p>Super Admin เป็นผู้สร้างปีการศึกษาและภาคเรียนสำหรับข้อมูลนักเรียน</p></div><button class="modal-close">×</button></div><form id="student-year-form" class="form-grid"><div class="field"><label>ปีการศึกษาใหม่</label><input class="input" name="year" type="number" min="2500" max="2800" value="${escapeHtml(suggested)}" required></div><label class="check-row"><input type="checkbox" name="clone" checked> คัดลอกโครงสร้างระดับชั้น/ห้องจากปีเดิม (ไม่คัดลอกนักเรียน)</label><div class="field"><label>คัดลอกจากปี</label><select class="select" name="source_year">${sourceYears.map(y=>`<option value="${y}" ${y===String(p.academicYear)?"selected":""}>${y}</option>`).join("")}</select></div><span class="helper">ระบบจะสร้างภาคเรียนที่ 1 และ 2 ของปีใหม่ และคัดลอกเฉพาะโครงสร้างห้องเพื่อใช้เลื่อนชั้น</span></form><div class="modal-actions"><button class="btn btn-ghost modal-cancel">ยกเลิก</button><button class="btn btn-primary" id="student-year-save">สร้างปีการศึกษา</button></div></div>`;
+  document.body.appendChild(m);const close=()=>m.remove();m.querySelector(".modal-close").onclick=close;m.querySelector(".modal-cancel").onclick=close;m.querySelector("#student-year-save").onclick=async ev=>{const f=m.querySelector("#student-year-form");if(!f.reportValidity())return;const fd=new FormData(f),year=String(fd.get("year")).trim(),clone=f.elements.clone.checked,source=String(fd.get("source_year")||"");buttonLoading(ev.currentTarget,true,"กำลังสร้าง...");const terms=[1,2].map(semester=>({academic_year:year,semester,is_current:false}));let res=await supabase.from("academic_terms").upsert(terms,{onConflict:"academic_year,semester",ignoreDuplicates:true});if(res.error){buttonLoading(ev.currentTarget,false);return toast("สร้างปีการศึกษาไม่สำเร็จ",res.error.message,"error");}if(clone&&source){const base=state.studentRegistryClasses.filter(c=>String(c.academic_year)===source),unique=new Map();base.forEach(c=>{const k=`${c.level_name}/${c.room_name}`;if(!unique.has(k))unique.set(k,c)});const payload=[];for(const semester of [1,2])for(const c of unique.values())payload.push({academic_year:year,semester,stage_code:c.stage_code,level_name:c.level_name,room_name:c.room_name,sort_order:c.sort_order,is_active:true,created_by:state.user.id});if(payload.length){res=await supabase.from("school_classes").upsert(payload,{onConflict:"academic_year,semester,level_name,room_name",ignoreDuplicates:true});if(res.error){buttonLoading(ev.currentTarget,false);return toast("สร้างห้องเรียนไม่สำเร็จ",res.error.message,"error");}}}buttonLoading(ev.currentTarget,false);close();state.studentRegistryAcademicYear=Number(year);state.studentRegistrySemester=1;state.studentRegistryStageCode="all";state.studentRegistryLevelName="all";state.studentRegistryRoomName="all";toast("สร้างปีการศึกษาแล้ว",`ปี ${year} พร้อมภาคเรียนที่ 1 และ 2`,"success");await loadActiveUserData();await renderDashboard();};
+}
+async function setStudentCurrentAcademicTerm(){
+  if(!isSuperAdminUser())return;const p=studentRegistryCurrentPeriod();if(!confirm(`ตั้งปีการศึกษา ${p.academicYear} ภาคเรียน ${p.semester} เป็นภาคเรียนปัจจุบันของระบบหรือไม่?`))return;
+  if(!(state.academicTerms||[]).some(t=>String(t.academic_year)===String(p.academicYear)&&Number(t.semester)===Number(p.semester))){const created=await supabase.from("academic_terms").insert({academic_year:String(p.academicYear),semester:Number(p.semester),is_current:false});if(created.error)return toast("สร้างภาคเรียนไม่สำเร็จ",created.error.message,"error");}
+  const {error}=await supabase.rpc("set_current_academic_term",{p_academic_year:String(p.academicYear),p_semester:Number(p.semester)});if(error)return toast("ตั้งภาคเรียนปัจจุบันไม่สำเร็จ",error.message,"error");await loadActiveUserData();toast("ตั้งภาคเรียนปัจจุบันแล้ว",`ปี ${p.academicYear} ภาคเรียน ${p.semester}`,"success");await renderDashboard();
+}
+async function copyStudentRegistryToSemester2(){
+  if(!canManageStudentMasterUi())return;const p=studentRegistryCurrentPeriod();if(Number(p.semester)!==1)return toast("กรุณาเลือกภาคเรียนที่ 1","การคัดลอกจะย้ายโครงสร้างห้องและนักเรียนปัจจุบันไปยังภาคเรียนที่ 2 ของปีเดียวกัน","error");
+  if(!confirm(`คัดลอกโครงสร้างห้องและนักเรียนที่กำลังเรียนอยู่ จากปี ${p.academicYear} ภาคเรียน 1 ไปภาคเรียน 2 หรือไม่?\n\nข้อมูลภาคเรียน 1 จะยังคงอยู่ และระบบจะไม่สร้างนักเรียนซ้ำหากภาคเรียน 2 มีข้อมูลแล้ว`))return;
+  const btn=document.querySelector("#student-copy-semester");buttonLoading(btn,true,"กำลังคัดลอก...");
+  const {data,error}=await supabase.rpc("copy_student_registry_semester",{p_academic_year:String(p.academicYear),p_from_semester:1,p_to_semester:2});buttonLoading(btn,false);
+  if(error)return toast("คัดลอกภาคเรียนไม่สำเร็จ",error.message,"error");
+  state.studentRegistrySemester=2;state.studentRegistryStageCode="all";state.studentRegistryLevelName="all";state.studentRegistryRoomName="all";await loadActiveUserData();
+  toast("คัดลอกไปภาคเรียนที่ 2 แล้ว",`สร้างห้อง ${Number(data?.classes_created||0)} ห้อง · เพิ่มนักเรียน ${Number(data?.enrollments_created||0)} คน`,"success");await renderDashboard();
+}
+function studentRoomModal(){
+  if(!canManageStudentMasterUi())return;const p=studentRegistryCurrentPeriod(),years=studentAcademicYears(),m=document.createElement("div");m.className="modal-backdrop";
+  m.innerHTML=`<div class="modal"><div class="modal-head"><div><h3>เพิ่มห้องเรียน</h3><p>กำหนดแยกตามปีการศึกษาและภาคเรียน</p></div><button class="modal-close">×</button></div><form id="student-room-form" class="form-grid"><div class="form-row"><div class="field"><label>ปีการศึกษา</label><select class="select" name="year">${years.map(y=>`<option value="${y}" ${y===p.academicYear?"selected":""}>${y}</option>`).join("")}</select></div><div class="field"><label>ภาคเรียน</label><select class="select" name="semester"><option value="1" ${p.semester===1?"selected":""}>1</option><option value="2" ${p.semester===2?"selected":""}>2</option></select></div></div><div class="form-row"><div class="field"><label>ระดับชั้น</label><select class="select" name="level">${STUDENT_LEVEL_ORDER.map(v=>`<option>${v}</option>`).join("")}</select></div><div class="field"><label>ห้อง</label><input class="input" name="room" placeholder="เช่น 1" required></div></div></form><div class="modal-actions"><button class="btn btn-ghost modal-cancel">ยกเลิก</button><button class="btn btn-primary" id="student-room-save">บันทึกห้อง</button></div></div>`;
+  document.body.appendChild(m);const close=()=>m.remove();m.querySelector(".modal-close").onclick=close;m.querySelector(".modal-cancel").onclick=close;m.querySelector("#student-room-save").onclick=async e=>{const f=m.querySelector("#student-room-form");if(!f.reportValidity())return;const d=new FormData(f),level=String(d.get("level")),stage=studentStageForLevel(level),year=String(d.get("year")),sem=Number(d.get("semester")),room=String(d.get("room")).trim();buttonLoading(e.currentTarget,true,"กำลังบันทึก...");const {error}=await supabase.from("school_classes").insert({academic_year:year,semester:sem,stage_code:stage,level_name:level,room_name:room,sort_order:STUDENT_LEVEL_ORDER.indexOf(level)*10+Number(room||1),is_active:true,created_by:state.user.id});buttonLoading(e.currentTarget,false);if(error)return toast("เพิ่มห้องไม่สำเร็จ",error.message,"error");close();state.studentRegistryAcademicYear=Number(year);state.studentRegistrySemester=sem;toast("เพิ่มห้องเรียนแล้ว",`${level}/${room} ปี ${year}`,"success");await renderDashboard();};
+}
+async function applyStudentPromotion(){
+  const source=studentRegistrySelectedClass();if(!source)return;
+  const rows=[...document.querySelectorAll("[data-promotion-row]")],p=studentRegistryCurrentPeriod(),targetYear=String(Number(p.academicYear)+1),payload=[];
+  for(const tr of rows){const decision=tr.querySelector(".promotion-decision").value,target=tr.querySelector(".promotion-target").value;if(decision==="promoted"&&!target)return toast("เลือกห้องปลายทางให้ครบ",studentFullName(studentById(tr.dataset.studentId)),"error");payload.push({source_enrollment_id:tr.dataset.enrollmentId,student_id:tr.dataset.studentId,decision,target_class_id:decision==="promoted"?target:null})}
+  if(!confirm(`ยืนยันผลเลื่อนชั้น ${payload.length} คน ไปปีการศึกษา ${targetYear} หรือไม่?`))return;
+  const {data:batch,error:be}=await supabase.from("student_promotion_batches").insert({source_class_id:source.id,target_academic_year:targetYear,target_semester:1,created_by:state.user.id}).select().single();if(be)return toast("สร้างบัญชีเลื่อนชั้นไม่สำเร็จ",be.message,"error");
+  const items=payload.map(x=>({...x,batch_id:batch.id})),{error:ie}=await supabase.from("student_promotion_items").insert(items);if(ie){await supabase.from("student_promotion_batches").delete().eq("id",batch.id);return toast("บันทึกรายการเลื่อนชั้นไม่สำเร็จ",ie.message,"error")};
+  const {data,error}=await supabase.rpc("apply_student_promotion_batch",{p_batch_id:batch.id});if(error)return toast("เลื่อนชั้นไม่สำเร็จ",error.message,"error");
+  toast("เลื่อนชั้นสำเร็จ",`${data??payload.length} คน · ปี ${targetYear}`,"success");state.studentRegistryAcademicYear=Number(targetYear);state.studentRegistrySemester=1;state.studentRegistryLevelName="all";state.studentRegistryRoomName="all";await renderDashboard();
+}
+
+
+// V10.6 — Student ID Card System / Homeroom issue permission
+function studentCardCurrentPeriod(){const p=currentAcademicPeriod();return {academicYear:String(state.studentCardAcademicYear||p.academicYear),semester:Number(state.studentCardSemester||p.semester)};}
+function studentCardClassOptions(){const p=studentCardCurrentPeriod();return state.studentCardClasses.filter(c=>String(c.academic_year)===p.academicYear&&Number(c.semester)===p.semester&&c.is_active).sort(studentClassSort);}
+function studentCardStudentById(id){return state.studentCardStudents.find(s=>s.id===id)||null;}
+function studentCardClassById(id){return state.studentCardClasses.find(c=>c.id===id)||null;}
+function studentCardLatestFor(studentId){return state.studentCards.filter(c=>c.student_id===studentId).sort((a,b)=>String(b.issued_at||'').localeCompare(String(a.issued_at||''))||String(b.created_at||'').localeCompare(String(a.created_at||'')))[0]||null;}
+function studentCardStatus(card){if(!card)return {code:'none',label:'ยังไม่ออกบัตร'};if(card.status==='revoked')return {code:'revoked',label:'ยกเลิกแล้ว'};const today=new Date(),e=dateOnly(card.expires_at);if(e&&e<dateOnly(new Date()))return {code:'expired',label:'หมดอายุ'};return {code:'active',label:'ใช้งานได้'};}
+function localDateInputValue(d=new Date()){const x=d instanceof Date?d:new Date(d);return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`;}
+function addYearsDateString(value,years=3){const d=dateOnly(value);if(!d)return '';const out=new Date(d);out.setFullYear(out.getFullYear()+years);return localDateInputValue(out);}
+function thaiDateCompact(value){if(!value)return '—';const d=dateOnly(value);return d?new Intl.DateTimeFormat('th-TH',{day:'numeric',month:'short',year:'numeric'}).format(d):'—';}
+function canViewAllStudentCardsUi(){return canManageStudentMasterUi()||state.profile?.role==='director';}
+function studentCardOwnHomeroomClasses(){const p=studentCardCurrentPeriod(),ids=new Set(state.studentCardHomerooms.filter(h=>h.teacher_id===state.user?.id).map(h=>h.class_id));return state.studentCardClasses.filter(c=>ids.has(c.id)&&c.is_active&&String(c.academic_year)===p.academicYear&&Number(c.semester)===p.semester).sort(studentClassSort);}
+function studentCardApplyRoleScope(){
+  if(canViewAllStudentCardsUi())return;
+  const current=currentAcademicPeriod();state.studentCardAcademicYear=current.academicYear;state.studentCardSemester=current.semester;
+  const own=studentCardOwnHomeroomClasses();
+  if(!own.length){state.studentCardOwnClassId=null;state.studentCardStageCode='all';state.studentCardLevelName='all';state.studentCardRoomName='all';state.studentCardSearch='';return;}
+  const chosen=own.find(c=>c.id===state.studentCardOwnClassId)||own[0];
+  state.studentCardOwnClassId=chosen.id;state.studentCardStageCode=chosen.stage_code;state.studentCardLevelName=chosen.level_name;state.studentCardRoomName=String(chosen.room_name);state.studentCardSearch='';
+}
+function studentCardCanManagePhotoUi(studentId){if(canManageStudentMasterUi())return true;const p=studentCardCurrentPeriod(),ownIds=new Set(studentCardOwnHomeroomClasses().map(c=>c.id));return state.studentCardEnrollments.some(e=>e.student_id===studentId&&ownIds.has(e.class_id)&&e.enrollment_status==='active'&&String(e.academic_year)===p.academicYear&&Number(e.semester)===p.semester);}
+function studentCardCanIssueUi(studentId){if(canManageStudentMasterUi())return true;const current=currentAcademicPeriod(),ids=new Set(state.studentCardHomerooms.filter(h=>h.teacher_id===state.user?.id).map(h=>h.class_id));return state.studentCardEnrollments.some(e=>e.student_id===studentId&&ids.has(e.class_id)&&e.enrollment_status==='active'&&String(e.academic_year)===String(current.academicYear)&&Number(e.semester)===Number(current.semester));}
+function studentCardGenderRank(e){const g=String(studentCardStudentById(e?.student_id)?.gender||'').trim();return g==='ชาย'?0:g==='หญิง'?1:2;}
+function studentCardCodeCompare(a,b){const sa=String(studentCardStudentById(a?.student_id)?.student_code||''),sb=String(studentCardStudentById(b?.student_id)?.student_code||'');return sa.localeCompare(sb,'th',{numeric:true,sensitivity:'base'});}
+function studentCardVisibleEnrollments(){const p=studentCardCurrentPeriod(),q=String(state.studentCardSearch||'').trim().toLowerCase(),scoped=!canViewAllStudentCardsUi(),ownClassId=scoped?state.studentCardOwnClassId:null;return state.studentCardEnrollments.filter(e=>String(e.academic_year)===p.academicYear&&Number(e.semester)===p.semester&&e.enrollment_status==='active').filter(e=>{const c=studentCardClassById(e.class_id),s=studentCardStudentById(e.student_id);if(!c||!s)return false;if(scoped&&(!ownClassId||e.class_id!==ownClassId))return false;if(!scoped&&state.studentCardStageCode!=='all'&&c.stage_code!==state.studentCardStageCode)return false;if(!scoped&&state.studentCardLevelName!=='all'&&c.level_name!==state.studentCardLevelName)return false;if(!scoped&&state.studentCardRoomName!=='all'&&String(c.room_name)!==String(state.studentCardRoomName))return false;if(q&&!`${s.student_code} ${s.citizen_id} ${s.prefix} ${s.first_name} ${s.last_name}`.toLowerCase().includes(q))return false;return true;}).sort((a,b)=>studentClassSort(studentCardClassById(a.class_id),studentCardClassById(b.class_id))||studentCardGenderRank(a)-studentCardGenderRank(b)||studentCardCodeCompare(a,b));}
+async function loadStudentCardWorkspace(){const p=currentAcademicPeriod();if(canViewAllStudentCardsUi()){if(!state.studentCardAcademicYear)state.studentCardAcademicYear=p.academicYear;if(!state.studentCardSemester)state.studentCardSemester=p.semester}else{state.studentCardAcademicYear=p.academicYear;state.studentCardSemester=p.semester}const [sr,er,cr,hr,cardr]=await Promise.all([supabase.from('students').select('*').order('last_name').order('first_name'),supabase.from('student_enrollments').select('*').eq('enrollment_status','active').order('academic_year').order('semester').order('student_number'),supabase.from('school_classes').select('*').eq('is_active',true).order('academic_year',{ascending:false}).order('sort_order').order('room_name'),supabase.from('homeroom_teachers').select('*'),supabase.from('student_cards').select('*').order('issued_at',{ascending:false}).order('created_at',{ascending:false})]);state.studentCardStudents=sr.error?[]:(sr.data||[]);state.studentCardEnrollments=er.error?[]:(er.data||[]);state.studentCardClasses=cr.error?[]:(cr.data||[]);state.studentCardHomerooms=hr.error?[]:(hr.data||[]);state.studentCards=cardr.error?[]:(cardr.data||[]);studentCardApplyRoleScope();}
+function studentCardHero(){const rows=studentCardVisibleEnrollments(),issued=rows.filter(e=>studentCardStatus(studentCardLatestFor(e.student_id)).code==='active').length,missingPhoto=rows.filter(e=>!studentCardStudentById(e.student_id)?.photo_path).length;return `<section class="lesson-hero student-card-hero"><div><span class="eyebrow dark">Academic Administration · Student ID Card</span><h2>ระบบบัตรนักเรียน</h2><p>ดึงข้อมูลจากระบบบัญชีรายชื่อนักเรียนโดยตรง · บัตร Smart Card 85.60 × 53.98 มม. · รูปถ่ายกว้าง 1 นิ้ว</p></div><div class="lesson-hero-actions"><span class="student-kpi"><strong>${rows.length}</strong> คน</span><span class="student-kpi"><strong>${issued}</strong> บัตรใช้งาน</span><span class="student-kpi ${missingPhoto?'warning':''}"><strong>${missingPhoto}</strong> ขาดรูป</span></div></section>`;}
+function studentCardTeacherScopePanel(){const own=studentCardOwnHomeroomClasses(),p=studentCardCurrentPeriod();if(!own.length)return `<section class="student-filter-panel student-role-scope"><div class="student-filter-head"><div><strong>ยังไม่ได้กำหนดครูประจำชั้น</strong><span>ระบบบัตรนักเรียนจะแสดงเฉพาะนักเรียนในห้องที่ Super Admin กำหนดให้คุณเป็นครูประจำชั้น</span></div></div></section>`;const chosen=own.find(c=>c.id===state.studentCardOwnClassId)||own[0];return `<section class="student-filter-panel student-role-scope"><div class="student-filter-head"><div><strong>ห้องที่รับผิดชอบ · ${escapeHtml(schoolClassLabel(chosen))}</strong><span>ปีการศึกษา ${escapeHtml(p.academicYear)} ภาคเรียน ${p.semester} · รายชื่อและเลขที่ใช้ลำดับเดียวกับระบบบัญชีรายชื่อนักเรียน</span></div>${own.length>1?`<div class="field student-own-class-field"><label>เลือกห้องที่รับผิดชอบ</label><select class="select" id="student-card-own-class">${own.map(c=>`<option value="${c.id}" ${c.id===chosen.id?'selected':''}>${escapeHtml(schoolClassLabel(c))}</option>`).join('')}</select></div>`:''}</div></section>`;}
+function studentCardFilters(){if(!canViewAllStudentCardsUi())return studentCardTeacherScopePanel();const years=[...new Set(state.studentCardClasses.map(c=>String(c.academic_year)))].sort((a,b)=>Number(b)-Number(a)),p=studentCardCurrentPeriod(),classes=state.studentCardClasses.filter(c=>String(c.academic_year)===p.academicYear&&Number(c.semester)===p.semester),stages=[...new Set(classes.map(c=>c.stage_code))],levels=[...new Set(classes.filter(c=>state.studentCardStageCode==='all'||c.stage_code===state.studentCardStageCode).map(c=>c.level_name))].sort((a,b)=>STUDENT_LEVEL_ORDER.indexOf(a)-STUDENT_LEVEL_ORDER.indexOf(b)),rooms=[...new Set(classes.filter(c=>(state.studentCardStageCode==='all'||c.stage_code===state.studentCardStageCode)&&(state.studentCardLevelName==='all'||c.level_name===state.studentCardLevelName)).map(c=>String(c.room_name)))].sort((a,b)=>a.localeCompare(b,'th',{numeric:true}));return `<section class="panel compact-panel"><div class="student-filter-grid"><div class="field"><label>ปีการศึกษา</label><select class="select" id="card-year">${years.map(y=>`<option value="${y}" ${y===p.academicYear?'selected':''}>${y}</option>`).join('')}</select></div><div class="field"><label>ภาคเรียน</label><select class="select" id="card-sem"><option value="1" ${p.semester===1?'selected':''}>1</option><option value="2" ${p.semester===2?'selected':''}>2</option></select></div><div class="field"><label>ช่วงชั้น</label><select class="select" id="card-stage"><option value="all">ทุกช่วงชั้น</option>${stages.map(v=>`<option value="${v}" ${state.studentCardStageCode===v?'selected':''}>${escapeHtml(STUDENT_STAGE_LABEL[v]||v)}</option>`).join('')}</select></div><div class="field"><label>ระดับชั้น</label><select class="select" id="card-level"><option value="all">ทุกระดับ</option>${levels.map(v=>`<option value="${escapeHtml(v)}" ${state.studentCardLevelName===v?'selected':''}>${escapeHtml(v)}</option>`).join('')}</select></div><div class="field"><label>ห้อง</label><select class="select" id="card-room"><option value="all">ทุกห้อง</option>${rooms.map(v=>`<option value="${escapeHtml(v)}" ${String(state.studentCardRoomName)===v?'selected':''}>${escapeHtml(v)}</option>`).join('')}</select></div><div class="field student-search-field"><label>ค้นหา</label><input class="input" id="card-search" value="${escapeHtml(state.studentCardSearch)}" placeholder="ชื่อ / เลขประจำตัว / เลขประชาชน"></div></div></section>`;}
+function studentCardWorkspaceHtml(){const rows=studentCardVisibleEnrollments(),counters={};return `${studentCardHero()}${studentCardFilters()}<section class="panel"><div class="panel-head"><div class="panel-title-wrap"><h3>บัตรนักเรียนตามรายชื่อปัจจุบัน</h3><p>เลขที่คำนวณจากลำดับเดียวกับ Student Registry: ชายก่อน → รหัสนักเรียนน้อยไปมาก → หญิง → รหัสนักเรียนน้อยไปมาก</p></div><div class="admin-actions">${rows.some(e=>studentCardCanIssueUi(e.student_id))?`<button class="btn btn-primary" id="student-card-issue-selected">ออกบัตรที่เลือก</button>`:''}<button class="btn btn-secondary" id="student-card-print-selected">พิมพ์ที่เลือก</button><button class="btn btn-secondary" id="student-card-print-filtered">A4 ทั้งหมด${canViewAllStudentCardsUi()?'ตามตัวกรอง':'ในห้องนี้'}</button></div></div>${rows.length?`<div class="table-wrap"><table class="table student-card-table"><thead><tr><th style="width:34px"><input type="checkbox" id="student-card-check-all"></th><th>เลขที่</th><th>นักเรียน</th><th>ชั้น</th><th>รูป 1 นิ้ว</th><th>เลขบัตร</th><th>ออกบัตร</th><th>หมดอายุ</th><th>สถานะ</th><th></th></tr></thead><tbody>${rows.map(e=>{const s=studentCardStudentById(e.student_id),c=studentCardClassById(e.class_id),card=studentCardLatestFor(s.id),st=studentCardStatus(card),no=(counters[e.class_id]=(counters[e.class_id]||0)+1),canPhoto=studentCardCanManagePhotoUi(s.id);return `<tr><td><input class="student-card-check" type="checkbox" value="${s.id}"></td><td><strong>${no}</strong></td><td><strong>${escapeHtml(studentFullName(s))}</strong><br><span class="table-muted">เลขประจำตัว ${escapeHtml(s.student_code)}</span></td><td>${escapeHtml(schoolClassLabel(c))}</td><td>${s.photo_path?`<span class="pill active">พร้อม</span>`:`<span class="pill pending">ยังไม่มีรูป</span>`}</td><td>${card?`<strong>${escapeHtml(card.card_number)}</strong>`:'—'}</td><td>${card?thaiDateCompact(card.issued_at):'—'}</td><td>${card?thaiDateCompact(card.expires_at):'—'}</td><td><span class="student-card-status ${st.code}">${st.label}</span></td><td><div class="admin-actions">${card?`<button class="btn btn-ghost" data-student-card-preview="${s.id}">ดูบัตร</button>`:''}${canPhoto?`<button class="btn btn-secondary" data-student-card-photo="${s.id}">${s.photo_path?'เปลี่ยนรูป':'เพิ่มรูป'}</button>`:''}${studentCardCanIssueUi(s.id)&&s.photo_path?`<button class="btn btn-primary" data-student-card-issue="${s.id}">${card?'ออกบัตรใหม่':'ออกบัตร'}</button>`:''}${canManageStudentMasterUi()&&card&&st.code==='active'?`<button class="btn btn-warning" data-student-card-revoke="${card.id}">ยกเลิกบัตร</button>`:''}</div></td></tr>`}).join('')}</tbody></table></div>`:`<div class="empty"><strong>${canViewAllStudentCardsUi()?'ไม่พบรายชื่อนักเรียน':'ไม่พบรายชื่อนักเรียนในห้องที่รับผิดชอบ'}</strong><span>${canViewAllStudentCardsUi()?'เลือกระดับชั้น / ห้อง หรือค้นหาใหม่':'ตรวจสอบการกำหนดครูประจำชั้นและภาคเรียนปัจจุบัน'}</span></div>`}</section>`;}
+async function studentPhotoDataUrl(student){if(!student?.photo_path)return null;const {data,error}=await supabase.storage.from(student.photo_bucket||'student-photos').download(student.photo_path);if(error){console.warn('student photo download failed',error);return null}return blobToDataUrl(data);}
+function studentCardPrintStyles({sheet=false}={}){return `@font-face{font-family:"TH SarabunPSK";src:url("https://cdn.jsdelivr.net/gh/SarabunConsortium/TH-Sarabun-PSK@master/THSarabunPSK%20Regular.ttf") format("truetype");font-weight:400;font-display:block}@font-face{font-family:"TH SarabunPSK";src:url("https://cdn.jsdelivr.net/gh/SarabunConsortium/TH-Sarabun-PSK@master/THSarabunPSK%20Bold.ttf") format("truetype");font-weight:700;font-display:block}*{box-sizing:border-box}html,body{margin:0;font-family:"TH SarabunPSK",sans-serif;color:#173426}.student-id-card{position:relative;width:85.60mm;height:53.98mm;overflow:hidden;border:.32mm solid #b98b2f;border-radius:3.18mm;background:linear-gradient(145deg,#fffef9 0%,#f8f2dc 100%);page-break-inside:avoid}.student-id-card:before{content:"";position:absolute;left:-12mm;right:-12mm;top:-22mm;height:36mm;background:linear-gradient(110deg,#0b4a32,#176a47);transform:rotate(-2deg);z-index:0}.student-id-card:after{content:"";position:absolute;left:-8mm;right:-8mm;bottom:-15mm;height:21mm;background:linear-gradient(105deg,#0b4a32,#176a47);transform:rotate(2deg);z-index:0}.student-card-gold-line{position:absolute;left:0;right:0;top:12.2mm;height:.7mm;background:linear-gradient(90deg,#8e651a,#e1bd65,#9b701f);z-index:2}.student-card-head{position:absolute;left:3.6mm;right:3.8mm;top:2.2mm;height:9.2mm;display:grid;grid-template-columns:10mm 1fr auto;align-items:center;gap:2mm;z-index:3;color:white}.student-card-logo{width:9.2mm;height:9.2mm;object-fit:contain;background:rgba(255,255,255,.94);border-radius:50%;padding:.6mm}.student-card-school{line-height:.92}.student-card-school strong{display:block;font-size:11pt;color:#f8e3a3}.student-card-school span{display:block;font-size:8.5pt;color:#fff}.student-card-no{text-align:right;font-size:7.6pt;line-height:1.05;color:#fff}.student-card-no strong{display:block;color:#f7d77e;font-size:9pt}.student-card-photo{position:absolute;left:4mm;top:15mm;width:25.4mm;height:33.9mm;border:.35mm solid #b98b2f;background:white;z-index:3;overflow:hidden}.student-card-photo img{width:100%;height:100%;object-fit:cover;object-position:center}.student-card-photo .missing{height:100%;display:grid;place-items:center;text-align:center;font-size:8pt;color:#7c6b45}.student-card-info{position:absolute;left:32.1mm;right:4mm;top:15mm;bottom:4.6mm;z-index:3;display:flex;flex-direction:column;justify-content:flex-start}.student-card-name-label{font-size:7.5pt;color:#82601c;line-height:1}.student-card-name{font-size:14.2pt;font-weight:700;line-height:1.02;color:#0b4a32;border-bottom:.18mm solid rgba(185,139,47,.55);padding-bottom:.6mm;margin-bottom:.7mm;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.student-card-row{display:grid;grid-template-columns:18.3mm 1fr;align-items:baseline;line-height:1.03;margin:.25mm 0}.student-card-row span{font-size:7.7pt;color:#80601e}.student-card-row strong{font-size:9.6pt;color:#173426;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.student-card-dates{display:grid;grid-template-columns:1fr 1fr;gap:2mm;margin-top:.45mm;padding-top:.7mm;border-top:.18mm solid rgba(185,139,47,.45)}.student-card-date span{display:block;font-size:7pt;color:#80601e;line-height:1}.student-card-date strong{display:block;font-size:9pt;line-height:1.05;color:#173426}.student-card-footer{position:absolute;left:32.1mm;right:4mm;bottom:1.3mm;z-index:3;text-align:right;font-size:6.7pt;color:#f8e3a3;letter-spacing:.02em}${sheet?`@page{size:A4 portrait;margin:0}.student-card-sheet{width:210mm;height:297mm;display:grid;grid-template-columns:85.60mm 85.60mm;grid-template-rows:repeat(5,53.98mm);justify-content:center;align-content:center;page-break-after:always}.student-card-sheet:last-child{page-break-after:auto}.student-id-card{border-radius:0}`:`@page{size:85.60mm 53.98mm;margin:0}body{width:85.60mm;height:53.98mm}.student-id-card{border-radius:0}`}@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}`;}
+function studentCardHtml(student,card,photoUrl,logoUrl){return `<article class="student-id-card"><div class="student-card-gold-line"></div><header class="student-card-head">${logoUrl?`<img class="student-card-logo" src="${logoUrl}">`:`<div class="student-card-logo"></div>`}<div class="student-card-school"><strong>${escapeHtml(schoolName())}</strong><span>บัตรประจำตัวนักเรียน · STUDENT ID CARD</span></div><div class="student-card-no"><span>เลขบัตร</span><strong>${escapeHtml(card.card_number)}</strong></div></header><div class="student-card-photo">${photoUrl?`<img src="${photoUrl}" alt="รูปนักเรียน">`:`<div class="missing">รูปถ่าย<br>1 นิ้ว</div>`}</div><section class="student-card-info"><span class="student-card-name-label">ชื่อ - นามสกุล</span><div class="student-card-name">${escapeHtml(studentFullName(student))}</div><div class="student-card-row"><span>เลขประจำตัวนักเรียน</span><strong>${escapeHtml(student.student_code||'—')}</strong></div><div class="student-card-row"><span>เลขประจำตัวประชาชน</span><strong>${escapeHtml(formatCitizenId(student.citizen_id)||'—')}</strong></div><div class="student-card-row"><span>วันเดือนปีเกิด</span><strong>${escapeHtml(thaiDateCompact(student.birth_date))}</strong></div><div class="student-card-dates"><div class="student-card-date"><span>วันออกบัตร</span><strong>${escapeHtml(thaiDateCompact(card.issued_at))}</strong></div><div class="student-card-date"><span>วันหมดอายุ</span><strong>${escapeHtml(thaiDateCompact(card.expires_at))}</strong></div></div></section><div class="student-card-footer">โรงเรียนบ้านหนองเขียว · BNK School OS</div></article>`;}
+async function studentCardPreview(studentId){const s=studentCardStudentById(studentId),card=studentCardLatestFor(studentId);if(!s||!card)return;const [photo,logo]=await Promise.all([studentPhotoDataUrl(s),schoolLogoDataUrl()]),st=studentCardStatus(card),m=document.createElement('div');m.className='modal-backdrop a4-preview-backdrop';m.innerHTML=`<div class="a4-preview-shell student-card-preview-shell"><div class="a4-preview-toolbar"><div><strong>${escapeHtml(studentFullName(s))}</strong><span>${escapeHtml(card.card_number)} · ${st.label} · ขนาดจริง 85.60 × 53.98 มม.</span></div><div class="a4-preview-actions"><button class="btn btn-ghost" id="student-card-preview-close">ปิด</button><button class="btn btn-primary" id="student-card-print-one" ${st.code==='active'?'':'disabled'}>พิมพ์ / บันทึก PDF ขนาดบัตร</button></div></div><div class="student-card-preview-stage"><style>${studentCardPrintStyles()}</style>${studentCardHtml(s,card,photo,logo)}</div></div>`;document.body.appendChild(m);m.querySelector('#student-card-preview-close').onclick=()=>m.remove();m.querySelector('#student-card-print-one')?.addEventListener('click',()=>studentCardPrintOne(studentId));}
+async function studentCardPrintOne(studentId){const s=studentCardStudentById(studentId),card=studentCardLatestFor(studentId);if(!s||!card||studentCardStatus(card).code!=='active')return toast('บัตรนี้ไม่สามารถพิมพ์ได้','กรุณาออกบัตรใหม่ก่อน','error');const [photo,logo]=await Promise.all([studentPhotoDataUrl(s),schoolLogoDataUrl()]);if(!photo)return toast('ยังไม่มีรูปนักเรียน','ต้องมีรูปถ่ายก่อนพิมพ์บัตร','error');const w=window.open('','_blank');if(!w)return toast('เปิดหน้าพิมพ์ไม่ได้','กรุณาอนุญาต Pop-up','error');w.document.write(`<!doctype html><html lang="th"><head><meta charset="UTF-8"><title>${escapeHtml(card.card_number)}</title><style>${studentCardPrintStyles()}</style></head><body>${studentCardHtml(s,card,photo,logo)}<script>window.addEventListener('load',()=>{(document.fonts?document.fonts.ready:Promise.resolve()).finally(()=>setTimeout(()=>window.print(),500));});<\/script></body></html>`);w.document.close();}
+async function studentCardBatchPrint(studentIds){const ids=(studentIds&&studentIds.length?studentIds:studentCardVisibleEnrollments().map(e=>e.student_id)),items=[];for(const id of ids){const s=studentCardStudentById(id),card=studentCardLatestFor(id);if(!s||!card||studentCardStatus(card).code!=='active'||!s.photo_path)continue;items.push({s,card});}if(!items.length)return toast('ไม่มีบัตรที่พร้อมพิมพ์','ต้องออกบัตรและมีรูปถ่ายก่อน','error');toast('กำลังเตรียมบัตร',`${items.length} ใบ`);const logo=await schoolLogoDataUrl(),rendered=[];for(const item of items){const photo=await studentPhotoDataUrl(item.s);if(photo)rendered.push(studentCardHtml(item.s,item.card,photo,logo));}if(!rendered.length)return toast('โหลดรูปนักเรียนไม่สำเร็จ','','error');const sheets=[];for(let i=0;i<rendered.length;i+=10)sheets.push(`<section class="student-card-sheet">${rendered.slice(i,i+10).join('')}</section>`);const w=window.open('','_blank');if(!w)return toast('เปิดหน้าพิมพ์ไม่ได้','กรุณาอนุญาต Pop-up','error');w.document.write(`<!doctype html><html lang="th"><head><meta charset="UTF-8"><title>บัตรนักเรียน ${studentCardCurrentPeriod().academicYear}</title><style>${studentCardPrintStyles({sheet:true})}</style></head><body>${sheets.join('')}<script>window.addEventListener('load',()=>{(document.fonts?document.fonts.ready:Promise.resolve()).finally(()=>setTimeout(()=>window.print(),700));});<\/script></body></html>`);w.document.close();}
+function studentCardIssueModal(studentIds){const ids=[...new Set((studentIds||[]).filter(Boolean))],students=ids.map(studentCardStudentById).filter(Boolean);if(!students.length)return;const denied=students.filter(s=>!studentCardCanIssueUi(s.id));if(denied.length)return toast('ไม่มีสิทธิ์ออกบัตร',`มี ${denied.length} คนที่อยู่นอกห้องที่คุณรับผิดชอบ`,'error');const missing=students.filter(s=>!s.photo_path);if(missing.length)return toast('ยังออกบัตรไม่ได้',`มี ${missing.length} คนที่ยังไม่มีรูปถ่าย 1 นิ้ว`,'error');const today=localDateInputValue(),m=document.createElement('div');m.className='modal-backdrop';m.innerHTML=`<div class="modal"><div class="modal-head"><div><h3>${students.length===1?`ออกบัตรนักเรียน · ${escapeHtml(studentFullName(students[0]))}`:`ออกบัตรนักเรียน ${students.length} คน`}</h3><p>เลขบัตรจะสร้างอัตโนมัติ และบัตรเดิมที่ยังใช้งานจะถูกยกเลิกเมื่อออกใบใหม่</p></div><button class="modal-close">×</button></div><div class="form-grid"><div class="field"><label>วันที่ออกบัตร</label><input class="input" id="student-card-issued-at" type="date" value="${today}" required><span class="helper" id="student-card-expiry-help">วันหมดอายุ: ${thaiDateCompact(addYearsDateString(today,3))} (อายุบัตร 3 ปี)</span></div></div><div class="modal-actions"><button class="btn btn-ghost modal-cancel">ยกเลิก</button><button class="btn btn-primary" id="student-card-issue-confirm">ยืนยันออกบัตร</button></div></div>`;document.body.appendChild(m);const close=()=>m.remove(),date=m.querySelector('#student-card-issued-at');m.querySelector('.modal-close').onclick=close;m.querySelector('.modal-cancel').onclick=close;date.onchange=()=>{m.querySelector('#student-card-expiry-help').textContent=`วันหมดอายุ: ${thaiDateCompact(addYearsDateString(date.value,3))} (อายุบัตร 3 ปี)`};m.querySelector('#student-card-issue-confirm').onclick=async e=>{if(!date.value)return;buttonLoading(e.currentTarget,true,'กำลังออกบัตร...');const {error}=await supabase.from('student_cards').insert(ids.map(student_id=>({student_id,issued_at:date.value})));buttonLoading(e.currentTarget,false);if(error)return toast('ออกบัตรไม่สำเร็จ',error.message,'error');close();toast('ออกบัตรนักเรียนสำเร็จ',`${ids.length} ใบ · หมดอายุ ${thaiDateCompact(addYearsDateString(date.value,3))}`,'success');await renderDashboard();};}
+function studentCardPhotoModal(studentId){const s=studentCardStudentById(studentId);if(!s||!studentCardCanManagePhotoUi(studentId))return;const m=document.createElement('div');m.className='modal-backdrop';m.innerHTML=`<div class="modal"><div class="modal-head"><div><h3>รูปถ่ายนักเรียน 1 นิ้ว</h3><p>${escapeHtml(studentFullName(s))} · ระบบจะจัดรูปลงกรอบกว้าง 25.4 มม. อัตโนมัติ</p></div><button class="modal-close">×</button></div><div class="field"><label class="upload-zone"><input id="student-card-photo-file" type="file" accept="image/jpeg,image/png,image/webp"><strong>เลือกรูปถ่าย</strong><span>แนะนำรูปแนวตั้ง อัตราส่วนประมาณ 3:4 · JPG/PNG/WebP</span></label></div><div class="student-card-photo-upload-preview" id="student-card-photo-preview">ยังไม่ได้เลือกรูป</div><div class="modal-actions"><button class="btn btn-ghost modal-cancel">ยกเลิก</button><button class="btn btn-primary" id="student-card-photo-save" disabled>บันทึกรูป</button></div></div>`;document.body.appendChild(m);const close=()=>m.remove(),file=m.querySelector('#student-card-photo-file'),save=m.querySelector('#student-card-photo-save'),preview=m.querySelector('#student-card-photo-preview');m.querySelector('.modal-close').onclick=close;m.querySelector('.modal-cancel').onclick=close;file.onchange=()=>{const f=file.files?.[0];save.disabled=!f;if(!f){preview.textContent='ยังไม่ได้เลือกรูป';return}const url=URL.createObjectURL(f);preview.innerHTML=`<img src="${url}" alt="preview"><span>${escapeHtml(f.name)}</span>`};save.onclick=async e=>{const f=file.files?.[0];if(!f)return;buttonLoading(e.currentTarget,true,'กำลังอัปโหลด...');const ext=f.type==='image/png'?'png':f.type==='image/webp'?'webp':'jpg',path=`${s.id}/card-${crypto.randomUUID()}.${ext}`;const up=await supabase.storage.from('student-photos').upload(path,f,{contentType:f.type});if(up.error){buttonLoading(e.currentTarget,false);return toast('อัปโหลดรูปไม่สำเร็จ',up.error.message,'error')}const {error}=await supabase.rpc('set_student_photo',{p_student_id:s.id,p_photo_path:path});if(error){await supabase.storage.from('student-photos').remove([path]);buttonLoading(e.currentTarget,false);return toast('บันทึกรูปไม่สำเร็จ',error.message,'error')}if(s.photo_path&&s.photo_path!==path)await supabase.storage.from('student-photos').remove([s.photo_path]);close();toast('บันทึกรูปนักเรียนแล้ว','รูปนี้เชื่อมกับข้อมูลนักเรียนกลางและระบบบัตรนักเรียนแล้ว','success');await renderDashboard();};}
+async function revokeStudentCard(cardId){const card=state.studentCards.find(c=>c.id===cardId);if(!card||!canManageStudentMasterUi())return;const reason=window.prompt('เหตุผลที่ยกเลิกบัตร (เช่น บัตรหาย / ชำรุด)','บัตรหาย / ชำรุด');if(reason===null)return;const {error}=await supabase.from('student_cards').update({status:'revoked',revoke_reason:reason.trim()||'ยกเลิกบัตร'}).eq('id',cardId);if(error)return toast('ยกเลิกบัตรไม่สำเร็จ',error.message,'error');toast('ยกเลิกบัตรแล้ว','สามารถออกบัตรใหม่ได้','success');await renderDashboard();}
+
+async function loadHomeVisitWorkspace(){const p=currentAcademicPeriod();if(!state.homeVisitAcademicYear)state.homeVisitAcademicYear=p.academicYear;if(!state.homeVisitSemester)state.homeVisitSemester=p.semester;const [rr,mr,pr,sr,cr,hr,studentsRes,enrollRes,settingsRes]=await Promise.all([supabase.from("home_visit_records").select("*").order("updated_at",{ascending:false}),supabase.from("home_visit_household_members").select("*").order("member_no"),supabase.from("home_visit_photos").select("*").order("created_at"),supabase.from("home_visit_signatures").select("*").order("signed_at"),supabase.from("school_classes").select("*").eq("is_active",true).order("sort_order").order("level_name"),supabase.from("homeroom_teachers").select("*"),supabase.from("students").select("*"),supabase.from("student_enrollments").select("*").eq("enrollment_status","active"),supabase.from("home_visit_settings").select("*")]);state.homeVisitRecords=rr.error?[]:(rr.data||[]);state.homeVisitMembers=mr.error?[]:(mr.data||[]);state.homeVisitPhotos=pr.error?[]:(pr.data||[]);state.homeVisitSignatures=sr.error?[]:(sr.data||[]);state.homeVisitClasses=cr.error?[]:(cr.data||[]);state.homeVisitHomerooms=hr.error?[]:(hr.data||[]);state.homeVisitStudents=studentsRes.error?[]:(studentsRes.data||[]);state.homeVisitEnrollments=enrollRes.error?[]:(enrollRes.data||[]);state.homeVisitSettings=settingsRes.error?[]:(settingsRes.data||[]);const allowed=homeVisitAllowedClasses();if(!state.homeVisitClassId||!allowed.some(c=>c.id===state.homeVisitClassId))state.homeVisitClassId=allowed[0]?.id||null;if(state.selectedHomeVisitId&&!state.homeVisitRecords.some(r=>r.id===state.selectedHomeVisitId))state.selectedHomeVisitId=null}
 function homeVisitFilteredRecords(){const p=homeVisitPeriod();return state.homeVisitRecords.filter(r=>String(r.academic_year)===p.academicYear&&Number(r.semester)===p.semester&&(!state.homeVisitClassId||r.class_id===state.homeVisitClassId))}
-function homeVisitHeroHtml(){return `<section class="lesson-hero home-visit-hero"><div><span class="eyebrow dark">General Administration · Student Home Visit</span><h2>ระบบเยี่ยมบ้านนักเรียน</h2><p>กรอกข้อมูลตามแบบ นร./กสศ.01 · แนบรูปภาพ · ลายเซ็นหลายรูปแบบ · Export รายบุคคลหรือรวมทั้งห้องเป็น PDF เดียว</p></div><div class="lesson-hero-actions"><button class="btn btn-primary" id="new-home-visit">＋ เพิ่มนักเรียน</button></div></section>`}
+function homeVisitCurrentSetting(){return state.homeVisitSettings.find(s=>String(s.academic_year)===String(state.homeVisitAcademicYear)&&Number(s.semester)===Number(state.homeVisitSemester))||null}
+function homeVisitPeriodStatus(){const s=homeVisitCurrentSetting(),today=new Date().toISOString().slice(0,10);if(!s)return {open:false,message:"ยังไม่ได้กำหนดช่วงเวลาการเยี่ยมบ้านสำหรับปี/ภาคเรียนนี้"};if(!s.is_open)return {open:false,message:s.closed_message||"ขณะนี้ระบบเยี่ยมบ้านนักเรียนปิดรับการบันทึกข้อมูล"};if(s.start_date&&today<s.start_date)return {open:false,message:s.before_message||"ขณะนี้ยังไม่ถึงช่วงเวลาการเยี่ยมบ้านนักเรียน"};if(s.end_date&&today>s.end_date)return {open:false,message:s.after_message||"สิ้นสุดช่วงเวลาการบันทึกข้อมูลเยี่ยมบ้านแล้ว"};return {open:true,message:"เปิดรับการบันทึกข้อมูลเยี่ยมบ้าน"}}
+function homeVisitCanEditUi(){return isSuperAdminUser()||homeVisitPeriodStatus().open}
+function homeVisitHeroHtml(){const ps=homeVisitPeriodStatus();return `<section class="lesson-hero home-visit-hero"><div><span class="eyebrow dark">General Administration · Student Home Visit</span><h2>ระบบเยี่ยมบ้านนักเรียน</h2><p>ดึงรายชื่อนักเรียนจากระบบบัญชีรายชื่อ · กรอกแบบ นร./กสศ.01 · Export PDF รายบุคคลหรือทั้งห้อง</p>${!ps.open?`<div class="home-visit-closed-banner">🔒 ${escapeHtml(ps.message)} · ยังดูและ Export ข้อมูลเดิมได้</div>`:""}</div><div class="lesson-hero-actions">${isSuperAdminUser()?`<button class="btn btn-secondary" id="home-visit-period-settings">⚙ ตั้งค่าช่วงเยี่ยมบ้าน</button>`:""}${homeVisitCanEditUi()?`<button class="btn btn-primary" id="new-home-visit">＋ สร้างแบบจากรายชื่อนักเรียน</button>`:""}</div></section>`}
 function homeVisitFiltersHtml(){const p=homeVisitPeriod(),classes=homeVisitAllowedClasses();return `<div class="home-visit-filters"><div class="field"><label>ปีการศึกษา</label><input class="input" id="hv-year" type="number" value="${p.academicYear}"></div><div class="field"><label>ภาคเรียน</label><select class="select" id="hv-sem"><option value="1" ${p.semester===1?"selected":""}>1</option><option value="2" ${p.semester===2?"selected":""}>2</option><option value="3" ${p.semester===3?"selected":""}>3</option></select></div><div class="field hv-class-filter"><label>ชั้น / ห้อง</label><select class="select" id="hv-class">${classes.map(c=>`<option value="${c.id}" ${c.id===state.homeVisitClassId?"selected":""}>${escapeHtml(schoolClassLabel(c))}</option>`).join("")}</select></div></div>`}
-function homeVisitListHtml(){const rows=homeVisitFilteredRecords(),c=state.homeVisitClasses.find(x=>x.id===state.homeVisitClassId);return `${homeVisitHeroHtml()}${homeVisitFiltersHtml()}<section class="panel"><div class="panel-head"><div class="panel-title-wrap"><h3>${c?`ข้อมูลเยี่ยมบ้าน ${escapeHtml(schoolClassLabel(c))}`:"ข้อมูลเยี่ยมบ้าน"}</h3><p>${rows.length} คน · เลือก Export รายบุคคล หรือรวมทุกคนในห้อง</p></div><div class="admin-actions"><button class="btn btn-secondary" id="export-home-visit-class" ${rows.length?"":"disabled"}>▤ Export ทั้งห้อง (${rows.length} คน) PDF เดียว</button><button class="btn btn-primary" id="new-home-visit">＋ เพิ่มนักเรียน</button></div></div>${rows.length?`<div class="table-wrap"><table class="table"><thead><tr><th>นักเรียน</th><th>ชั้น</th><th>ครูประจำชั้น</th><th>ผู้บันทึก</th><th>สถานะ</th><th></th></tr></thead><tbody>${rows.map(r=>`<tr><td><strong>${escapeHtml(r.student_first_name)} ${escapeHtml(r.student_last_name)}</strong><br><span class="table-muted">${escapeHtml(r.student_citizen_or_g||"—")}</span></td><td>${escapeHtml(r.class_label)}</td><td>${escapeHtml(r.homeroom_teacher_name||"—")}</td><td>${escapeHtml(r.recorder_name)}</td><td>${homeVisitStatusPill(r)}</td><td><div class="admin-actions"><button class="btn btn-ghost" data-open-home-visit="${r.id}">กรอก/รายละเอียด</button><button class="btn btn-secondary" data-export-home-visit="${r.id}">PDF รายบุคคล</button></div></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty"><strong>ยังไม่มีข้อมูลเยี่ยมบ้านในห้องนี้</strong><span>กด “เพิ่มนักเรียน” เพื่อเริ่มกรอกแบบฟอร์ม</span></div>`}</section>`}
+function homeVisitListHtml(){const rows=homeVisitFilteredRecords(),c=state.homeVisitClasses.find(x=>x.id===state.homeVisitClassId);return `${homeVisitHeroHtml()}${homeVisitFiltersHtml()}<section class="panel"><div class="panel-head"><div class="panel-title-wrap"><h3>${c?`ข้อมูลเยี่ยมบ้าน ${escapeHtml(schoolClassLabel(c))}`:"ข้อมูลเยี่ยมบ้าน"}</h3><p>${rows.length} คน · เลือก Export รายบุคคล หรือรวมทุกคนในห้อง</p></div><div class="admin-actions"><button class="btn btn-secondary" id="export-home-visit-class" ${rows.length?"":"disabled"}>▤ Export ทั้งห้อง (${rows.length} คน) PDF เดียว</button>${homeVisitCanEditUi()?`<button class="btn btn-primary" id="new-home-visit">＋ สร้างแบบจากรายชื่อนักเรียน</button>`:""}</div></div>${rows.length?`<div class="table-wrap"><table class="table"><thead><tr><th>นักเรียน</th><th>ชั้น</th><th>ครูประจำชั้น</th><th>ผู้บันทึก</th><th>สถานะ</th><th></th></tr></thead><tbody>${rows.map(r=>`<tr><td><strong>${escapeHtml(r.student_first_name)} ${escapeHtml(r.student_last_name)}</strong><br><span class="table-muted">${escapeHtml(r.student_citizen_or_g||"—")}</span></td><td>${escapeHtml(r.class_label)}</td><td>${escapeHtml(r.homeroom_teacher_name||"—")}</td><td>${escapeHtml(r.recorder_name)}</td><td>${homeVisitStatusPill(r)}</td><td><div class="admin-actions"><button class="btn btn-ghost" data-open-home-visit="${r.id}">กรอก/รายละเอียด</button><button class="btn btn-secondary" data-export-home-visit="${r.id}">PDF รายบุคคล</button></div></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty"><strong>ยังไม่มีข้อมูลเยี่ยมบ้านในห้องนี้</strong><span>กด “เพิ่มนักเรียน” เพื่อเริ่มกรอกแบบฟอร์ม</span></div>`}</section>`}
 function hvRadio(name,value,label,current){return `<label class="hv-choice"><input type="radio" name="${name}" value="${escapeHtml(value)}" ${current===value?"checked":""}> ${escapeHtml(label)}</label>`}
 function hvCheck(name,value,label,arr=[]){return `<label class="hv-choice"><input type="checkbox" name="${name}" value="${escapeHtml(value)}" ${arr.includes(value)?"checked":""}> ${escapeHtml(label)}</label>`}
 function hvText(fd,key,label,placeholder=""){return `<div class="field"><label>${escapeHtml(label)}</label><input class="input" name="${key}" value="${escapeHtml(fd[key]||"")}" placeholder="${escapeHtml(placeholder)}"></div>`}
@@ -4641,9 +5081,43 @@ function homeVisitPhotoSlot(r,kind,label){
 function signatureMethodBlock(r,type,label){const s=homeVisitSignaturesFor(r.id).find(x=>x.signer_type===type);return `<div class="hv-sign-card"><strong>${escapeHtml(label)}</strong><div class="field"><label>ชื่อผู้ลงนาม</label><input class="input" data-hv-signer-name="${type}" value="${escapeHtml(s?.signer_name||"")}"></div><div class="field"><label>วิธีลงนาม</label><select class="select" data-hv-sign-method="${type}"><option value="blank" ${!s?"selected":""}>เว้นไว้เซ็นบนกระดาษ</option><option value="drawn" ${s?.method==="drawn"?"selected":""}>เซ็นสดบนหน้าจอ</option><option value="upload" ${s?.method==="upload"?"selected":""}>อัปโหลดรูปลายเซ็น</option><option value="stored" ${s?.method==="stored"?"selected":""}>ใช้ลายเซ็นที่บันทึกไว้ในระบบ</option></select></div><button class="btn btn-secondary" type="button" data-hv-sign="${type}">ตั้งค่า / ลงนาม</button>${s?`<span class="pill active">บันทึกแล้ว · ${escapeHtml(s.method)}</span>`:""}</div>`}
 function homeVisitStep5(r){return `<div class="hv-step-card"><div class="project-paper-note"><strong>การรับรองข้อมูล</strong><span>ข้อมูลข้อ 1-7 ต้องถูกต้องตามความเป็นจริง และข้อมูลส่วนบุคคลใช้ตามวัตถุประสงค์ของแบบ นร./กสศ.01</span></div><div class="hv-sign-grid">${signatureMethodBlock(r,"student","นักเรียน")}${signatureMethodBlock(r,"guardian","ผู้ปกครอง")}${signatureMethodBlock(r,"state_officer","เจ้าหน้าที่ของรัฐ")}${signatureMethodBlock(r,"director","ผู้อำนวยการสถานศึกษา")}${signatureMethodBlock(r,"home_visit_teacher","ครูผู้เยี่ยมบ้าน/สำรวจข้อมูล")}</div></div>`}
 function homeVisitStep6(r){return `<div class="hv-step-card"><section class="project-detail-hero"><div>${homeVisitStatusPill(r)}<h2>${escapeHtml(r.student_first_name)} ${escapeHtml(r.student_last_name)}</h2><p>${escapeHtml(r.class_label)} · ครูประจำชั้น ${escapeHtml(r.homeroom_teacher_name||"—")} · ผู้บันทึก ${escapeHtml(r.recorder_name)}</p></div></section><div class="detail-grid" style="margin-top:14px">${planField("เลขประชาชน/รหัส G",r.student_citizen_or_g||"—")}${planField("สมาชิกครัวเรือน",`${homeVisitMembersFor(r.id).length} คน`)}${planField("รูปภาพ",`${homeVisitPhotosFor(r.id).length} รูป`)}${planField("ลายเซ็นในระบบ",`${homeVisitSignaturesFor(r.id).length} รายการ`)}</div><div class="admin-actions hv-final-actions"><button class="btn btn-secondary" data-export-home-visit="${r.id}">▤ Preview / Export PDF รายบุคคล</button><button class="btn ${r.status==="complete"?"btn-secondary":"btn-primary"}" id="toggle-home-visit-complete">${r.status==="complete"?"กลับเป็นฉบับร่าง":"ทำเครื่องหมายข้อมูลครบแล้ว"}</button></div></div>`}
-function homeVisitRecordHtml(r){return `<section class="home-visit-record"><div class="personnel-detail-top"><div><button class="type-back-link" id="home-visit-back">← กลับรายชื่อ</button><span class="eyebrow dark">${escapeHtml(r.class_label)} · ${escapeHtml(r.student_first_name)} ${escapeHtml(r.student_last_name)}</span></div><div class="personnel-detail-actions"><button class="btn btn-secondary" data-export-home-visit="${r.id}">PDF รายบุคคล</button>${((r.status==="draft"&&(r.recorder_id===state.user.id||r.homeroom_teacher_id===state.user.id||canManageAllHomeVisits()))||isSuperAdminUser())?`<button class="btn btn-danger" id="delete-home-visit-record">ลบข้อมูลเยี่ยมบ้าน</button>`:""}</div></div><div class="hv-step-tabs">${HOME_VISIT_STEPS.map((s,i)=>`<button class="hv-step-tab ${state.homeVisitStep===i+1?"active":""}" data-hv-step="${i+1}"><span>${i+1}</span>${escapeHtml(s)}</button>`).join("")}</div><form id="home-visit-form">${state.homeVisitStep===1?homeVisitStep1(r):state.homeVisitStep===2?homeVisitStep2(r):state.homeVisitStep===3?homeVisitStep3(r):state.homeVisitStep===4?homeVisitStep4(r):state.homeVisitStep===5?homeVisitStep5(r):homeVisitStep6(r)}</form><div class="hv-step-nav"><button class="btn btn-ghost" id="hv-prev" ${state.homeVisitStep===1?"disabled":""}>← ก่อนหน้า</button><button class="btn btn-primary" id="hv-save-step" ${state.homeVisitStep===6?"disabled":""}>บันทึกขั้นตอนนี้</button><button class="btn btn-secondary" id="hv-next" ${state.homeVisitStep===6?"disabled":""}>ถัดไป →</button></div></section>`}
+function homeVisitRecordHtml(r){const editable=homeVisitCanEditUi();return `<section class="home-visit-record"><div class="personnel-detail-top"><div><button class="type-back-link" id="home-visit-back">← กลับรายชื่อ</button><span class="eyebrow dark">${escapeHtml(r.class_label)} · ${escapeHtml(r.student_first_name)} ${escapeHtml(r.student_last_name)}</span></div><div class="personnel-detail-actions"><button class="btn btn-secondary" data-export-home-visit="${r.id}">PDF รายบุคคล</button>${editable&&canDeleteHomeVisitUi(r)?`<button class="btn btn-danger" id="delete-home-visit-record">ลบข้อมูลเยี่ยมบ้าน</button>`:""}</div></div>${!editable?`<div class="project-paper-note danger"><strong>ขณะนี้เปิดดูได้อย่างเดียว</strong><span>${escapeHtml(homeVisitPeriodStatus().message)}</span></div>`:""}<div class="hv-step-tabs">${HOME_VISIT_STEPS.map((s,i)=>`<button class="hv-step-tab ${state.homeVisitStep===i+1?"active":""}" data-hv-step="${i+1}"><span>${i+1}</span>${escapeHtml(s)}</button>`).join("")}</div><fieldset class="hv-readonly-fieldset" ${editable?"":"disabled"}><form id="home-visit-form">${state.homeVisitStep===1?homeVisitStep1(r):state.homeVisitStep===2?homeVisitStep2(r):state.homeVisitStep===3?homeVisitStep3(r):state.homeVisitStep===4?homeVisitStep4(r):state.homeVisitStep===5?homeVisitStep5(r):homeVisitStep6(r)}</form></fieldset><div class="hv-step-nav"><button class="btn btn-ghost" id="hv-prev" ${state.homeVisitStep===1?"disabled":""}>← ก่อนหน้า</button><button class="btn btn-primary" id="hv-save-step" ${state.homeVisitStep===6||!editable?"disabled":""}>บันทึกขั้นตอนนี้</button><button class="btn btn-secondary" id="hv-next" ${state.homeVisitStep===6?"disabled":""}>ถัดไป →</button></div></section>`}
 function homeVisitWorkspaceHtml(){const r=homeVisitRecord();return r?homeVisitRecordHtml(r):`${homeVisitListHtml()}`}
-function homeVisitCreateModal(){const classes=homeVisitAllowedClasses();if(!classes.length)return toast("ยังไม่มีชั้นเรียนที่รับผิดชอบ","ต้องกำหนดครูประจำชั้นหรือใช้บัญชีหัวหน้าบริหารทั่วไปก่อน","error");const m=document.createElement("div");m.className="modal-backdrop";m.innerHTML=`<div class="modal"><div class="modal-head"><div><h3>เพิ่มนักเรียนสำหรับเยี่ยมบ้าน</h3><p>สร้างแบบข้อมูลใหม่แยกตามปีการศึกษา/ภาคเรียน</p></div><button class="modal-close">×</button></div><form id="hv-create" class="form-grid"><div class="field"><label>ชั้น / ห้อง</label><select class="select" name="class_id">${classes.map(c=>`<option value="${c.id}" ${c.id===state.homeVisitClassId?"selected":""}>${escapeHtml(schoolClassLabel(c))}</option>`).join("")}</select></div><div class="form-row"><div class="field"><label>ชื่อนักเรียน</label><input class="input" name="first_name" required></div><div class="field"><label>นามสกุล</label><input class="input" name="last_name" required></div></div><div class="field"><label>เลขประจำตัวประชาชน / เลขรหัส G</label><input class="input" name="citizen"></div></form><div class="modal-actions"><button class="btn btn-ghost modal-cancel">ยกเลิก</button><button class="btn btn-primary" id="hv-create-save">สร้างแบบฟอร์ม</button></div></div>`;document.body.appendChild(m);const close=()=>m.remove();m.querySelector(".modal-close").onclick=close;m.querySelector(".modal-cancel").onclick=close;m.querySelector("#hv-create-save").onclick=async e=>{const f=m.querySelector("#hv-create");if(!f.reportValidity())return;const d=new FormData(f);buttonLoading(e.target,true,"กำลังสร้าง...");const {data,error}=await supabase.from("home_visit_records").insert({class_id:d.get("class_id"),student_first_name:String(d.get("first_name")).trim(),student_last_name:String(d.get("last_name")).trim(),student_citizen_or_g:String(d.get("citizen")||"").trim()||null,academic_year:"0",semester:1,class_label:"-",recorder_id:state.user.id,recorder_name:state.profile.full_name||state.profile.email,form_data:{}}).select().single();buttonLoading(e.target,false);if(error)return toast("สร้างแบบฟอร์มไม่สำเร็จ",error.message,"error");close();state.selectedHomeVisitId=data.id;state.homeVisitStep=1;await renderDashboard();};}
+function homeVisitAvailableStudents(classId){
+  const ids=new Set(state.homeVisitEnrollments.filter(e=>e.class_id===classId&&e.enrollment_status==="active").map(e=>e.student_id));
+  const used=new Set(state.homeVisitRecords.filter(r=>r.class_id===classId&&String(r.academic_year)===String(state.homeVisitAcademicYear)&&Number(r.semester)===Number(state.homeVisitSemester)&&r.student_id).map(r=>r.student_id));
+  return state.homeVisitStudents.filter(s=>ids.has(s.id)&&!used.has(s.id)).sort((a,b)=>a.first_name.localeCompare(b.first_name,'th'));
+}
+function homeVisitCreateModal(){
+  if(!homeVisitCanEditUi())return toast("ยังไม่เปิดช่วงเยี่ยมบ้าน",homeVisitPeriodStatus().message,"error");
+  const classes=homeVisitAllowedClasses();if(!classes.length)return toast("ยังไม่มีชั้นเรียนที่รับผิดชอบ","ต้องกำหนดครูประจำชั้นก่อน","error");
+  const initialClass=state.homeVisitClassId||classes[0].id,m=document.createElement("div");m.className="modal-backdrop";
+  const options=cid=>homeVisitAvailableStudents(cid).map(s=>`<option value="${s.id}">${escapeHtml(studentFullName(s))} · ${escapeHtml(s.student_code)}</option>`).join("");
+  m.innerHTML=`<div class="modal"><div class="modal-head"><div><h3>สร้างแบบเยี่ยมบ้านจากรายชื่อนักเรียน</h3><p>ชื่อ เลขประชาชน และข้อมูลพื้นฐานจะดึงจากระบบบัญชีรายชื่อนักเรียน</p></div><button class="modal-close">×</button></div><form id="hv-create" class="form-grid"><div class="field"><label>ชั้น / ห้อง</label><select class="select" name="class_id" id="hv-create-class">${classes.map(c=>`<option value="${c.id}" ${c.id===initialClass?"selected":""}>${escapeHtml(schoolClassLabel(c))}</option>`).join("")}</select></div><div class="field"><label>นักเรียน</label><select class="select" name="student_id" id="hv-create-student" required>${options(initialClass)}</select><small class="helper">แสดงเฉพาะนักเรียนที่ยังไม่มีแบบเยี่ยมบ้านในปี/ภาคเรียนนี้</small></div></form><div class="modal-actions"><button class="btn btn-ghost modal-cancel">ยกเลิก</button><button class="btn btn-primary" id="hv-create-save">สร้างแบบฟอร์ม</button></div></div>`;
+  document.body.appendChild(m);const close=()=>m.remove(),classSel=m.querySelector("#hv-create-class"),studentSel=m.querySelector("#hv-create-student");
+  classSel.onchange=()=>{studentSel.innerHTML=options(classSel.value);};
+  m.querySelector(".modal-close").onclick=close;m.querySelector(".modal-cancel").onclick=close;
+  m.querySelector("#hv-create-save").onclick=async e=>{
+    const sid=studentSel.value,cid=classSel.value,s=state.homeVisitStudents.find(x=>x.id===sid);if(!s)return toast("ไม่มีนักเรียนให้เลือก","นำเข้ารายชื่อนักเรียนหรือเลือกห้องอื่น","error");
+    buttonLoading(e.currentTarget,true,"กำลังสร้าง...");
+    const form_data={guardian_name:`${s.guardian_prefix||""}${s.guardian_first_name||""} ${s.guardian_last_name||""}`.trim(),guardian_relationship:s.guardian_relationship||"",guardian_occupation:s.guardian_occupation||"",house_no:s.house_no||"",village_no:s.village_no||"",subdistrict:s.subdistrict||"",district:s.district||"",province:s.province||""};
+    const {data,error}=await supabase.from("home_visit_records").insert({class_id:cid,student_id:s.id,student_first_name:s.first_name,student_last_name:s.last_name,student_citizen_or_g:s.citizen_id,academic_year:"0",semester:1,class_label:"-",recorder_id:state.user.id,recorder_name:state.profile.full_name||state.profile.email,form_data}).select().single();
+    buttonLoading(e.currentTarget,false);if(error)return toast("สร้างแบบฟอร์มไม่สำเร็จ",error.message,"error");close();state.selectedHomeVisitId=data.id;state.homeVisitStep=1;await renderDashboard();
+  };
+}
+function homeVisitPeriodSettingsModal(){
+  if(!isSuperAdminUser())return;const existing=homeVisitCurrentSetting(),m=document.createElement("div");m.className="modal-backdrop";
+  m.innerHTML=`<div class="modal"><div class="modal-head"><div><h3>ตั้งค่าช่วงเยี่ยมบ้านนักเรียน</h3><p>ปี ${escapeHtml(String(state.homeVisitAcademicYear))} ภาคเรียน ${state.homeVisitSemester} · เมื่อปิด ครูยังดูและ Export ข้อมูลเดิมได้</p></div><button class="modal-close">×</button></div><form id="hv-period-form" class="form-grid"><label class="secure-delete-check"><input type="checkbox" name="enabled" ${existing?.is_open?"checked":""}> เปิดระบบเยี่ยมบ้าน</label><div class="form-row"><div class="field"><label>วันเริ่มต้น</label><input class="input" type="date" name="start" value="${escapeHtml(existing?.start_date||"")}"></div><div class="field"><label>วันสิ้นสุด</label><input class="input" type="date" name="end" value="${escapeHtml(existing?.end_date||"")}"></div></div><div class="field"><label>ข้อความก่อนถึงช่วงเยี่ยมบ้าน</label><input class="input" name="before" value="${escapeHtml(existing?.before_message||"ขณะนี้ยังไม่ถึงช่วงเวลาการเยี่ยมบ้านนักเรียน")}"></div><div class="field"><label>ข้อความหลังสิ้นสุดช่วงเยี่ยมบ้าน</label><input class="input" name="after" value="${escapeHtml(existing?.after_message||"สิ้นสุดช่วงเวลาการบันทึกข้อมูลเยี่ยมบ้านแล้ว")}"></div><div class="field"><label>ข้อความเมื่อปิดระบบ</label><input class="input" name="closed" value="${escapeHtml(existing?.closed_message||"ขณะนี้ระบบเยี่ยมบ้านนักเรียนปิดรับการบันทึกข้อมูล")}"></div></form><div class="modal-actions"><button class="btn btn-ghost modal-cancel">ยกเลิก</button><button class="btn btn-primary" id="hv-period-save">บันทึก</button></div></div>`;
+  document.body.appendChild(m);const close=()=>m.remove();m.querySelector(".modal-close").onclick=close;m.querySelector(".modal-cancel").onclick=close;
+  m.querySelector("#hv-period-save").onclick=async e=>{
+    const f=m.querySelector("#hv-period-form"),d=new FormData(f),payload={academic_year:String(state.homeVisitAcademicYear),semester:Number(state.homeVisitSemester),is_open:f.elements.enabled.checked,start_date:d.get("start")||null,end_date:d.get("end")||null,before_message:String(d.get("before")||"").trim()||"ขณะนี้ยังไม่ถึงช่วงเวลาการเยี่ยมบ้านนักเรียน",after_message:String(d.get("after")||"").trim()||"สิ้นสุดช่วงเวลาการบันทึกข้อมูลเยี่ยมบ้านแล้ว",closed_message:String(d.get("closed")||"").trim()||"ขณะนี้ระบบเยี่ยมบ้านนักเรียนปิดรับการบันทึกข้อมูล",updated_by:state.user.id,updated_at:new Date().toISOString()};
+    if(payload.start_date&&payload.end_date&&payload.end_date<payload.start_date)return toast("ช่วงวันที่ไม่ถูกต้อง","วันสิ้นสุดต้องไม่น้อยกว่าวันเริ่มต้น","error");
+    buttonLoading(e.currentTarget,true,"กำลังบันทึก...");
+    const {error}=await supabase.from("home_visit_settings").upsert(payload,{onConflict:"academic_year,semester"});
+    buttonLoading(e.currentTarget,false);if(error)return toast("บันทึกไม่สำเร็จ",error.message,"error");close();toast("อัปเดตช่วงเยี่ยมบ้านแล้ว",payload.is_open?"เปิดระบบ":"ปิดระบบ","success");await renderDashboard();
+  };
+}
+
 function formValuesObject(form){const obj={};const fd=new FormData(form);for(const [k,v] of fd.entries()){if(obj[k]!==undefined){if(!Array.isArray(obj[k]))obj[k]=[obj[k]];obj[k].push(v)}else obj[k]=v}return obj}
 async function saveHomeVisitStep(r){
   if(state.homeVisitStep===2)return saveHouseholdMembers(r);
@@ -4795,9 +5269,348 @@ function hvKeyList(obj,keys){return keys.map(([k,l])=>`<div><strong>${escapeHtml
 function buildHomeVisitPdfPages(r,assets,logo){const f=r.form_data||{},members=homeVisitMembersFor(r.id),sigs=homeVisitSignaturesFor(r.id),totalIncome=members.reduce((s,m)=>s+Number(m.total_income??(Number(m.income_wage||0)+Number(m.income_agriculture||0)+Number(m.income_business||0)+Number(m.income_welfare||0)+Number(m.income_other||0))),0),avg=members.length?totalIncome/members.length:0;const page=(body,n)=>`<article class="a4-document hv-pdf-page"><div class="a4-document-inner">${hvPdfHeader(r,logo)}${body}<div class="hv-page-no">หน้า ${n}</div></div></article>`;const p1=`<section class="hv-pdf-section"><h3>1. ข้อมูลนักเรียน</h3><div class="hv-info-grid">${hvKeyList({name:`${r.student_first_name} ${r.student_last_name}`,id:r.student_citizen_or_g,...f},[["name","ชื่อนักเรียน"],["id","เลขประชาชน/รหัส G"],["student_age","อายุ"],["family_status","สถานภาพครอบครัว"],["lives_with","อาศัยอยู่กับ"],["guardian_name","ผู้ปกครอง"],["guardian_relationship","ความสัมพันธ์"],["guardian_phone","โทรศัพท์"],["guardian_occupation","อาชีพผู้ปกครอง"],["guardian_education","การศึกษาผู้ปกครอง"]])}<div class="hv-student-photo">${assets.photos.student?`<img src="${assets.photos.student}">`:`<span>รูปถ่ายนักเรียน</span>`}</div></div></section><section class="hv-pdf-section"><h3>2. สมาชิกในครัวเรือน</h3><table class="hv-pdf-table tiny"><thead><tr><th>#</th><th>ชื่อ-นามสกุล</th><th>ความสัมพันธ์</th><th>เลขประชาชน</th><th>การศึกษา</th><th>อายุ</th><th>พิการ</th><th>โรคเรื้อรัง</th><th>ค่าจ้าง</th><th>เกษตร</th><th>ธุรกิจ</th><th>สวัสดิการ</th><th>อื่น ๆ</th><th>รวม</th></tr></thead><tbody>${members.map(m=>`<tr><td>${m.member_no}</td><td>${escapeHtml(m.full_name)}</td><td>${escapeHtml(m.relationship||"")}</td><td>${escapeHtml(m.citizen_id||"")}</td><td>${escapeHtml(m.education_level||"")}</td><td>${m.age??""}</td><td>${yes(m.has_disability)}</td><td>${yes(m.has_chronic_disease)}</td><td>${money(m.income_wage)}</td><td>${money(m.income_agriculture)}</td><td>${money(m.income_business)}</td><td>${money(m.income_welfare)}</td><td>${money(m.income_other)}</td><td>${money(m.total_income)}</td></tr>`).join("")}<tr><td colspan="13"><strong>รวมรายได้ครัวเรือน</strong></td><td><strong>${money(totalIncome)}</strong></td></tr><tr><td colspan="13"><strong>รายได้เฉลี่ยต่อคน</strong></td><td><strong>${money(avg)}</strong></td></tr></tbody></table></section>`;const list=(label,arr)=>`<div class="hv-pdf-item"><strong>${label}</strong><span>${escapeHtml(Array.isArray(arr)?arr.join(" / "):(arr||"—"))}</span></div>`;const p2=`<section class="hv-pdf-section"><h3>3. ข้อมูลสถานะของครัวเรือน / ลักษณะที่อยู่อาศัย</h3><div class="hv-info-grid two">${list("ภาระพึ่งพิง",f.dependency)}${list("การอยู่อาศัย",f.housing_type)}${list("ค่าเช่า",f.rent_amount?`${f.rent_amount} บาท/เดือน`:"—")}${list("วัสดุพื้น",f.floor_material)}${list("วัสดุฝา",f.wall_material)}${list("วัสดุหลังคา",f.roof_material)}${list("ห้องส้วม",f.toilet)}${list("ที่ดินเกษตร",f.agri_land)}${list("แหล่งน้ำดื่ม",f.water_source)}${list("แหล่งไฟฟ้า",f.electric_source)}${list("ยานพาหนะ",f.vehicles)}${list("ของใช้ในครัวเรือน",f.household_goods)}</div></section><section class="hv-pdf-section"><h3>4. ข้อมูลทั่วไปของสถาบัน (ถ้ามี)</h3><div class="hv-long-box">${escapeHtml(f.institution_info||"ไม่ใช่ครัวเรือนสถาบัน / ไม่ได้ระบุ")}</div></section><section class="hv-pdf-section"><h3>5-6. การเดินทางและที่ตั้งที่พักอาศัย</h3><div class="hv-info-grid two">${list("วิธีเดินทางหลัก",f.travel_mode)}${list("ระยะทางไป-กลับ",f.travel_distance_km?`${f.travel_distance_km} กม.`:"—")}${list("เวลาไป-กลับ",f.travel_time)}${list("ค่าเดินทาง/เดือน",f.travel_cost_month?`${f.travel_cost_month} บาท`:"—")}${list("ได้เงินมาโรงเรียน/วัน",f.school_money_day?`${f.school_money_day} บาท`:"—")}${list("ที่อยู่",`${f.house_no||""} หมู่ ${f.village_no||""} ${f.soi||""} ${f.road||""} ${f.subdistrict||""} ${f.district||""} ${f.province||""} ${f.postal_code||""}`)}</div></section>`;const p3=`<section class="hv-pdf-section"><h3>7. ภาพถ่ายที่พักอาศัยของนักเรียน</h3><div class="hv-home-photos"><div>${assets.photos.exterior?`<img src="${assets.photos.exterior}">`:`<span>รูปที่ 1 ภายนอกที่พักอาศัย</span>`}<strong>รูปที่ 1 ภายนอกที่พักอาศัย</strong></div><div>${assets.photos.interior?`<img src="${assets.photos.interior}">`:`<span>รูปที่ 2 ภายในที่พักอาศัย</span>`}<strong>รูปที่ 2 ภายในที่พักอาศัย</strong></div></div><p>ที่มาภาพ: ${escapeHtml(f.photo_source||"—")} ${f.photo_alternative_reason?`· เหตุผลภาพทดแทน: ${escapeHtml(f.photo_alternative_reason)}`:""}</p></section><section class="hv-pdf-section"><h3>8-10. การรับรองข้อมูลและลายเซ็น</h3><p>ขอรับรองว่าข้อมูลที่บันทึกเป็นข้อมูลที่ถูกต้องตามความเป็นจริง และรับทราบการเก็บ ใช้ เปิดเผยข้อมูลส่วนบุคคลตามวัตถุประสงค์ของแบบฟอร์ม</p><div class="hv-signature-pdf-grid">${[["student","นักเรียน"],["guardian","ผู้ปกครอง"],["state_officer","เจ้าหน้าที่ของรัฐ"],["director","ผู้อำนวยการสถานศึกษา"],["home_visit_teacher","ครูผู้เยี่ยมบ้าน/สำรวจข้อมูล"]].map(([t,l])=>{const s=sigs.find(x=>x.signer_type===t),img=assets.sigs[t];return `<div class="hv-pdf-sign"><div class="hv-sign-image">${img?`<img src="${img}">`:""}</div><div>ลงชื่อ................................................</div><span>(${escapeHtml(s?.signer_name||"................................................")})</span><strong>${escapeHtml(s?.signer_position||l)}</strong></div>`}).join("")}</div><div class="hv-recorder-box">ผู้บันทึกข้อมูล: <strong>${escapeHtml(r.recorder_name)}</strong> · วันที่พิมพ์เอกสาร ${new Date().toLocaleDateString("th-TH")}</div></section>`;return[page(p1,1),page(p2,2),page(p3,3)]}
 function homeVisitPdfStyles(){return `${a4DocumentStyles()} @page{size:A4 landscape;margin:7mm}.a4-document{width:277mm;min-height:190mm;padding:0;box-shadow:none}.a4-document-inner{padding:4mm 7mm}.hv-pdf-page{break-after:page;page-break-after:always;position:relative}.hv-pdf-head{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;text-align:center;border-bottom:1px solid #222;padding-bottom:2mm;margin-bottom:2mm;line-height:1.08}.hv-pdf-head .a4-school-logo{display:block;height:17mm;max-width:24mm;object-fit:contain;margin:0 auto 1.2mm}.hv-pdf-head h1,.hv-pdf-head h2,.hv-pdf-head p{font-size:16pt!important;font-weight:400;margin:.35mm 0;line-height:1.08}.hv-pdf-head h1,.hv-pdf-head h2{font-weight:700}.hv-pdf-section{margin-bottom:2mm}.hv-pdf-section h3{font-size:11.5pt;margin:0 0 1.5mm;border-bottom:1px solid #777;padding-bottom:.5mm}.hv-info-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) 30mm;gap:1.2mm 4mm;font-size:9.5pt;position:relative}.hv-info-grid.two{grid-template-columns:1fr 1fr}.hv-info-grid>div,.hv-pdf-item{display:flex;gap:2mm;border-bottom:1px dotted #aaa;padding:1mm 0}.hv-info-grid strong,.hv-pdf-item strong{min-width:27mm}.hv-info-grid span,.hv-pdf-item span{flex:1}.hv-student-photo{grid-column:4;grid-row:1/span 5;width:28mm;height:36mm;border:1px solid #555;display:flex;align-items:center;justify-content:center;justify-self:end;align-self:start;padding:1mm;box-sizing:border-box}.hv-student-photo img{width:100%;height:100%;object-fit:cover}.hv-student-photo span{font-size:8.5pt;color:#666;text-align:center}.hv-pdf-table{width:100%;border-collapse:collapse;table-layout:fixed}.hv-pdf-table th,.hv-pdf-table td{border:1px solid #333;padding:.6mm;font-size:7.3pt;text-align:center;vertical-align:middle}.hv-pdf-table.tiny th,.hv-pdf-table.tiny td{font-size:6.8pt}.hv-long-box{border:1px solid #777;padding:2mm;min-height:18mm;font-size:9pt}.hv-home-photos{display:grid;grid-template-columns:1fr 1fr;gap:6mm}.hv-home-photos>div{height:75mm;border:1px solid #555;display:flex;flex-direction:column;align-items:center;justify-content:center}.hv-home-photos img{width:100%;height:65mm;object-fit:contain}.hv-home-photos strong{font-size:9pt}.hv-signature-pdf-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:4mm;margin-top:3mm}.hv-pdf-sign{text-align:center;font-size:9pt}.hv-sign-image{height:17mm}.hv-sign-image img{max-width:100%;max-height:16mm;object-fit:contain}.hv-pdf-sign span,.hv-pdf-sign strong{display:block}.hv-recorder-box{margin-top:3mm;text-align:right;font-size:9pt}.hv-page-no{position:absolute;right:7mm;bottom:3mm;font-size:8pt;color:#666}`;}
 async function homeVisitPdfPreview(records){const list=Array.isArray(records)?records:[records],valid=list.filter(Boolean);if(!valid.length)return;const logo=await schoolLogoDataUrl(),pages=[];for(const r of valid){const assets=await homeVisitRecordAssets(r);pages.push(...buildHomeVisitPdfPages(r,assets,logo))}const body=`<div class="hv-batch-doc">${pages.join("")}</div>`,title=valid.length>1?`แบบเยี่ยมบ้านรวม ${valid[0].class_label} (${valid.length} คน)`:`แบบเยี่ยมบ้าน ${valid[0].student_first_name} ${valid[0].student_last_name}`,m=document.createElement("div");m.className="modal-backdrop a4-preview-backdrop";m.innerHTML=`<div class="a4-preview-shell"><div class="a4-preview-toolbar"><div><strong>${escapeHtml(title)}</strong><span>A4 แนวนอน · ${pages.length} หน้า · รวมอยู่ใน PDF เดียว</span></div><div class="a4-preview-actions"><button class="btn btn-ghost" id="hv-pdf-close">ปิด</button><button class="btn btn-primary" id="hv-pdf-print">พิมพ์ / บันทึก PDF</button></div></div><div class="a4-preview-scroll"><style>${homeVisitPdfStyles()}</style>${body}</div></div>`;document.body.appendChild(m);m.querySelector("#hv-pdf-close").onclick=()=>m.remove();m.querySelector("#hv-pdf-print").onclick=()=>{const w=window.open("","_blank");if(!w)return toast("เปิดหน้าพิมพ์ไม่ได้","กรุณาอนุญาต Pop-up","error");w.document.write(`<!doctype html><html lang="th"><head><meta charset="UTF-8"><title>${escapeHtml(title)}</title><style>${homeVisitPdfStyles()}</style></head><body class="a4-print-body">${body}<script>window.addEventListener('load',()=>{(document.fonts?document.fonts.ready:Promise.resolve()).finally(()=>setTimeout(()=>window.print(),500));});<\/script></body></html>`);w.document.close()}}
+const ACADEMIC_CALENDAR_MONTH_SHORT = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
+const ACADEMIC_CALENDAR_MONTH_FULL = ["มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน","กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"];
+const ACADEMIC_CALENDAR_HOLIDAY_LABEL = {
+  public_holiday: "วันหยุดราชการ / นักขัตฤกษ์",
+  special_holiday: "วันหยุดเรียนกรณีพิเศษ",
+  school_holiday: "วันหยุดพิเศษของโรงเรียน",
+  other: "วันหยุดอื่น ๆ",
+};
+
+
+const ACADEMIC_STAGE_LABEL = {
+  early_childhood:"ปฐมวัย",
+  stage1:"ช่วงชั้นที่ 1 (ป.1–ป.3)",
+  stage2:"ช่วงชั้นที่ 2 (ป.4–ป.6)",
+  stage3:"ช่วงชั้นที่ 3 (ม.1–ม.3)",
+};
+const ACADEMIC_WEEKDAY_LABEL = {1:"จันทร์",2:"อังคาร",3:"พุธ",4:"พฤหัสบดี",5:"ศุกร์",6:"เสาร์",7:"อาทิตย์"};
+
+function academicCalendarTabsHtml(active){
+  return `<div class="academic-calendar-tabs">
+    <button class="${active==="hundred"?"active":""}" data-academic-calendar-section="hundred">ปฏิทิน 100 วัน</button>
+    <button class="${active==="supervision"?"active":""}" data-academic-calendar-section="supervision">ปฏิทินนิเทศการศึกษา</button>
+    <button class="${active==="plc"?"active":""}" data-academic-calendar-section="plc">ปฏิทิน PLC</button>
+  </div>`;
+}
+function academicSupervisionCanManageUi(){
+  if(state.profile?.role==="super_admin")return true;
+  const s=state.academicSupervisionSettings||{};
+  return [s.deputy_academic_user_id,s.coordinator_user_id].includes(state.user?.id);
+}
+function academicPlcCanManageUi(){return state.profile?.role==="super_admin"||isAcademicHead();}
+function academicCalendarAvailableStages(){
+  const standard=["early_childhood","stage1","stage2","stage3"],seen=new Set(standard);
+  const extra=(state.academicCalendarClasses||[])
+    .filter(c=>String(c.academic_year)===String(state.academicCalendarAcademicYear)&&Number(c.semester)===Number(state.academicCalendarSemester)&&c.is_active)
+    .map(c=>c.stage_code).filter(v=>v&&!seen.has(v)&&seen.add(v));
+  return [...standard,...extra];
+}
+function academicStageTeacherRows(stageCode){return state.academicStageTeachers?.[stageCode]||[];}
+function academicTeacherName(id){
+  for(const rows of Object.values(state.academicStageTeachers||{})){const x=rows.find(r=>r.teacher_id===id);if(x)return x.full_name;}
+  return id===state.user?.id?(state.profile?.full_name||state.profile?.email||"ฉัน"):"ครูผู้สอน";
+}
+function academicWeekMonday(value){
+  const d=academicCalendarDate(value);if(!d)return null;const dow=d.getDay();const shift=dow===0?-6:1-dow;d.setDate(d.getDate()+shift);return academicCalendarIso(d);
+}
+function academicWeekEnd(value){const d=academicCalendarDate(value);return d?academicCalendarIso(academicCalendarAddDays(d,4)):null;}
+function academicCalendarHolidayOn(date){
+  const cal=academicCalendarCurrent();if(!cal)return null;
+  return academicCalendarOverridesFor(cal.id).find(x=>String(x.event_date).slice(0,10)===String(date).slice(0,10)&&x.override_type==="holiday")||null;
+}
+function academicCalendarPeriodToolbarHtml(extraActions=""){
+  const years=academicCalendarYears();
+  return `<section class="panel academic-calendar-toolbar"><div class="academic-calendar-period-fields">
+    <div class="field"><label>ปีการศึกษา</label><select class="select" id="academic-calendar-year">${years.map(y=>`<option value="${y}" ${Number(state.academicCalendarAcademicYear)===y?"selected":""}>${y}</option>`).join("")}</select></div>
+    <div class="field"><label>ภาคเรียน</label><select class="select" id="academic-calendar-semester"><option value="1" ${Number(state.academicCalendarSemester)===1?"selected":""}>ภาคเรียนที่ 1</option><option value="2" ${Number(state.academicCalendarSemester)===2?"selected":""}>ภาคเรียนที่ 2</option></select></div>
+  </div><div class="academic-calendar-actions">${extraActions}</div></section>`;
+}
+
+function academicCalendarCanManageUi(){
+  if(!state.profile)return false;
+  if(state.profile.role==="super_admin")return true;
+  if(isAcademicHead())return true;
+  return state.academicCalendarSettings?.editor_user_id===state.user?.id;
+}
+function academicCalendarIso(d){
+  const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,"0"),day=String(d.getDate()).padStart(2,"0");
+  return `${y}-${m}-${day}`;
+}
+function academicCalendarDate(value){
+  if(!value)return null;
+  const d=new Date(`${String(value).slice(0,10)}T12:00:00`);
+  return Number.isNaN(d.getTime())?null:d;
+}
+function academicCalendarAddDays(date,days){const d=new Date(date);d.setDate(d.getDate()+days);return d;}
+function academicCalendarMonthKey(value){const d=academicCalendarDate(value);return d?`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`:"";}
+function academicCalendarMonthLabel(value,full=false){const d=academicCalendarDate(value);if(!d)return "—";const be=d.getFullYear()+543;return `${full?ACADEMIC_CALENDAR_MONTH_FULL[d.getMonth()]:ACADEMIC_CALENDAR_MONTH_SHORT[d.getMonth()]} ${full?be:String(be).slice(-2)}`;}
+function academicCalendarThaiDate(value){const d=academicCalendarDate(value);if(!d)return "—";return `${d.getDate()} ${ACADEMIC_CALENDAR_MONTH_FULL[d.getMonth()]} ${d.getFullYear()+543}`;}
+function academicCalendarThaiWeekday(value){const d=academicCalendarDate(value);if(!d)return "—";return ["วันอาทิตย์","วันจันทร์","วันอังคาร","วันพุธ","วันพฤหัสบดี","วันศุกร์","วันเสาร์"][d.getDay()];}
+function academicCalendarCurrent(){return state.academicCalendars.find(c=>Number(c.academic_year)===Number(state.academicCalendarAcademicYear)&&Number(c.semester)===Number(state.academicCalendarSemester))||null;}
+function academicCalendarYears(){const set=new Set([currentAcademicPeriod().academicYear]);(state.academicTerms||[]).forEach(t=>set.add(Number(t.academic_year)));(state.academicCalendars||[]).forEach(c=>set.add(Number(c.academic_year)));return [...set].filter(Boolean).sort((a,b)=>b-a);}
+function academicCalendarOverridesFor(calendarId){return state.academicCalendarOverrides.filter(x=>x.calendar_id===calendarId).sort((a,b)=>String(a.event_date).localeCompare(String(b.event_date)));}
+function academicCalendarActivitiesFor(calendarId){return state.academicCalendarActivities.filter(x=>x.calendar_id===calendarId).sort((a,b)=>String(a.event_date).localeCompare(String(b.event_date)));}
+function academicCalendarDefaultMonths(year,semester){const gy=Number(year)-543;const start=semester===2?new Date(gy,10,1):new Date(gy,4,1);return Array.from({length:6},(_,i)=>{const d=new Date(start.getFullYear(),start.getMonth()+i,1);return academicCalendarIso(d);});}
+function academicCalendarCompute(calendar){
+  const overrides=academicCalendarOverridesFor(calendar.id),overrideMap=new Map(overrides.map(x=>[String(x.event_date).slice(0,10),x]));
+  const start=academicCalendarDate(calendar.start_date);const dayNumbers=new Map();let count=0,endDate=null;
+  if(start){for(let i=0;i<500&&count<100;i++){const d=academicCalendarAddDays(start,i),key=academicCalendarIso(d),dow=d.getDay(),ov=overrideMap.get(key);const holiday=ov?.override_type==="holiday",special=ov?.override_type==="special_school_day";const normalWeekday=dow>=1&&dow<=5;if(!holiday&&(normalWeekday||special)){count+=1;dayNumbers.set(key,count);if(count===100)endDate=key;}}}
+  return {overrideMap,dayNumbers,endDate,count};
+}
+function academicCalendarVisibleCount(calendar,computed=academicCalendarCompute(calendar)){const keys=new Set((calendar.display_months||[]).map(academicCalendarMonthKey));let n=0;for(const [dateKey] of computed.dayNumbers){if(keys.has(academicCalendarMonthKey(dateKey)))n+=1;}return n;}
+function academicCalendarCell(calendar,year,monthIndex,day,computed,activityMap=null){
+  const max=new Date(year,monthIndex+1,0).getDate();if(day>max)return `<td class="academic-cal-cell cal-na"></td>`;
+  const d=new Date(year,monthIndex,day),key=academicCalendarIso(d),dow=d.getDay(),ov=computed.overrideMap.get(key),num=computed.dayNumbers.get(key),activity=activityMap?.get(key);let cls="cal-off",label="",title="";
+  if(num){if(ov?.override_type==="special_school_day"){cls="cal-special";title=ov.category==="makeup"?`${ov.title} · ชดเชยแทน ${academicCalendarThaiDate(ov.make_up_for)}`:ov.title;}else cls="cal-school";label=String(num);}
+  else if(dow===6){cls="cal-sat";label="ส";title=ov?.override_type==="holiday"?`วันเสาร์ · ${ov.title}${ov.note?` — ${ov.note}`:""}`:"วันเสาร์";}
+  else if(dow===0){cls="cal-sun";label="อา";title=ov?.override_type==="holiday"?`วันอาทิตย์ · ${ov.title}${ov.note?` — ${ov.note}`:""}`:"วันอาทิตย์";}
+  else if(ov?.override_type==="holiday"){cls="cal-holiday";label="ย";title=`${ov.title}${ov.note?` — ${ov.note}`:""}`;}
+  if(num&&ov?.override_type==="special_school_day")label=`<span>${num}</span><small>พิเศษ</small>`;
+  if(activity)title=`${title?`${title} · `:""}กิจกรรม: ${activity.title}${activity.note?` — ${activity.note}`:""}`;
+  return `<td class="academic-cal-cell ${cls}${activity?" has-activity":""}" title="${escapeHtml(title)}">${label}</td>`;
+}
+function academicCalendarDocumentHtml(calendar,{interactive=false}={}){
+  if(!calendar)return "";const months=(calendar.display_months||[]).map(v=>academicCalendarDate(v)).filter(Boolean).sort((a,b)=>a-b),computed=academicCalendarCompute(calendar),overrides=academicCalendarOverridesFor(calendar.id),activities=academicCalendarActivitiesFor(calendar.id),activityMap=new Map(activities.map(a=>[String(a.event_date).slice(0,10),a])),holidays=overrides.filter(x=>x.override_type==="holiday"),specials=overrides.filter(x=>x.override_type==="special_school_day");
+  const rows=months.map(md=>{const y=md.getFullYear(),m=md.getMonth(),monthCount=[...computed.dayNumbers].filter(([k])=>{const d=academicCalendarDate(k);return d&&d.getFullYear()===y&&d.getMonth()===m;}).length;return `<tr><th class="academic-cal-month">${escapeHtml(ACADEMIC_CALENDAR_MONTH_SHORT[m])}-${String(y+543).slice(-2)}</th>${Array.from({length:31},(_,i)=>academicCalendarCell(calendar,y,m,i+1,computed,activityMap)).join("")}<td class="academic-cal-total">${monthCount}</td></tr>`}).join("");
+  const visibleCount=academicCalendarVisibleCount(calendar,computed);
+  const statusText=calendar.status==="published"?"ประกาศใช้แล้ว":"ฉบับร่าง";
+  const activityRows=activities.length?activities.map(a=>`<li><strong>${academicCalendarThaiDate(a.event_date)}</strong> ${escapeHtml(a.title)}${a.note?` <span>${escapeHtml(a.note)}</span>`:""}</li>`).join(""):`<li class="muted">ยังไม่มีกิจกรรม</li>`;
+  const holidayRows=holidays.length?holidays.map(h=>`<li><strong>${academicCalendarThaiDate(h.event_date)}</strong> ${escapeHtml(h.title)}${h.note?` <span>${escapeHtml(h.note)}</span>`:""}</li>`).join(""):`<li class="muted">ยังไม่มีวันหยุดที่เพิ่มไว้</li>`;
+  const specialRows=specials.length?specials.map(s=>`<li><strong>${academicCalendarThaiDate(s.event_date)}</strong> ${escapeHtml(s.title)}${s.make_up_for?` <span>ชดเชยแทน ${academicCalendarThaiDate(s.make_up_for)}</span>`:""}</li>`).join(""):`<li class="muted">ยังไม่มีวันเปิดเรียนกรณีพิเศษ</li>`;
+  const warning=visibleCount<100?`<div class="academic-calendar-warning">⚠ เดือนที่เลือกแสดงวันเรียนได้ ${visibleCount}/100 วัน กรุณาเพิ่มเดือนให้ครอบคลุมถึงวันเรียนที่ 100 (${academicCalendarThaiDate(computed.endDate)})</div>`:"";
+  return `<div class="academic-calendar-document ${interactive?"interactive":""}" id="academic-calendar-export-document">
+    <header class="academic-calendar-doc-head"><img src="./school-logo.png" alt="ตราโรงเรียน"><div><h1>ปฏิทินการศึกษา ${escapeHtml(schoolName())}</h1><h2>ภาคเรียนที่ ${calendar.semester} ปีการศึกษา ${escapeHtml(calendar.academic_year)}</h2><p>${escapeHtml(educationOffice())}</p><small>เปิดเรียน ${academicCalendarThaiWeekday(calendar.start_date)}ที่ ${academicCalendarThaiDate(calendar.start_date)} · ${statusText}</small></div></header>
+    ${warning}
+    <div class="academic-calendar-table-wrap"><table class="academic-calendar-table"><thead><tr><th class="academic-cal-corner"></th>${Array.from({length:31},(_,i)=>`<th>${i+1}</th>`).join("")}<th class="academic-cal-total-head">รวม (วัน)</th></tr></thead><tbody>${rows}<tr class="academic-calendar-sum"><th colspan="32">รวมเวลาเรียน ภาคเรียนที่ ${calendar.semester} ปีการศึกษา ${escapeHtml(calendar.academic_year)}</th><td>${visibleCount}</td></tr></tbody></table></div>
+    <div class="academic-calendar-detail-grid">
+      <section class="academic-calendar-legend"><h3>คำอธิบายสัญลักษณ์</h3><div><i class="legend-box cal-school"></i><span>วันเรียนปกติ / เลขวันเรียน</span></div><div><i class="legend-box cal-holiday">ย</i><span>วันหยุดราชการ / วันหยุดพิเศษ (ถ้าตรงเสาร์/อาทิตย์ จะแสดง ส / อา)</span></div><div><i class="legend-box cal-sat">ส</i><span>วันเสาร์</span></div><div><i class="legend-box cal-sun">อา</i><span>วันอาทิตย์</span></div><div><i class="legend-box cal-special">1</i><span>เปิดเรียนกรณีพิเศษ / ชดเชย</span></div><div><i class="legend-box activity-outline"></i><span>กรอบสีเขียว = มีกิจกรรมในวันนั้น</span></div></section>
+      <section><h3 class="academic-pill pink">กิจกรรม</h3><ul class="academic-calendar-list">${activityRows}</ul><h3 class="academic-pill blue">เปิดเรียนกรณีพิเศษ</h3><ul class="academic-calendar-list compact">${specialRows}</ul></section>
+      <section><h3 class="academic-pill yellow">วันหยุดราชการ / วันหยุดพิเศษ</h3><ul class="academic-calendar-list">${holidayRows}</ul></section>
+    </div>
+  </div>`;
+}
+async function loadAcademicCalendarWorkspace(){
+  const p=currentAcademicPeriod();if(!state.academicCalendarAcademicYear)state.academicCalendarAcademicYear=p.academicYear;if(!state.academicCalendarSemester)state.academicCalendarSemester=p.semester;
+  const year=String(state.academicCalendarAcademicYear),sem=Number(state.academicCalendarSemester);
+  const [cr,or,ar,swr,ssr,scr,ppr,psr,clr,myr]=await Promise.all([
+    supabase.from("academic_calendars").select("*").order("academic_year",{ascending:false}).order("semester"),
+    supabase.from("academic_calendar_day_overrides").select("*").order("event_date"),
+    supabase.from("academic_calendar_activities").select("*").order("event_date"),
+    supabase.from("academic_supervision_weeks").select("*").eq("academic_year",year).eq("semester",sem).order("week_start"),
+    supabase.from("academic_supervision_slots").select("*").order("event_date"),
+    supabase.rpc("get_academic_supervisor_candidates"),
+    supabase.from("academic_plc_plans").select("*").eq("academic_year",year).eq("semester",sem).eq("is_active",true).order("created_at"),
+    supabase.from("academic_plc_sessions").select("*").order("event_date"),
+    supabase.from("school_classes").select("id,academic_year,semester,stage_code,level_name,room_name,sort_order,is_active").eq("academic_year",year).eq("semester",sem).eq("is_active",true).order("sort_order"),
+    supabase.rpc("get_my_academic_stages",{p_academic_year:year,p_semester:sem})
+  ]);
+  state.academicCalendars=cr.error?[]:(cr.data||[]);
+  state.academicCalendarOverrides=or.error?[]:(or.data||[]);
+  state.academicCalendarActivities=ar.error?[]:(ar.data||[]);
+  state.academicSupervisionWeeks=swr.error?[]:(swr.data||[]);
+  state.academicSupervisionSlots=ssr.error?[]:(ssr.data||[]);
+  state.academicSupervisorCandidates=scr.error?[]:(scr.data||[]);
+  state.academicPlcPlans=ppr.error?[]:(ppr.data||[]);
+  state.academicPlcSessions=psr.error?[]:(psr.data||[]);
+  state.academicCalendarClasses=clr.error?[]:(clr.data||[]);
+  state.academicMyStages=myr.error?[]:(myr.data||[]).map(x=>x.stage_code);
+  state.academicStageTeachers={};
+  const stages=academicCalendarAvailableStages();
+  if(stages.length){
+    const results=await Promise.all(stages.map(stage=>supabase.rpc("get_academic_stage_teachers",{p_academic_year:year,p_semester:sem,p_stage_code:stage})));
+    stages.forEach((stage,i)=>state.academicStageTeachers[stage]=results[i].error?[]:(results[i].data||[]));
+  }
+}
+
+function academicCalendarWorkspaceHtml(module){
+  const canManage=academicCalendarCanManageUi(),calendar=academicCalendarCurrent(),years=academicCalendarYears();
+  if(state.academicCalendarSection==="supervision")return academicSupervisionWorkspaceHtml(module);
+  if(state.academicCalendarSection==="plc")return academicPlcWorkspaceHtml(module);
+  return `<section class="academic-calendar-shell">
+    <div class="academic-calendar-hero"><div><span class="eyebrow">กลุ่มงานบริหารวิชาการ · Academic Calendar</span><h2>ระบบปฏิทินวิชาการ</h2><p>ปฏิทิน 100 วันเชื่อมปีการศึกษาและภาคเรียนของ BNK School OS พร้อม Export PDF / รูปภาพ</p></div><div class="academic-calendar-hero-status"><span>${calendar?.status==="published"?"● ประกาศใช้แล้ว":"● ฉบับร่าง"}</span><strong>${calendar?`100 วัน · ${academicCalendarThaiDate(academicCalendarCompute(calendar).endDate)}`:"ยังไม่ได้สร้างปฏิทิน"}</strong></div></div>
+    ${academicCalendarTabsHtml("hundred")}
+    <section class="panel academic-calendar-toolbar"><div class="academic-calendar-period-fields"><div class="field"><label>ปีการศึกษา</label><select class="select" id="academic-calendar-year">${years.map(y=>`<option value="${y}" ${Number(state.academicCalendarAcademicYear)===y?"selected":""}>${y}</option>`).join("")}</select></div><div class="field"><label>ภาคเรียน</label><select class="select" id="academic-calendar-semester"><option value="1" ${Number(state.academicCalendarSemester)===1?"selected":""}>ภาคเรียนที่ 1</option><option value="2" ${Number(state.academicCalendarSemester)===2?"selected":""}>ภาคเรียนที่ 2</option></select></div></div><div class="academic-calendar-actions">${calendar?`<button class="btn btn-ghost" id="academic-calendar-export-image">▣ Export รูปภาพ</button><button class="btn btn-ghost" id="academic-calendar-export-pdf">PDF Export PDF</button>`:""}${canManage?`<button class="btn btn-ghost" id="academic-calendar-load-draft">ดึงแบบร่าง</button>${calendar?`<button class="btn btn-ghost" id="academic-calendar-edit">แก้ไขปฏิทิน</button><button class="btn btn-ghost" id="academic-calendar-add-holiday">+ วันหยุด</button><button class="btn btn-ghost" id="academic-calendar-add-special">+ เปิดเรียนกรณีพิเศษ</button><button class="btn btn-ghost" id="academic-calendar-add-activity">+ กิจกรรม</button><button class="btn btn-secondary" id="academic-calendar-save-draft">บันทึกแบบร่าง</button><button class="btn btn-primary" id="academic-calendar-publish">${calendar.status==="published"?"ประกาศใช้แล้ว":"ประกาศใช้"}</button>`:`<button class="btn btn-primary" id="academic-calendar-create">+ สร้างปฏิทิน 100 วัน</button>`}`:""}</div></section>
+    ${calendar?`<section class="panel academic-calendar-paper">${academicCalendarDocumentHtml(calendar,{interactive:true})}</section>${canManage?academicCalendarManageListsHtml(calendar):""}`:`<section class="panel"><div class="empty"><strong>ยังไม่มีปฏิทิน 100 วัน</strong><span>${canManage?"สร้างปฏิทินสำหรับปีการศึกษาและภาคเรียนที่เลือกได้เลย":"ฝ่ายวิชาการยังไม่ได้ประกาศปฏิทินสำหรับช่วงเวลานี้"}</span></div></section>`}
+  </section>`;
+}
+
+function academicSupervisionWorkspaceHtml(module){
+  const canManage=academicSupervisionCanManageUi(),cal=academicCalendarCurrent();
+  let weeks=(state.academicSupervisionWeeks||[]).filter(w=>String(w.academic_year)===String(state.academicCalendarAcademicYear)&&Number(w.semester)===Number(state.academicCalendarSemester)).sort((a,b)=>String(a.week_start).localeCompare(String(b.week_start)));
+  if(!canManage)weeks=weeks.filter(w=>(state.academicMyStages||[]).includes(w.stage_code));
+  const own=(state.academicSupervisionSlots||[]).filter(s=>s.teacher_id===state.user?.id&&s.status==="scheduled").sort((a,b)=>String(a.event_date).localeCompare(String(b.event_date)));
+  const weekCards=weeks.length?weeks.map(w=>{
+    const teachers=academicStageTeacherRows(w.stage_code),slots=(state.academicSupervisionSlots||[]).filter(s=>s.week_id===w.id&&s.status==="scheduled");
+    return `<article class="academic-schedule-card">
+      <div class="academic-schedule-card-head"><div><span class="academic-stage-badge">${escapeHtml(ACADEMIC_STAGE_LABEL[w.stage_code]||w.stage_code)}</span><h3>${academicCalendarThaiDate(w.week_start)} – ${academicCalendarThaiDate(academicWeekEnd(w.week_start))}</h3><p>กำหนดคาบแล้ว ${slots.length}/${teachers.length} คน${w.note?` · ${escapeHtml(w.note)}`:""}</p></div>
+      ${canManage?`<div class="action-row"><button class="btn btn-secondary btn-small" data-supervision-manage-week="${w.id}">จัดคาบครู</button><button class="btn btn-danger btn-small" data-supervision-delete-week="${w.id}">ลบสัปดาห์</button></div>`:""}</div>
+      <div class="academic-slot-preview">${slots.length?slots.slice(0,6).map(s=>`<div><strong>${escapeHtml(academicTeacherName(s.teacher_id))}</strong><span>${academicCalendarThaiWeekday(s.event_date)} ${academicCalendarThaiDate(s.event_date)} · ${escapeHtml(s.period_label||`คาบ ${s.period_no}`)} · ${escapeHtml(s.subject_name)} · ${escapeHtml(s.class_label)}</span><small>ผู้นิเทศ: ${escapeHtml(s.supervisor_name||"ยังไม่ระบุ")}</small></div>`).join(""):`<span class="muted">ยังไม่ได้ล็อกคาบนิเทศ</span>`}${slots.length>6?`<small>และอีก ${slots.length-6} รายการ</small>`:""}</div>
+    </article>`;
+  }).join(""):`<div class="empty"><strong>ยังไม่ได้กำหนดสัปดาห์นิเทศ</strong><span>${canManage?"กด “กำหนดสัปดาห์นิเทศ” เพื่อเลือกสัปดาห์และช่วงชั้น":"ฝ่ายวิชาการยังไม่ได้กำหนดสัปดาห์นิเทศ"}</span></div>`;
+  const ownHtml=own.length?own.map(s=>`<div class="academic-upcoming-row"><div class="academic-upcoming-date"><strong>${academicCalendarDate(s.event_date)?.getDate()||""}</strong><span>${academicCalendarMonthLabel(s.event_date)}</span></div><div><strong>${academicCalendarThaiWeekday(s.event_date)} · ${escapeHtml(s.period_label||`คาบ ${s.period_no}`)}</strong><span>${escapeHtml(s.subject_name)} · ${escapeHtml(s.class_label)}${s.start_time?` · ${String(s.start_time).slice(0,5)}–${String(s.end_time||"").slice(0,5)} น.`:""}</span><small>ผู้นิเทศ: ${escapeHtml(s.supervisor_name||"ยังไม่ระบุ")}</small></div></div>`).join(""):`<div class="empty compact">ยังไม่มีคาบนิเทศที่กำหนดให้คุณ</div>`;
+  return `<section class="academic-calendar-shell">
+    <div class="academic-calendar-hero"><div><span class="eyebrow">Academic Supervision Calendar</span><h2>ปฏิทินนิเทศการศึกษา</h2><p>กำหนดสัปดาห์ตามช่วงชั้น แล้วล็อกคาบสอนจริงจากระบบจัดตารางสอน</p></div><div class="academic-calendar-hero-status"><span>${canManage?"● สิทธิ์จัดตารางนิเทศ":"● มุมมองครู"}</span><strong>ปี ${state.academicCalendarAcademicYear} · ภาคเรียน ${state.academicCalendarSemester}</strong></div></div>
+    ${academicCalendarTabsHtml("supervision")}
+    ${academicCalendarPeriodToolbarHtml(canManage?`<button class="btn btn-primary" id="supervision-add-week">+ กำหนดสัปดาห์นิเทศ</button>`:"")}
+    ${!cal?`<section class="panel"><div class="academic-calendar-warning">ต้องมีปฏิทิน 100 วันของปีการศึกษา/ภาคเรียนนี้ก่อน ระบบนิเทศจึงจะกำหนดช่วงสัปดาห์ได้</div></section>`:""}
+    <section class="${canManage?"academic-two-column":"academic-single-column"}"><div class="panel"><div class="panel-head"><div class="panel-title-wrap"><h3>การนิเทศของฉัน</h3><p>เมื่อถูกล็อกคาบ ระบบจะแจ้งเตือนและแสดงรายการตรงนี้</p></div></div>${ownHtml}</div>
+    ${canManage?`<div class="panel"><div class="panel-head"><div class="panel-title-wrap"><h3>หลักการทำงาน</h3><p>1 สัปดาห์ = 1 ช่วงชั้น · คาบนิเทศดึงจากตารางสอน Published</p></div></div><div class="academic-rule-list"><span>① เลือกสัปดาห์</span><span>② กำหนดช่วงชั้น</span><span>③ ล็อกคาบให้ครูทีละคน</span><span>④ เลือกผู้ทำหน้าที่นิเทศ</span></div></div>`:""}</section>
+    <section class="panel"><div class="panel-head"><div class="panel-title-wrap"><h3>ปฏิทินนิเทศรายสัปดาห์</h3><p>อยู่ภายในช่วง 100 วันของภาคเรียนเดียวกัน</p></div></div><div class="academic-schedule-list">${weekCards}</div></section>
+  </section>`;
+}
+
+function academicPlcWorkspaceHtml(module){
+  const canManage=academicPlcCanManageUi(),cal=academicCalendarCurrent();
+  let plans=(state.academicPlcPlans||[]).filter(p=>String(p.academic_year)===String(state.academicCalendarAcademicYear)&&Number(p.semester)===Number(state.academicCalendarSemester)&&p.is_active);
+  if(!canManage)plans=plans.filter(p=>(state.academicMyStages||[]).includes(p.stage_code));
+  const sessions=(state.academicPlcSessions||[]);
+  const cards=plans.length?plans.map(p=>{
+    const dates=sessions.filter(s=>s.plan_id===p.id).sort((a,b)=>String(a.event_date).localeCompare(String(b.event_date)));
+    const upcoming=dates.filter(s=>String(s.event_date)>=academicCalendarIso(new Date())).slice(0,5);
+    return `<article class="academic-schedule-card plc-card">
+      <div class="academic-schedule-card-head"><div><span class="academic-stage-badge plc">${escapeHtml(ACADEMIC_STAGE_LABEL[p.stage_code]||p.stage_code)}</span><h3>${escapeHtml(p.title||"PLC")}</h3><p>${p.recurrence_type==="weekly"?`รายสัปดาห์ · ทุกวัน${escapeHtml(ACADEMIC_WEEKDAY_LABEL[p.weekday]||p.weekday)}`:"กำหนดวันที่เอง"} · ${escapeHtml(p.period_label||`คาบ ${p.period_no}`)}${p.start_time?` · ${String(p.start_time).slice(0,5)}–${String(p.end_time||"").slice(0,5)} น.`:""}</p></div>${canManage?`<div class="action-row"><button class="btn btn-ghost btn-small" data-plc-edit="${p.id}">แก้ไข</button><button class="btn btn-danger btn-small" data-plc-delete="${p.id}">ลบ</button></div>`:""}</div>
+      ${p.note?`<p class="academic-note">${escapeHtml(p.note)}</p>`:""}
+      <div class="plc-date-chips">${(upcoming.length?upcoming:dates.slice(-5)).map(s=>{const h=academicCalendarHolidayOn(s.event_date);return `<span class="plc-date-chip ${h?"holiday":""}">${academicCalendarThaiDate(s.event_date)}${h?` · ตรงวันหยุด`:""}</span>`}).join("")||`<span class="muted">ยังไม่มีวันที่ PLC</span>`}</div>
+      <small>ทั้งหมด ${dates.length} ครั้ง</small>
+    </article>`;
+  }).join(""):`<div class="empty"><strong>ยังไม่มีปฏิทิน PLC สำหรับคุณ</strong><span>${canManage?"กด “กำหนด PLC” เพื่อสร้างแบบรายสัปดาห์หรือเลือกวันที่เอง":"เมื่อฝ่ายวิชาการกำหนด PLC ให้ช่วงชั้นของคุณ รายการจะปรากฏที่นี่"}</span></div>`;
+  return `<section class="academic-calendar-shell">
+    <div class="academic-calendar-hero"><div><span class="eyebrow">Professional Learning Community</span><h2>ปฏิทิน PLC</h2><p>กำหนด PLC เป็นรายสัปดาห์หรือเลือกวันที่เอง โดยผูกกับช่วงชั้นและคาบเรียน</p></div><div class="academic-calendar-hero-status"><span>${canManage?"● จัดการ PLC ได้":"● PLC ของช่วงชั้นฉัน"}</span><strong>${(state.academicMyStages||[]).map(s=>ACADEMIC_STAGE_LABEL[s]||s).join(" · ")||"ยังไม่พบช่วงชั้น"}</strong></div></div>
+    ${academicCalendarTabsHtml("plc")}
+    ${academicCalendarPeriodToolbarHtml(canManage?`<button class="btn btn-primary" id="plc-add-plan">+ กำหนด PLC</button>`:"")}
+    ${!cal?`<section class="panel"><div class="academic-calendar-warning">ต้องมีปฏิทิน 100 วันก่อนกำหนด PLC เพื่อให้ทุกวันที่อยู่ภายในกรอบภาคเรียนเดียวกัน</div></section>`:""}
+    <section class="panel"><div class="panel-head"><div class="panel-title-wrap"><h3>${canManage?"แผน PLC ทุกช่วงชั้น":"ปฏิทิน PLC ของฉัน"}</h3><p>PLC ไม่ตรวจว่าครูว่างหรือมีคาบสอน ระบบจะแสดงตามเวลาที่ฝ่ายวิชาการกำหนด</p></div></div><div class="academic-schedule-list">${cards}</div></section>
+  </section>`;
+}
+
+function academicSupervisionWeekModal(){
+  if(!academicSupervisionCanManageUi())return;
+  const stages=academicCalendarAvailableStages();if(!stages.length)return toast("ยังไม่มีช่วงชั้น","กรุณาตั้งค่าชั้น/ห้องของปีการศึกษาและภาคเรียนนี้ก่อน","error");
+  const m=document.createElement("div");m.className="modal-backdrop";
+  m.innerHTML=`<div class="modal"><div class="modal-head"><div><h3>กำหนดสัปดาห์นิเทศ</h3><p>เลือกวันใดก็ได้ในสัปดาห์ ระบบจะปรับเป็นวันจันทร์ให้อัตโนมัติ</p></div><button class="modal-close">×</button></div><form id="supervision-week-form" class="form-grid">
+    <div class="field"><label>วันที่ในสัปดาห์</label><input class="input" name="week_date" type="date" required></div>
+    <div class="field"><label>ช่วงชั้น</label><select class="select" name="stage_code">${stages.map(s=>`<option value="${s}">${escapeHtml(ACADEMIC_STAGE_LABEL[s]||s)}</option>`).join("")}</select></div>
+    <div class="field"><label>หมายเหตุ</label><textarea class="input textarea" name="note" placeholder="เช่น รอบนิเทศครั้งที่ 1"></textarea></div>
+    <div class="modal-actions"><button class="btn btn-ghost modal-cancel" type="button">ยกเลิก</button><button class="btn btn-primary" type="submit">บันทึกสัปดาห์</button></div></form></div>`;
+  document.body.appendChild(m);const close=()=>m.remove();m.querySelector(".modal-close").onclick=close;m.querySelector(".modal-cancel").onclick=close;
+  m.querySelector("#supervision-week-form").onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.currentTarget),weekStart=academicWeekMonday(fd.get("week_date"));if(!weekStart)return;
+    const btn=e.submitter;buttonLoading(btn,true,"กำลังบันทึก...");
+    const existing=(state.academicSupervisionWeeks||[]).find(w=>String(w.week_start).slice(0,10)===weekStart);
+    const payload={academic_year:String(state.academicCalendarAcademicYear),semester:Number(state.academicCalendarSemester),week_start:weekStart,stage_code:String(fd.get("stage_code")),note:String(fd.get("note")||"").trim()||null,updated_at:new Date().toISOString(),updated_by:state.user.id};
+    const res=existing?await supabase.from("academic_supervision_weeks").update(payload).eq("id",existing.id):await supabase.from("academic_supervision_weeks").insert({...payload,created_by:state.user.id});
+    buttonLoading(btn,false);if(res.error)return toast("บันทึกสัปดาห์นิเทศไม่สำเร็จ",res.error.message,"error");close();toast("บันทึกสัปดาห์นิเทศแล้ว",`${academicCalendarThaiDate(weekStart)} · ${ACADEMIC_STAGE_LABEL[payload.stage_code]||payload.stage_code}`,"success");await renderDashboard();
+  };
+}
+
+function academicSupervisionManageWeekModal(weekId){
+  const week=(state.academicSupervisionWeeks||[]).find(w=>w.id===weekId);if(!week||!academicSupervisionCanManageUi())return;
+  const teachers=academicStageTeacherRows(week.stage_code),slots=(state.academicSupervisionSlots||[]).filter(s=>s.week_id===week.id&&s.status==="scheduled");
+  const m=document.createElement("div");m.className="modal-backdrop";
+  m.innerHTML=`<div class="modal wide"><div class="modal-head"><div><h3>จัดคาบนิเทศ · ${escapeHtml(ACADEMIC_STAGE_LABEL[week.stage_code]||week.stage_code)}</h3><p>${academicCalendarThaiDate(week.week_start)} – ${academicCalendarThaiDate(academicWeekEnd(week.week_start))}</p></div><button class="modal-close">×</button></div>
+    <div class="supervision-teacher-list">${teachers.length?teachers.map(t=>{const s=slots.find(x=>x.teacher_id===t.teacher_id);return `<div class="supervision-teacher-row"><div><strong>${escapeHtml(t.full_name)}</strong>${s?`<span>${academicCalendarThaiDate(s.event_date)} · ${escapeHtml(s.period_label||`คาบ ${s.period_no}`)} · ${escapeHtml(s.subject_name)} · ${escapeHtml(s.class_label)}</span><small>ผู้นิเทศ: ${escapeHtml(s.supervisor_name||"ยังไม่ระบุ")}</small>`:`<span class="muted">ยังไม่กำหนดคาบ</span>`}</div><div class="action-row"><button class="btn btn-secondary btn-small" data-supervision-pick-teacher="${t.teacher_id}">${s?"เปลี่ยนคาบ":"ล็อกคาบ"}</button>${s?`<button class="btn btn-danger btn-small" data-supervision-remove-slot="${s.id}">ลบคาบ</button>`:""}</div></div>`}).join(""):`<div class="empty">ยังไม่พบครูในช่วงชั้นนี้จากครูประจำชั้น/ตารางสอน</div>`}</div>
+    <div class="modal-actions"><button class="btn btn-ghost modal-cancel">ปิด</button></div></div>`;
+  document.body.appendChild(m);const close=()=>m.remove();m.querySelector(".modal-close").onclick=close;m.querySelector(".modal-cancel").onclick=close;
+  m.querySelectorAll("[data-supervision-pick-teacher]").forEach(b=>b.onclick=()=>{const teacher=b.dataset.supervisionPickTeacher;close();academicSupervisionSlotPicker(week.id,teacher);});
+  m.querySelectorAll("[data-supervision-remove-slot]").forEach(b=>b.onclick=async()=>{if(!confirm("ลบคาบนิเทศของครูคนนี้ใช่หรือไม่?"))return;const {error}=await supabase.from("academic_supervision_slots").delete().eq("id",b.dataset.supervisionRemoveSlot);if(error)return toast("ลบคาบไม่สำเร็จ",error.message,"error");close();await renderDashboard();});
+}
+
+async function academicSupervisionSlotPicker(weekId,teacherId){
+  const teacher=academicTeacherName(teacherId),existing=(state.academicSupervisionSlots||[]).find(s=>s.week_id===weekId&&s.teacher_id===teacherId&&s.status==="scheduled"),{data,error}=await supabase.rpc("get_supervision_teacher_slots",{p_week_id:weekId,p_teacher_id:teacherId});
+  if(error)return toast("ดึงตารางสอนไม่สำเร็จ",error.message,"error");
+  const slots=data||[],supervisors=state.academicSupervisorCandidates||[],m=document.createElement("div");m.className="modal-backdrop";
+  m.innerHTML=`<div class="modal wide"><div class="modal-head"><div><h3>ล็อกคาบนิเทศ · ${escapeHtml(teacher)}</h3><p>เลือกผู้ทำหน้าที่นิเทศ 1 คน แล้วเลือกคาบสอนจริงของครู</p></div><button class="modal-close">×</button></div>
+    <div class="field"><label>ผู้ทำหน้าที่นิเทศ</label><select class="select" id="supervision-supervisor"><option value="">— เลือกผู้ทำหน้าที่นิเทศ —</option>${supervisors.map(u=>`<option value="${u.user_id}" ${existing?.supervisor_user_id===u.user_id?"selected":""}>${escapeHtml(u.full_name)} · ${escapeHtml(ROLE_LABEL[u.role]||u.role)}</option>`).join("")}</select><span class="helper">เลือกผู้ใช้งาน Active ได้ทุกตำแหน่ง และไม่จำเป็นต้องอยู่ช่วงชั้นเดียวกัน</span></div>
+    <div class="supervision-slot-picker">${slots.length?slots.map(s=>{const h=academicCalendarHolidayOn(s.event_date);return `<button type="button" class="supervision-slot-option ${h?"holiday":""}" data-supervision-entry="${s.timetable_entry_id}"><strong>${academicCalendarThaiWeekday(s.event_date)} ${academicCalendarThaiDate(s.event_date)} · ${escapeHtml(s.period_label||`คาบ ${s.period_no}`)}</strong><span>${escapeHtml(s.subject_name)} · ${escapeHtml(s.class_label)} · ${String(s.start_time||"").slice(0,5)}–${String(s.end_time||"").slice(0,5)} น.</span>${h?`<small>⚠ ตรงวันหยุด: ${escapeHtml(h.title)}</small>`:""}</button>`}).join(""):`<div class="empty"><strong>ไม่พบคาบสอนที่เลือกได้</strong><span>ตรวจสอบว่าตารางสอนของช่วงชั้นนี้ถูกประกาศใช้แล้ว</span></div>`}</div>
+    <div class="field"><label>หมายเหตุการนิเทศ</label><textarea class="input textarea" id="supervision-slot-note">${escapeHtml(existing?.note||"")}</textarea></div>
+    <div class="modal-actions"><button class="btn btn-ghost modal-cancel">ปิด</button></div></div>`;
+  document.body.appendChild(m);const close=()=>m.remove();m.querySelector(".modal-close").onclick=close;m.querySelector(".modal-cancel").onclick=close;
+  m.querySelectorAll("[data-supervision-entry]").forEach(b=>b.onclick=async()=>{const supervisorId=m.querySelector("#supervision-supervisor").value;if(!supervisorId)return toast("กรุณาเลือกผู้ทำหน้าที่นิเทศ","ต้องระบุผู้นิเทศก่อนเลือกคาบ","error");const chosen=slots.find(s=>s.timetable_entry_id===b.dataset.supervisionEntry);if(academicCalendarHolidayOn(chosen?.event_date)&&!confirm("คาบนี้ตรงกับวันหยุดในปฏิทิน 100 วัน ต้องการกำหนดต่อหรือไม่?"))return;buttonLoading(b,true,"กำลังบันทึก...");const {error}=await supabase.rpc("save_academic_supervision_slot",{p_week_id:weekId,p_teacher_id:teacherId,p_timetable_entry_id:b.dataset.supervisionEntry,p_supervisor_user_id:supervisorId,p_note:m.querySelector("#supervision-slot-note").value.trim()||null});buttonLoading(b,false);if(error)return toast("บันทึกคาบนิเทศไม่สำเร็จ",error.message,"error");close();toast("ล็อกคาบนิเทศแล้ว","ครูผู้รับการนิเทศและผู้ทำหน้าที่นิเทศได้รับการแจ้งเตือนแล้ว","success");await renderDashboard();});
+}
+
+async function academicPlcPlanModal(plan=null){
+  if(!academicPlcCanManageUi())return;
+  const stages=academicCalendarAvailableStages();if(!stages.length)return toast("ยังไม่มีช่วงชั้น","กรุณาตั้งค่าชั้น/ห้องก่อน","error");
+  const planSessions=plan?(state.academicPlcSessions||[]).filter(s=>s.plan_id===plan.id).map(s=>String(s.event_date).slice(0,10)):[];
+  let customDates=plan?.recurrence_type==="custom"?[...planSessions]:[];
+  const cal=academicCalendarCurrent(),computed=cal?academicCalendarCompute(cal):null;
+  const m=document.createElement("div");m.className="modal-backdrop";
+  m.innerHTML=`<div class="modal wide"><div class="modal-head"><div><h3>${plan?"แก้ไข":"กำหนด"} PLC</h3><p>เลือกรูปแบบรายสัปดาห์หรือเลือกวันที่เอง ระบบไม่ตรวจว่าครูว่างหรือมีสอน</p></div><button class="modal-close">×</button></div><form id="plc-plan-form" class="form-grid">
+    <div class="form-row"><div class="field"><label>ช่วงชั้น</label><select class="select" name="stage_code" id="plc-stage">${stages.map(s=>`<option value="${s}" ${plan?.stage_code===s?"selected":""}>${escapeHtml(ACADEMIC_STAGE_LABEL[s]||s)}</option>`).join("")}</select></div>
+    <div class="field"><label>รูปแบบ</label><select class="select" name="recurrence_type" id="plc-mode"><option value="weekly" ${plan?.recurrence_type!=="custom"?"selected":""}>รายสัปดาห์</option><option value="custom" ${plan?.recurrence_type==="custom"?"selected":""}>กำหนดวันที่เอง</option></select></div></div>
+    <div class="field"><label>คาบ PLC</label><select class="select" name="period_no" id="plc-period" required><option value="">กำลังโหลดคาบ...</option></select><span class="helper">ดึงโครงสร้างคาบจากระบบจัดตารางสอนที่ Published</span></div>
+    <div id="plc-weekly-fields"><div class="form-row"><div class="field"><label>วันประจำสัปดาห์</label><select class="select" name="weekday">${Object.entries(ACADEMIC_WEEKDAY_LABEL).map(([v,l])=>`<option value="${v}" ${Number(plan?.weekday||1)===Number(v)?"selected":""}>วัน${l}</option>`).join("")}</select></div>
+    <div class="field"><label>เริ่มตั้งแต่</label><input class="input" name="start_date" type="date" value="${escapeHtml(plan?.start_date||cal?.start_date||"")}"></div><div class="field"><label>ถึงวันที่</label><input class="input" name="end_date" type="date" value="${escapeHtml(plan?.end_date||computed?.endDate||"")}"></div></div></div>
+    <div id="plc-custom-fields" class="hidden"><div class="academic-calendar-month-picker"><input class="input" id="plc-custom-date" type="date"><button class="btn btn-ghost" type="button" id="plc-add-date">+ เพิ่มวันที่</button></div><div id="plc-date-chips" class="academic-calendar-month-chips"></div></div>
+    <div class="field"><label>ชื่อกิจกรรม</label><input class="input" name="title" required value="${escapeHtml(plan?.title||"PLC")}" maxlength="160"></div>
+    <div class="field"><label>หมายเหตุ</label><textarea class="input textarea" name="note">${escapeHtml(plan?.note||"")}</textarea></div>
+    <div class="modal-actions"><button class="btn btn-ghost modal-cancel" type="button">ยกเลิก</button><button class="btn btn-primary" type="submit">บันทึก PLC</button></div></form></div>`;
+  document.body.appendChild(m);const close=()=>m.remove();m.querySelector(".modal-close").onclick=close;m.querySelector(".modal-cancel").onclick=close;
+  const stage=m.querySelector("#plc-stage"),mode=m.querySelector("#plc-mode"),period=m.querySelector("#plc-period"),weekly=m.querySelector("#plc-weekly-fields"),custom=m.querySelector("#plc-custom-fields"),chips=m.querySelector("#plc-date-chips");
+  const drawDates=()=>{chips.innerHTML=customDates.sort().map(d=>`<button type="button" class="academic-calendar-month-chip" data-plc-remove-date="${d}">${academicCalendarThaiDate(d)} ×</button>`).join("");chips.querySelectorAll("[data-plc-remove-date]").forEach(b=>b.onclick=()=>{customDates=customDates.filter(x=>x!==b.dataset.plcRemoveDate);drawDates();});};
+  const syncMode=()=>{const isCustom=mode.value==="custom";weekly.classList.toggle("hidden",isCustom);custom.classList.toggle("hidden",!isCustom);};mode.onchange=syncMode;syncMode();drawDates();
+  m.querySelector("#plc-add-date").onclick=()=>{const v=m.querySelector("#plc-custom-date").value;if(v&&!customDates.includes(v)){customDates.push(v);drawDates();}};
+  const loadPeriods=async()=>{period.innerHTML=`<option value="">กำลังโหลด...</option>`;const {data,error}=await supabase.rpc("get_academic_period_options",{p_academic_year:String(state.academicCalendarAcademicYear),p_semester:Number(state.academicCalendarSemester),p_stage_code:stage.value});if(error){period.innerHTML=`<option value="">โหลดคาบไม่สำเร็จ</option>`;return;}const rows=data||[];period.innerHTML=rows.length?rows.map(x=>`<option value="${x.period_no}" ${Number(plan?.period_no)===Number(x.period_no)?"selected":""}>${escapeHtml(x.period_label||`คาบ ${x.period_no}`)} · ${String(x.start_time||"").slice(0,5)}–${String(x.end_time||"").slice(0,5)} น.</option>`).join(""):`<option value="">ยังไม่มีตารางสอน Published</option>`;};
+  stage.onchange=loadPeriods;await loadPeriods();
+  m.querySelector("#plc-plan-form").onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.currentTarget),isCustom=fd.get("recurrence_type")==="custom";if(isCustom&&!customDates.length)return toast("กรุณาเลือกวันที่ PLC","เพิ่มอย่างน้อย 1 วันก่อนบันทึก","error");const btn=e.submitter;buttonLoading(btn,true,"กำลังบันทึก...");const {data,error}=await supabase.rpc("save_academic_plc_plan",{p_plan_id:plan?.id||null,p_academic_year:String(state.academicCalendarAcademicYear),p_semester:Number(state.academicCalendarSemester),p_stage_code:String(fd.get("stage_code")),p_recurrence_type:String(fd.get("recurrence_type")),p_weekday:isCustom?null:Number(fd.get("weekday")),p_period_no:Number(fd.get("period_no")),p_start_date:isCustom?null:(fd.get("start_date")||null),p_end_date:isCustom?null:(fd.get("end_date")||null),p_event_dates:isCustom?customDates:[],p_title:String(fd.get("title")||"PLC").trim(),p_note:String(fd.get("note")||"").trim()||null});buttonLoading(btn,false);if(error)return toast("บันทึก PLC ไม่สำเร็จ",error.message,"error");close();toast("บันทึกปฏิทิน PLC แล้ว","ครูในช่วงชั้นจะเห็นรายการในหน้าปฏิทิน PLC ของตนเอง","success");await renderDashboard();};
+}
+
+
+function academicCalendarManageListsHtml(calendar){
+  const overrides=academicCalendarOverridesFor(calendar.id),activities=academicCalendarActivitiesFor(calendar.id),holidays=overrides.filter(x=>x.override_type==="holiday"),specials=overrides.filter(x=>x.override_type==="special_school_day");
+  const row=(x,type)=>`<div class="academic-calendar-manage-row"><div><strong>${academicCalendarThaiDate(x.event_date)}</strong><span>${escapeHtml(x.title)}${x.note?` · ${escapeHtml(x.note)}`:""}${x.make_up_for?` · ชดเชยแทน ${academicCalendarThaiDate(x.make_up_for)}`:""}</span></div><div><button class="btn btn-ghost btn-small" data-academic-calendar-edit-item="${x.id}" data-academic-calendar-item-type="${type}">แก้ไข</button><button class="btn btn-danger btn-small" data-academic-calendar-delete-item="${x.id}" data-academic-calendar-item-type="${type}">ลบ</button></div></div>`;
+  return `<section class="academic-calendar-manage-grid"><div class="panel"><div class="panel-head"><div class="panel-title-wrap"><h3>วันหยุด</h3><p>วันเหล่านี้ไม่ถูกนับเป็น 1 ใน 100 วัน</p></div></div>${holidays.length?holidays.map(x=>row(x,"override")).join(""):`<div class="empty compact">ยังไม่มีวันหยุดที่เพิ่มเอง</div>`}</div><div class="panel"><div class="panel-head"><div class="panel-title-wrap"><h3>เปิดเรียนกรณีพิเศษ</h3><p>รวมวันเรียนชดเชยในวันเสาร์/อาทิตย์</p></div></div>${specials.length?specials.map(x=>row(x,"override")).join(""):`<div class="empty compact">ยังไม่มีวันเปิดเรียนกรณีพิเศษ</div>`}</div><div class="panel"><div class="panel-head"><div class="panel-title-wrap"><h3>กิจกรรม</h3><p>กิจกรรมไม่เปลี่ยนสถานะวันเรียนโดยอัตโนมัติ</p></div></div>${activities.length?activities.map(x=>row(x,"activity")).join(""):`<div class="empty compact">ยังไม่มีกิจกรรม</div>`}</div></section>`;
+}
+function academicCalendarLoadDraftModal(){
+  if(!academicCalendarCanManageUi())return;
+  const drafts=(state.academicCalendars||[]).filter(c=>c.status==="draft").sort((a,b)=>String(b.updated_at||b.created_at||"").localeCompare(String(a.updated_at||a.created_at||"")));
+  const m=document.createElement("div");m.className="modal-backdrop";
+  const rows=drafts.length?drafts.map(c=>`<button type="button" class="academic-calendar-draft-row" data-load-academic-draft="${c.id}"><span><strong>ปีการศึกษา ${escapeHtml(c.academic_year)} · ภาคเรียนที่ ${c.semester}</strong><small>เปิดเรียน ${academicCalendarThaiDate(c.start_date)} · แก้ไขล่าสุด ${formatDateTime(c.updated_at||c.created_at)}</small></span><b>ดึงแบบร่าง</b></button>`).join(""):`<div class="empty"><strong>ยังไม่มีแบบร่าง</strong><span>เมื่อกด “บันทึกแบบร่าง” รายการจะปรากฏที่นี่</span></div>`;
+  m.innerHTML=`<div class="modal"><div class="modal-head"><div><h3>ดึงแบบร่างปฏิทิน 100 วัน</h3><p>เลือกปีการศึกษาและภาคเรียนที่เคยบันทึกไว้ เพื่อกลับมาแก้ไขต่อ</p></div><button class="modal-close">×</button></div><div class="academic-calendar-draft-list">${rows}</div><div class="modal-actions"><button class="btn btn-ghost modal-cancel" type="button">ปิด</button></div></div>`;
+  document.body.appendChild(m);
+  const close=()=>m.remove();
+  m.querySelector(".modal-close").onclick=close;
+  m.querySelector(".modal-cancel").onclick=close;
+  m.querySelectorAll("[data-load-academic-draft]").forEach(btn=>btn.addEventListener("click",async()=>{
+    const draft=drafts.find(c=>c.id===btn.dataset.loadAcademicDraft);
+    if(!draft)return;
+    state.academicCalendarAcademicYear=Number(draft.academic_year);
+    state.academicCalendarSemester=Number(draft.semester);
+    close();
+    toast("ดึงแบบร่างแล้ว",`ปีการศึกษา ${draft.academic_year} ภาคเรียนที่ ${draft.semester} พร้อมแก้ไขต่อ`,"success");
+    await renderDashboard();
+  }));
+}
+function academicCalendarEditorModal(calendar=null){
+  if(!academicCalendarCanManageUi())return;const p=currentAcademicPeriod(),year=Number(calendar?.academic_year||state.academicCalendarAcademicYear||p.academicYear),semester=Number(calendar?.semester||state.academicCalendarSemester||p.semester),defaultStart=calendar?.start_date||"",monthValues=(calendar?.display_months?.length?calendar.display_months:academicCalendarDefaultMonths(year,semester)).map(academicCalendarMonthKey);let months=[...new Set(monthValues)];
+  const m=document.createElement("div");m.className="modal-backdrop";m.innerHTML=`<div class="modal wide"><div class="modal-head"><div><h3>${calendar?"แก้ไข":"สร้าง"}ปฏิทิน 100 วัน</h3><p>กำหนดวันเปิดเรียนและเดือนที่ต้องการแสดง ระบบจะคำนวณวันเรียน 1–100 ให้อัตโนมัติ</p></div><button class="modal-close">×</button></div><form id="academic-calendar-editor-form" class="form-grid"><div class="form-row"><div class="field"><label>ปีการศึกษา</label><input class="input" id="academic-calendar-form-year" type="number" min="2500" max="2800" required value="${year}" ${calendar?"disabled":""}></div><div class="field"><label>ภาคเรียน</label><select class="select" id="academic-calendar-form-semester" ${calendar?"disabled":""}><option value="1" ${semester===1?"selected":""}>ภาคเรียนที่ 1</option><option value="2" ${semester===2?"selected":""}>ภาคเรียนที่ 2</option></select></div></div><div class="field"><label>วันเปิดเรียนวันแรก</label><input class="input" id="academic-calendar-start-date" type="date" required value="${escapeHtml(defaultStart)}"><span class="helper" id="academic-calendar-start-help">${defaultStart?`${academicCalendarThaiWeekday(defaultStart)} ${academicCalendarThaiDate(defaultStart)}`:"เลือกวันเปิดเรียนเพื่อเริ่มนับวันเรียนที่ 1"}</span></div><div class="field"><label>เดือนที่แสดงในปฏิทิน</label><div class="academic-calendar-month-picker"><input class="input" id="academic-calendar-month-input" type="month"><button class="btn btn-ghost" type="button" id="academic-calendar-month-add">+ เพิ่มเดือน</button></div><div id="academic-calendar-month-chips" class="academic-calendar-month-chips"></div><span class="helper">เลือกเองได้ตามช่วงเปิดภาคเรียน และสามารถข้าม/เพิ่มเดือนได้</span></div><div class="modal-actions"><button class="btn btn-ghost modal-cancel" type="button">ยกเลิก</button><button class="btn btn-primary" type="submit">บันทึกแบบร่าง</button></div></form></div>`;document.body.appendChild(m);const close=()=>m.remove(),chips=m.querySelector("#academic-calendar-month-chips");const draw=()=>{chips.innerHTML=months.sort().map(v=>`<button type="button" class="academic-calendar-month-chip" data-remove-month="${v}">${academicCalendarMonthLabel(`${v}-01`,true)} ×</button>`).join("");chips.querySelectorAll("[data-remove-month]").forEach(b=>b.onclick=()=>{months=months.filter(x=>x!==b.dataset.removeMonth);draw();});};draw();m.querySelector(".modal-close").onclick=close;m.querySelector(".modal-cancel").onclick=close;m.querySelector("#academic-calendar-start-date").onchange=e=>{m.querySelector("#academic-calendar-start-help").textContent=e.target.value?`${academicCalendarThaiWeekday(e.target.value)} ${academicCalendarThaiDate(e.target.value)}`:"";};m.querySelector("#academic-calendar-month-add").onclick=()=>{const v=m.querySelector("#academic-calendar-month-input").value;if(v&&!months.includes(v)){months.push(v);draw();}};m.querySelector("#academic-calendar-editor-form").onsubmit=async e=>{e.preventDefault();if(!months.length)return toast("เลือกเดือนก่อน","ปฏิทินต้องมีอย่างน้อย 1 เดือน","error");const btn=e.submitter;buttonLoading(btn,true,"กำลังบันทึก...");const payload={academic_year:String(calendar?.academic_year||m.querySelector("#academic-calendar-form-year").value),semester:Number(calendar?.semester||m.querySelector("#academic-calendar-form-semester").value),start_date:m.querySelector("#academic-calendar-start-date").value,display_months:months.sort().map(v=>`${v}-01`),status:"draft",published_at:null,published_by:null,updated_at:new Date().toISOString(),updated_by:state.user.id};let res;if(calendar){res=await supabase.from("academic_calendars").update(payload).eq("id",calendar.id);}else{const existing=await supabase.from("academic_calendars").select("id").eq("academic_year",payload.academic_year).eq("semester",payload.semester).maybeSingle();if(existing.error){buttonLoading(btn,false);return toast("ตรวจสอบปฏิทินเดิมไม่สำเร็จ",existing.error.message,"error");}if(existing.data?.id){res=await supabase.from("academic_calendars").update(payload).eq("id",existing.data.id);}else{res=await supabase.from("academic_calendars").insert({...payload,created_by:state.user.id});}}buttonLoading(btn,false);if(res.error)return toast("บันทึกปฏิทินไม่สำเร็จ",res.error.message,"error");state.academicCalendarAcademicYear=Number(payload.academic_year);state.academicCalendarSemester=payload.semester;close();toast("บันทึกแบบร่างแล้ว","ระบบบันทึกข้อมูลลงปฏิทินของปีการศึกษาและภาคเรียนนี้ โดยไม่สร้างรายการซ้ำ","success");await renderDashboard();};
+}
+function academicCalendarOverrideModal(kind,existing=null){
+  const calendar=academicCalendarCurrent();if(!calendar||!academicCalendarCanManageUi())return;const isHoliday=kind==="holiday"||(existing?.override_type==="holiday"),m=document.createElement("div");m.className="modal-backdrop";m.innerHTML=`<div class="modal"><div class="modal-head"><div><h3>${existing?"แก้ไข":isHoliday?"เพิ่มวันหยุด":"เปิดเรียนกรณีพิเศษ"}</h3><p>${isHoliday?"วันที่บันทึกเป็นวันหยุดจะไม่ถูกนับใน 100 วันเรียน":"วันเสาร์/อาทิตย์ที่กำหนดจะถูกนำมานับเป็นวันเรียน"}</p></div><button class="modal-close">×</button></div><form id="academic-calendar-override-form" class="form-grid"><div class="field"><label>วันที่</label><input class="input" name="event_date" type="date" required value="${escapeHtml(existing?.event_date||"")}"></div>${isHoliday?`<div class="field"><label>ประเภทวันหยุด</label><select class="select" name="category">${Object.entries(ACADEMIC_CALENDAR_HOLIDAY_LABEL).map(([v,l])=>`<option value="${v}" ${existing?.category===v?"selected":""}>${l}</option>`).join("")}</select></div>`:`<div class="field"><label>ประเภทการเปิดเรียน</label><select class="select" name="category" id="academic-special-category"><option value="makeup" ${existing?.category==="makeup"?"selected":""}>เปิดเรียนชดเชย</option><option value="special_opening" ${existing?.category==="special_opening"?"selected":""}>เปิดเรียนกรณีพิเศษ</option></select></div><div class="field" id="academic-makeup-for-wrap"><label>เปิดเรียนชดเชยแทนวันที่</label><input class="input" name="make_up_for" type="date" value="${escapeHtml(existing?.make_up_for||"")}"><span class="helper">บังคับกรอกเมื่อเลือก “เปิดเรียนชดเชย”</span></div>`}<div class="field"><label>${isHoliday?"ชื่อวันหยุด / เหตุผล":"เหตุผล / ชื่อกิจกรรม"}</label><input class="input" name="title" required maxlength="180" value="${escapeHtml(existing?.title||"")}"></div><div class="field"><label>หมายเหตุเพิ่มเติม</label><textarea class="input textarea" name="note">${escapeHtml(existing?.note||"")}</textarea></div><div class="modal-actions"><button class="btn btn-ghost modal-cancel" type="button">ยกเลิก</button><button class="btn btn-primary" type="submit">บันทึก</button></div></form></div>`;document.body.appendChild(m);const close=()=>m.remove();m.querySelector(".modal-close").onclick=close;m.querySelector(".modal-cancel").onclick=close;const cat=m.querySelector("#academic-special-category"),wrap=m.querySelector("#academic-makeup-for-wrap");if(cat){const sync=()=>{wrap.style.display=cat.value==="makeup"?"":"none";};cat.onchange=sync;sync();}m.querySelector("#academic-calendar-override-form").onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.currentTarget),category=fd.get("category"),makeup=fd.get("make_up_for")||null;if(!isHoliday&&category==="makeup"&&!makeup)return toast("กรุณาระบุวันชดเชย","เปิดเรียนชดเชยต้องระบุว่าแทนวันที่ใด","error");const payload={calendar_id:calendar.id,event_date:fd.get("event_date"),override_type:isHoliday?"holiday":"special_school_day",category,title:String(fd.get("title")||"").trim(),make_up_for:isHoliday?null:makeup,note:String(fd.get("note")||"").trim()||null,updated_at:new Date().toISOString(),updated_by:state.user.id};const btn=e.submitter;buttonLoading(btn,true,"กำลังบันทึก...");let res;if(existing)res=await supabase.from("academic_calendar_day_overrides").update(payload).eq("id",existing.id);else res=await supabase.from("academic_calendar_day_overrides").insert({...payload,created_by:state.user.id});buttonLoading(btn,false);if(res.error)return toast("บันทึกไม่สำเร็จ",res.error.message,"error");close();toast("บันทึกแล้ว","ปฏิทิน 100 วันถูกคำนวณใหม่อัตโนมัติ","success");await renderDashboard();};
+}
+function academicCalendarActivityModal(existing=null){const calendar=academicCalendarCurrent();if(!calendar||!academicCalendarCanManageUi())return;const m=document.createElement("div");m.className="modal-backdrop";m.innerHTML=`<div class="modal"><div class="modal-head"><div><h3>${existing?"แก้ไข":"เพิ่ม"}กิจกรรม</h3><p>กิจกรรมจะแสดงใต้ปฏิทิน แต่ไม่เปลี่ยนสถานะวันเรียน/วันหยุดโดยอัตโนมัติ</p></div><button class="modal-close">×</button></div><form id="academic-calendar-activity-form" class="form-grid"><div class="field"><label>วันที่</label><input class="input" name="event_date" type="date" required value="${escapeHtml(existing?.event_date||"")}"></div><div class="field"><label>ชื่อกิจกรรม</label><input class="input" name="title" required maxlength="180" value="${escapeHtml(existing?.title||"")}"></div><div class="field"><label>หมายเหตุ</label><textarea class="input textarea" name="note">${escapeHtml(existing?.note||"")}</textarea></div><div class="modal-actions"><button class="btn btn-ghost modal-cancel" type="button">ยกเลิก</button><button class="btn btn-primary" type="submit">บันทึก</button></div></form></div>`;document.body.appendChild(m);const close=()=>m.remove();m.querySelector(".modal-close").onclick=close;m.querySelector(".modal-cancel").onclick=close;m.querySelector("#academic-calendar-activity-form").onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.currentTarget),payload={calendar_id:calendar.id,event_date:fd.get("event_date"),title:String(fd.get("title")||"").trim(),note:String(fd.get("note")||"").trim()||null,updated_at:new Date().toISOString(),updated_by:state.user.id};const btn=e.submitter;buttonLoading(btn,true,"กำลังบันทึก...");let res;if(existing)res=await supabase.from("academic_calendar_activities").update(payload).eq("id",existing.id);else res=await supabase.from("academic_calendar_activities").insert({...payload,created_by:state.user.id});buttonLoading(btn,false);if(res.error)return toast("บันทึกกิจกรรมไม่สำเร็จ",res.error.message,"error");close();await renderDashboard();};}
+async function academicCalendarDeleteItem(id,type){if(!academicCalendarCanManageUi()||!confirm("ลบรายการนี้หรือไม่? ปฏิทินจะคำนวณใหม่ทันที"))return;const table=type==="activity"?"academic_calendar_activities":"academic_calendar_day_overrides",{error}=await supabase.from(table).delete().eq("id",id);if(error)return toast("ลบไม่สำเร็จ",error.message,"error");toast("ลบรายการแล้ว","ปฏิทินถูกคำนวณใหม่","success");await renderDashboard();}
+async function academicCalendarSaveDraft(){
+  const calendar=academicCalendarCurrent();
+  if(!calendar||!academicCalendarCanManageUi())return;
+  const btn=document.querySelector("#academic-calendar-save-draft");
+  buttonLoading(btn,true,"กำลังบันทึก...");
+  const payload={status:"draft",published_at:null,published_by:null,updated_at:new Date().toISOString(),updated_by:state.user.id};
+  const {error}=await supabase.from("academic_calendars").update(payload).eq("id",calendar.id);
+  buttonLoading(btn,false);
+  if(error)return toast("บันทึกแบบร่างไม่สำเร็จ",error.message,"error");
+  toast("บันทึกแบบร่างแล้ว","ข้อมูลปฏิทินและค่าที่กำหนดไว้ถูกบันทึกแล้ว ฉบับร่างจะเห็นเฉพาะผู้มีสิทธิ์จัดการ","success");
+  await renderDashboard();
+}
+async function academicCalendarTogglePublish(){const calendar=academicCalendarCurrent();if(!calendar||!academicCalendarCanManageUi())return;if(calendar.status==="published")return toast("ปฏิทินนี้ประกาศใช้แล้ว","หากต้องการแก้ไข ให้กด “บันทึกแบบร่าง” เพื่อกลับเข้าสู่โหมดฉบับร่างก่อน","info");const computed=academicCalendarCompute(calendar);if(computed.count!==100||academicCalendarVisibleCount(calendar,computed)!==100)return toast("ยังประกาศใช้ไม่ได้","เดือนที่เลือกต้องครอบคลุมวันเรียนครบ 100 วันก่อน","error");const payload={status:"published",published_at:new Date().toISOString(),published_by:state.user.id,updated_at:new Date().toISOString(),updated_by:state.user.id},{error}=await supabase.from("academic_calendars").update(payload).eq("id",calendar.id);if(error)return toast("ประกาศใช้ไม่สำเร็จ",error.message,"error");toast("ประกาศใช้ปฏิทินแล้ว","ผู้ใช้งานทุกสิทธิ์สามารถดูและ Export ได้แล้ว","success");await renderDashboard();}
+async function academicCalendarExport(kind){const calendar=academicCalendarCurrent();if(!calendar)return;const source=document.querySelector("#academic-calendar-export-document");if(!source)return;const btn=document.querySelector(kind==="pdf"?"#academic-calendar-export-pdf":"#academic-calendar-export-image");buttonLoading(btn,true,"กำลังสร้างไฟล์...");try{if(document.fonts){await document.fonts.ready;await Promise.all([document.fonts.load('16px "TH SarabunPSK"'),document.fonts.load('700 16px "TH SarabunPSK"')]);}const canvas=await html2canvas(source,{scale:2.2,backgroundColor:"#ffffff",useCORS:true,logging:false});const fileBase=`BNK_ปฏิทิน100วัน_${calendar.academic_year}_ภาคเรียน${calendar.semester}`;if(kind==="image"){canvas.toBlob(blob=>{if(blob)downloadBlob(blob,`${fileBase}.png`);},"image/png",1);}else{const pdf=new jsPDF({orientation:"landscape",unit:"mm",format:"a4"}),pw=pdf.internal.pageSize.getWidth(),ph=pdf.internal.pageSize.getHeight(),margin=5,ratio=Math.min((pw-margin*2)/canvas.width,(ph-margin*2)/canvas.height),w=canvas.width*ratio,h=canvas.height*ratio,x=(pw-w)/2,y=(ph-h)/2;pdf.addImage(canvas.toDataURL("image/jpeg",0.96),"JPEG",x,y,w,h);pdf.save(`${fileBase}.pdf`);}toast("สร้างไฟล์เรียบร้อย",kind==="pdf"?"ดาวน์โหลด PDF แล้ว":"ดาวน์โหลดรูปภาพ PNG แล้ว","success");}catch(err){console.error(err);toast("Export ไม่สำเร็จ",err?.message||"เกิดข้อผิดพลาด","error");}finally{buttonLoading(btn,false);}}
+
+
 function moduleView(code) {
   const module = state.modules.find(m => m.code === code);
   if (!module) return `<div class="empty"><strong>ไม่พบระบบย่อย</strong></div>`;
+  if (code === "academic_calendar") return academicCalendarWorkspaceHtml(module);
   if (code === "lesson_plans") return lessonWorkspaceHtml(module);
   if (code === "personnel_records") return personnelWorkspaceHtml(module);
   if (code === "leave_management") return leaveWorkspaceHtml(module);
@@ -4805,6 +5618,8 @@ function moduleView(code) {
   if (code === "substitute_teaching") return substituteWorkspaceHtml(module);
   if (code === "project_management") return projectWorkspaceHtml(module);
   if (code === "home_visit_management") return homeVisitWorkspaceHtml(module);
+  if (code === "student_registry") return studentRegistryWorkspaceHtml(module);
+  if (code === "student_cards") return studentCardWorkspaceHtml(module);
   return `<section class="panel"><div class="empty"><strong>${escapeHtml(module.name_th)}</strong><span>Module นี้ยังไม่มีหน้าทำงานเฉพาะ</span></div></section>`;
 }
 
@@ -5067,13 +5882,14 @@ async function deleteLessonFile(file) {
 async function deleteDraftLessonPlan() {
   const p=state.lessonDetail?.plan;
   if(!p)return;
-  const normalAllowed=p.teacher_id===state.user.id&&["draft","revision_requested"].includes(p.status);
-  if(!normalAllowed&&!isSuperAdminUser())return toast("ไม่มีสิทธิ์ลบแผนนี้","ครูผู้สอนลบได้เฉพาะฉบับร่างหรือรายการที่ถูกส่งกลับแก้ไข","error");
+  if(!canDeleteLessonPlanUi(p))return toast("ไม่มีสิทธิ์ลบแผนนี้","เฉพาะเจ้าของแผน หัวหน้าวิชาการ ผู้บริหาร หรือ Super Admin ตามสิทธิ์ที่กำหนด","error");
   const label=`${p.subject_name}${p.plan_type==="semester"?" — แผนรายภาคเรียน":` — ${p.topic||"แผนรายสัปดาห์"}`}`;
   secureDeleteModal({
     title:"ลบแผนการสอน",
     description:label,
-    warning:"แผน Timeline และเอกสารแนบที่ผูกกับรายการนี้จะถูกลบออกจากระบบด้วย",
+    warning:p.status==="draft"||p.status==="revision_requested"
+      ? "แผน Timeline และเอกสารแนบที่ผูกกับรายการนี้จะถูกลบออกจากระบบด้วย"
+      : "แผนนี้ถูกส่งเข้าสู่ Workflow แล้ว เมื่อลบ Timeline การตรวจ เอกสารแนบ และ Approved PDF (ถ้ามี) จะถูกลบตามไปด้วย และต้องสร้าง/ส่งแผนใหม่หากต้องการใช้งานอีกครั้ง",
     action:async client=>{
       const paths=(state.lessonDetail?.files||[]).map(f=>f.storage_path).filter(Boolean);
       if(paths.length){
@@ -5726,6 +6542,11 @@ function bindDashboardEvents() {
   document.querySelectorAll("[data-view]").forEach(el => {
     el.addEventListener("click", () => {
       const nextView = el.dataset.view;
+      if (nextView === "module:academic_calendar" && state.currentView !== "module:academic_calendar") {
+        state.academicCalendarAcademicYear=currentAcademicPeriod().academicYear;
+        state.academicCalendarSemester=currentAcademicPeriod().semester;
+        state.academicCalendarSection="hundred";
+      }
       if (nextView === "module:lesson_plans" && state.currentView !== "module:lesson_plans") {
         state.lessonPlanMode = null;
         state.lessonTeacherView = "all";
@@ -5765,6 +6586,14 @@ function bindDashboardEvents() {
       if (nextView === "module:home_visit_management" && state.currentView !== "module:home_visit_management") {
         state.selectedHomeVisitId=null; state.homeVisitStep=1; state.homeVisitAcademicYear=currentAcademicPeriod().academicYear; state.homeVisitSemester=currentAcademicPeriod().semester; state.homeVisitClassId=null;
       }
+      if (nextView === "module:student_registry" && state.currentView !== "module:student_registry") {
+        state.studentRegistryView="students"; state.studentRegistryAcademicYear=currentAcademicPeriod().academicYear; state.studentRegistrySemester=currentAcademicPeriod().semester;
+        state.studentRegistryStageCode="all"; state.studentRegistryLevelName="all"; state.studentRegistryRoomName="all"; state.studentRegistrySearch="";
+      }
+      if (nextView === "module:student_cards" && state.currentView !== "module:student_cards") {
+        state.studentCardAcademicYear=currentAcademicPeriod().academicYear; state.studentCardSemester=currentAcademicPeriod().semester;
+        state.studentCardStageCode="all"; state.studentCardLevelName="all"; state.studentCardRoomName="all"; state.studentCardSearch=""; state.studentCardOwnClassId=null;
+      }
       state.currentView = nextView;
       state.sidebarOpen = false;
       renderDashboard();
@@ -5772,7 +6601,14 @@ function bindDashboardEvents() {
   });
 
   document.querySelectorAll(".nav-toggle").forEach(btn => {
-    btn.addEventListener("click", () => btn.closest(".nav-group").classList.toggle("open"));
+    btn.addEventListener("click", () => {
+      const group=btn.closest(".nav-group"),depId=btn.dataset.departmentToggle;
+      if(!group||!depId)return;
+      const opening=!group.classList.contains("open");
+      group.classList.toggle("open",opening);
+      btn.setAttribute("aria-expanded",opening?"true":"false");
+      if(opening)state.sidebarExpandedDepartments.add(depId);else state.sidebarExpandedDepartments.delete(depId);
+    });
   });
 
   document.querySelector("#mobile-menu")?.addEventListener("click", () => {
@@ -5783,6 +6619,7 @@ function bindDashboardEvents() {
   document.querySelector("#signout-btn")?.addEventListener("click", async () => {
     await supabase.auth.signOut();
     state.currentView = "dashboard";
+    state.sidebarExpandedDepartments = new Set();
     renderAuth("signin");
   });
 
@@ -5921,10 +6758,34 @@ function bindDashboardEvents() {
 
   document.querySelector("#notification-btn")?.addEventListener("click", () => showNotificationModal());
 
+  document.querySelectorAll("[data-academic-calendar-section]").forEach(btn=>btn.addEventListener("click",()=>{state.academicCalendarSection=btn.dataset.academicCalendarSection;renderDashboard();}));
+  document.querySelector("#academic-calendar-year")?.addEventListener("change",e=>{state.academicCalendarAcademicYear=Number(e.currentTarget.value);renderDashboard();});
+  document.querySelector("#academic-calendar-semester")?.addEventListener("change",e=>{state.academicCalendarSemester=Number(e.currentTarget.value);renderDashboard();});
+  document.querySelector("#supervision-add-week")?.addEventListener("click",()=>academicSupervisionWeekModal());
+  document.querySelectorAll("[data-supervision-manage-week]").forEach(b=>b.addEventListener("click",()=>academicSupervisionManageWeekModal(b.dataset.supervisionManageWeek)));
+  document.querySelectorAll("[data-supervision-delete-week]").forEach(b=>b.addEventListener("click",async()=>{if(!confirm("ลบสัปดาห์นิเทศนี้และคาบที่ล็อกไว้ทั้งหมดใช่หรือไม่?"))return;const {error}=await supabase.from("academic_supervision_weeks").delete().eq("id",b.dataset.supervisionDeleteWeek);if(error)return toast("ลบสัปดาห์ไม่สำเร็จ",error.message,"error");await renderDashboard();}));
+  document.querySelector("#plc-add-plan")?.addEventListener("click",()=>academicPlcPlanModal());
+  document.querySelectorAll("[data-plc-edit]").forEach(b=>b.addEventListener("click",()=>academicPlcPlanModal((state.academicPlcPlans||[]).find(x=>x.id===b.dataset.plcEdit)||null)));
+  document.querySelectorAll("[data-plc-delete]").forEach(b=>b.addEventListener("click",async()=>{if(!confirm("ลบกำหนดการ PLC นี้ทั้งหมดใช่หรือไม่?"))return;const {error}=await supabase.from("academic_plc_plans").delete().eq("id",b.dataset.plcDelete);if(error)return toast("ลบ PLC ไม่สำเร็จ",error.message,"error");await renderDashboard();}));
+  document.querySelector("#academic-calendar-load-draft")?.addEventListener("click",()=>academicCalendarLoadDraftModal());
+  document.querySelector("#academic-calendar-create")?.addEventListener("click",()=>academicCalendarEditorModal());
+  document.querySelector("#academic-calendar-edit")?.addEventListener("click",()=>academicCalendarEditorModal(academicCalendarCurrent()));
+  document.querySelector("#academic-calendar-add-holiday")?.addEventListener("click",()=>academicCalendarOverrideModal("holiday"));
+  document.querySelector("#academic-calendar-add-special")?.addEventListener("click",()=>academicCalendarOverrideModal("special_school_day"));
+  document.querySelector("#academic-calendar-add-activity")?.addEventListener("click",()=>academicCalendarActivityModal());
+  document.querySelector("#academic-calendar-save-draft")?.addEventListener("click",()=>academicCalendarSaveDraft());
+  document.querySelector("#academic-calendar-publish")?.addEventListener("click",()=>academicCalendarTogglePublish());
+  document.querySelector("#academic-calendar-export-image")?.addEventListener("click",()=>academicCalendarExport("image"));
+  document.querySelector("#academic-calendar-export-pdf")?.addEventListener("click",()=>academicCalendarExport("pdf"));
+  document.querySelectorAll("[data-academic-calendar-edit-item]").forEach(btn=>btn.addEventListener("click",()=>{const type=btn.dataset.academicCalendarItemType,id=btn.dataset.academicCalendarEditItem;if(type==="activity"){const item=state.academicCalendarActivities.find(x=>x.id===id);if(item)academicCalendarActivityModal(item);}else{const item=state.academicCalendarOverrides.find(x=>x.id===id);if(item)academicCalendarOverrideModal(item.override_type,item);}}));
+  document.querySelectorAll("[data-academic-calendar-delete-item]").forEach(btn=>btn.addEventListener("click",()=>academicCalendarDeleteItem(btn.dataset.academicCalendarDeleteItem,btn.dataset.academicCalendarItemType)));
+
   document.querySelector("#system-settings-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const btn = e.currentTarget.querySelector('button[type="submit"]');
     buttonLoading(btn, true, "กำลังบันทึก...");
+    const selectedAcademicYear = String(document.querySelector("#setting-current-academic-year")?.value || currentAcademicPeriod().academicYear).trim();
+    const selectedSemester = Number(document.querySelector("#setting-current-semester")?.value || currentAcademicPeriod().semester);
     const payload = {
       system_name: document.querySelector("#setting-system-name").value.trim(),
       brand_short: document.querySelector("#setting-brand-short").value.trim(),
@@ -5944,8 +6805,22 @@ function bindDashboardEvents() {
     const { error } = await supabase.from("system_settings").update(payload).eq("id", 1);
     buttonLoading(btn, false);
     if (error) return toast("บันทึกการตั้งค่าไม่สำเร็จ", error.message, "error");
+    const termUpsert = await supabase.from("academic_terms").upsert({academic_year:selectedAcademicYear,semester:selectedSemester,is_current:false},{onConflict:"academic_year,semester"});
+    if(termUpsert.error)return toast("ตั้งปีการศึกษาปัจจุบันไม่สำเร็จ",termUpsert.error.message,"error");
+    const termSet = await supabase.rpc("set_current_academic_term",{p_academic_year:selectedAcademicYear,p_semester:selectedSemester});
+    if(termSet.error)return toast("ตั้งปีการศึกษาปัจจุบันไม่สำเร็จ",termSet.error.message,"error");
+    const calendarEditorId = document.querySelector("#setting-academic-calendar-editor")?.value || null;
+    const calendarSettingUpdate = await supabase.from("academic_calendar_settings").update({editor_user_id:calendarEditorId,updated_at:new Date().toISOString(),updated_by:state.user.id}).eq("id",1);
+    if(calendarSettingUpdate.error)return toast("ตั้งผู้รับผิดชอบปฏิทินไม่สำเร็จ",calendarSettingUpdate.error.message,"error");
+    const supervisionSettingUpdate = await supabase.from("academic_supervision_settings").update({
+      deputy_academic_user_id: document.querySelector("#setting-supervision-deputy")?.value || null,
+      coordinator_user_id: document.querySelector("#setting-supervision-coordinator")?.value || null,
+      updated_at:new Date().toISOString(),updated_by:state.user.id
+    }).eq("id",1);
+    if(supervisionSettingUpdate.error)return toast("ตั้งสิทธิ์ปฏิทินนิเทศไม่สำเร็จ",supervisionSettingUpdate.error.message,"error");
     await loadPublicData();
-    toast("บันทึกการตั้งค่าแล้ว", "ชื่อระบบและข้อมูลหัวเอกสารถูกอัปเดตแล้ว", "success");
+    await loadActiveUserData();
+    toast("บันทึกการตั้งค่าแล้ว", `ระบบกำหนดปีการศึกษา ${selectedAcademicYear} ภาคเรียนที่ ${selectedSemester} เป็นค่าปัจจุบันแล้ว`, "success");
     renderDashboard();
   });
 
@@ -5962,6 +6837,48 @@ function bindDashboardEvents() {
       }
     });
   });
+
+  document.querySelectorAll("[data-student-view]").forEach(btn=>btn.addEventListener("click",()=>{state.studentRegistryView=btn.dataset.studentView;renderDashboard();}));
+  document.querySelector("#student-year")?.addEventListener("change",e=>{state.studentRegistryAcademicYear=Number(e.currentTarget.value);state.studentRegistryStageCode="all";state.studentRegistryLevelName="all";state.studentRegistryRoomName="all";renderDashboard();});
+  document.querySelector("#student-sem")?.addEventListener("change",e=>{state.studentRegistrySemester=Number(e.currentTarget.value);state.studentRegistryStageCode="all";state.studentRegistryLevelName="all";state.studentRegistryRoomName="all";renderDashboard();});
+  document.querySelector("#student-stage")?.addEventListener("change",e=>{state.studentRegistryStageCode=e.currentTarget.value;state.studentRegistryLevelName="all";state.studentRegistryRoomName="all";renderDashboard();});
+  document.querySelector("#student-level")?.addEventListener("change",e=>{state.studentRegistryLevelName=e.currentTarget.value;state.studentRegistryRoomName="all";renderDashboard();});
+  document.querySelector("#student-room")?.addEventListener("change",e=>{state.studentRegistryRoomName=e.currentTarget.value;renderDashboard();});
+  document.querySelector("#student-search")?.addEventListener("change",e=>{state.studentRegistrySearch=e.currentTarget.value;renderDashboard();});
+  document.querySelector("#student-own-class")?.addEventListener("change",e=>{state.studentRegistryOwnClassId=e.currentTarget.value;renderDashboard();});
+  document.querySelector("#student-filter-reset")?.addEventListener("click",()=>{state.studentRegistryStageCode="all";state.studentRegistryLevelName="all";state.studentRegistryRoomName="all";state.studentRegistrySearch="";renderDashboard();});
+  document.querySelectorAll("[data-student-detail]").forEach(btn=>btn.addEventListener("click",()=>studentDetailModal(btn.dataset.studentDetail)));
+  document.querySelectorAll("[data-student-exit]").forEach(btn=>btn.addEventListener("click",()=>studentExitEnrollmentModal(btn.dataset.studentExit)));
+  document.querySelectorAll("#student-import-open,#student-import-open-2,#student-empty-import").forEach(btn=>btn.addEventListener("click",()=>studentImportModal()));
+  document.querySelector("#student-seed-import")?.addEventListener("click",()=>openStudentSeedImport());
+  document.querySelector("#student-template-download")?.addEventListener("click",()=>studentTemplateDownload());
+  document.querySelectorAll("#student-export-xlsx,#student-export-xlsx-2").forEach(btn=>btn.addEventListener("click",()=>studentExportXlsx()));
+  document.querySelector("#student-export-pdf")?.addEventListener("click",()=>studentRegistryPdf());
+  document.querySelector("#student-list-pdf")?.addEventListener("click",()=>studentClassListPdf());
+  document.querySelector("#student-list-xlsx")?.addEventListener("click",()=>studentClassListXlsx());
+  document.querySelector("#student-room-add")?.addEventListener("click",()=>studentRoomModal());
+  document.querySelector("#student-academic-year-add")?.addEventListener("click",()=>studentAcademicYearModal());
+  document.querySelector("#student-set-current-term")?.addEventListener("click",()=>setStudentCurrentAcademicTerm());
+  document.querySelector("#student-copy-semester")?.addEventListener("click",()=>copyStudentRegistryToSemester2());
+  document.querySelectorAll("[data-student-room-toggle]").forEach(btn=>btn.addEventListener("click",async()=>{const c=state.studentRegistryClasses.find(x=>x.id===btn.dataset.studentRoomToggle);if(!c)return;const {error}=await supabase.from("school_classes").update({is_active:!c.is_active}).eq("id",c.id);if(error)return toast("เปลี่ยนสถานะห้องไม่สำเร็จ",error.message,"error");await renderDashboard();}));
+  document.querySelector("#student-promotion-apply")?.addEventListener("click",()=>applyStudentPromotion());
+  document.querySelectorAll(".promotion-decision").forEach(sel=>sel.addEventListener("change",()=>{const tr=sel.closest("[data-promotion-row]"),target=tr?.querySelector(".promotion-target");if(target){target.disabled=sel.value!=="promoted";if(sel.value!=="promoted")target.value="";}}));
+  document.querySelector("#student-card-own-class")?.addEventListener("change",e=>{state.studentCardOwnClassId=e.currentTarget.value;studentCardApplyRoleScope();renderDashboard();});
+  document.querySelector("#card-year")?.addEventListener("change",e=>{state.studentCardAcademicYear=Number(e.currentTarget.value);state.studentCardStageCode="all";state.studentCardLevelName="all";state.studentCardRoomName="all";renderDashboard();});
+  document.querySelector("#card-sem")?.addEventListener("change",e=>{state.studentCardSemester=Number(e.currentTarget.value);state.studentCardStageCode="all";state.studentCardLevelName="all";state.studentCardRoomName="all";renderDashboard();});
+  document.querySelector("#card-stage")?.addEventListener("change",e=>{state.studentCardStageCode=e.currentTarget.value;state.studentCardLevelName="all";state.studentCardRoomName="all";renderDashboard();});
+  document.querySelector("#card-level")?.addEventListener("change",e=>{state.studentCardLevelName=e.currentTarget.value;state.studentCardRoomName="all";renderDashboard();});
+  document.querySelector("#card-room")?.addEventListener("change",e=>{state.studentCardRoomName=e.currentTarget.value;renderDashboard();});
+  document.querySelector("#card-search")?.addEventListener("change",e=>{state.studentCardSearch=e.currentTarget.value;renderDashboard();});
+  document.querySelector("#student-card-check-all")?.addEventListener("change",e=>document.querySelectorAll(".student-card-check").forEach(x=>x.checked=e.currentTarget.checked));
+  document.querySelectorAll("[data-student-card-preview]").forEach(btn=>btn.addEventListener("click",()=>studentCardPreview(btn.dataset.studentCardPreview)));
+  document.querySelectorAll("[data-student-card-issue]").forEach(btn=>btn.addEventListener("click",()=>studentCardIssueModal([btn.dataset.studentCardIssue])));
+  document.querySelectorAll("[data-student-card-photo]").forEach(btn=>btn.addEventListener("click",()=>studentCardPhotoModal(btn.dataset.studentCardPhoto)));
+  document.querySelectorAll("[data-student-card-revoke]").forEach(btn=>btn.addEventListener("click",()=>revokeStudentCard(btn.dataset.studentCardRevoke)));
+  document.querySelector("#student-card-issue-selected")?.addEventListener("click",()=>{const ids=[...document.querySelectorAll(".student-card-check:checked")].map(x=>x.value);if(!ids.length)return toast("กรุณาเลือกนักเรียน","เลือกอย่างน้อย 1 คน","error");studentCardIssueModal(ids);});
+  document.querySelector("#student-card-print-selected")?.addEventListener("click",()=>{const ids=[...document.querySelectorAll(".student-card-check:checked")].map(x=>x.value);if(!ids.length)return toast("กรุณาเลือกนักเรียน","เลือกอย่างน้อย 1 คน","error");studentCardBatchPrint(ids);});
+  document.querySelector("#student-card-print-filtered")?.addEventListener("click",()=>studentCardBatchPrint(studentCardVisibleEnrollments().map(e=>e.student_id)));
+  document.querySelector("#home-visit-period-settings")?.addEventListener("click",()=>homeVisitPeriodSettingsModal());
 
   document.querySelectorAll("#new-home-visit").forEach(btn=>btn.addEventListener("click",()=>homeVisitCreateModal()));
   document.querySelector("#hv-year")?.addEventListener("change",e=>{state.homeVisitAcademicYear=Number(e.currentTarget.value);state.homeVisitClassId=null;renderDashboard();});
@@ -6390,6 +7307,10 @@ function subscribeRealtime() {
     .on("postgres_changes", { event: "*", schema: "public", table: "project_activities" }, async () => { if(state.currentView==="module:project_management") await renderDashboard(); })
     .on("postgres_changes", { event: "*", schema: "public", table: "budget_disbursements" }, async () => { if(state.currentView==="module:project_management") await renderDashboard(); })
     .on("postgres_changes", { event: "*", schema: "public", table: "home_visit_records" }, async () => { if(state.currentView==="module:home_visit_management") await renderDashboard(); })
+    .on("postgres_changes", { event: "*", schema: "public", table: "students" }, async () => { if(state.currentView==="module:student_registry"||state.currentView==="module:student_cards"||state.currentView==="module:home_visit_management") await renderDashboard(); })
+    .on("postgres_changes", { event: "*", schema: "public", table: "student_enrollments" }, async () => { if(state.currentView==="module:student_registry"||state.currentView==="module:student_cards"||state.currentView==="module:home_visit_management") await renderDashboard(); })
+    .on("postgres_changes", { event: "*", schema: "public", table: "student_cards" }, async () => { if(state.currentView==="module:student_cards") await renderDashboard(); })
+    .on("postgres_changes", { event: "*", schema: "public", table: "home_visit_settings" }, async () => { if(state.currentView==="module:home_visit_management") await renderDashboard(); })
     .on("postgres_changes", { event: "*", schema: "public", table: "home_visit_household_members" }, async () => { if(state.currentView==="module:home_visit_management"&&state.selectedHomeVisitId) await renderDashboard(); })
     .on("postgres_changes", { event: "UPDATE", schema: "public", table: "profiles", filter: state.user ? `id=eq.${state.user.id}` : undefined }, async () => {
       if (!state.user) return;
