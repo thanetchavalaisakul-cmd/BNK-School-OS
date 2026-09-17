@@ -778,3 +778,52 @@ Database เก็บ `line_items` เป็น JSONB array และ Trigger �
 - รูปที่บันทึกแล้วถูกโหลดกลับมาแสดงจริงจาก Private Storage ผ่าน Signed URL
 - เปลี่ยนรูปโดยอัปโหลดไฟล์ใหม่ → อัปเดต metadata ก่อน → ลบไฟล์เก่าหลังสำเร็จ เพื่อไม่ให้รูปหายกลางทาง
 - แก้ `homeVisitRecordAssets()` ให้คืนค่ารูปภาพได้แม้ยังไม่มีลายเซ็น และโหลดรูปครบก่อนสร้าง PDF
+
+## V8.0 — Standard PDF Font + Budget Control Register + Flexible Signatures + Public Staff Directory
+
+### Standard PDF font across devices
+- PDF/Print styles in every module now use the same `Sarabun` web font instead of device-local `TH Sarabun` detection.
+- Print windows wait for `document.fonts.ready` before opening the print dialog.
+- This applies to lesson plans, personnel, leave, leave reports, timetables, substitute teaching, project/budget documents, and home-visit PDFs.
+- The app does not ship font files; the web font is loaded from the configured web-font provider.
+
+### Budget control numbers
+- New `budget_control_settings` table stores current control year/start/last number per department.
+- New requests receive a database-generated `control_number`, e.g. `5/2569`, atomically and separately per department.
+- Super Admin can set the control year and starting number from `ทะเบียนคุมการเบิกจ่าย`.
+- Once numbers have been issued in the same year, the database prevents rewinding/changing the starting number.
+- Budget request detail, lists, registry, notifications and PDF show the control number.
+- Registry filters by Academic / Personnel / General / Plan & Budget and shows which project/activity used each number.
+
+### Flexible budget signatures
+- New `budget_disbursement_signers` table normalizes requester, department head, plan-budget head, director and three acceptance-committee slots.
+- Requester/Super Admin selects staff using dropdowns.
+- Acceptance committee members must be three different staff members in the same department as the requester.
+- Selected committee members receive a Notification linking to the budget request.
+- Each selected signer independently chooses one method: paper signature, draw in the system, upload signature image, or use their stored signature.
+- Digital copies are stored in private bucket `budget-signatures` and rendered into the PDF; paper mode leaves the PDF signature area blank while printing the selected name/role.
+
+### Public personnel directory
+- New sanitized `personnel_public_directory` contains only approved internal-directory fields: photo, name, position, academic rank, birth date, phone, role/department.
+- All active staff can open `ข้อมูลบุคลากรอื่น` and select a colleague to view these fields.
+- Citizen ID, address, education/license records, position number and other private personnel-file fields are not included in this public table at all.
+- Personnel Head/Director/Super Admin keep the existing privileged full personnel-file view separately.
+
+
+## V8.1 — TH SarabunPSK + Budget Balance on Disbursement PDF
+
+### PDF font standard
+PDF/print preview ทุกระบบเปลี่ยนมาใช้ `TH SarabunPSK` เป็น Web Font เดียวกัน
+โดยโหลดไฟล์ Regular / Bold / Italic / BoldItalic จากชุด TH-Sarabun-PSK เดียวกัน
+และรอ `document.fonts.ready` ก่อนสั่ง Print เพื่อไม่ให้แต่ละอุปกรณ์เลือกฟอนต์ระบบของตัวเอง
+
+### ใบขอเบิกใช้งบประมาณโครงการ / กิจกรรม
+เพิ่มสรุปวงเงินต่อจากข้อมูลปีการศึกษา/ภาคเรียน:
+- งบประมาณกิจกรรมทั้งหมด
+- คงเหลือจากครั้งที่แล้ว
+- ใช้ครั้งนี้
+- คงเหลือปัจจุบัน
+
+กรณีเป็นการเบิกจากกิจกรรม จะอ้างอิง `project_activities.budget_amount`
+และรวมเฉพาะคำขอก่อนหน้าที่มีสถานะ `document_ready`, `printed`, `paid`
+เพื่อให้ยอดคงเหลือสอดคล้องกับการกันวงเงินของระบบ
