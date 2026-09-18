@@ -2075,3 +2075,1061 @@ body{
   padding:8px 14px;
   font-style:normal;
 }
+/* BNK V10.9.0 — Academic Registration */
+.academic-registration-shell{display:grid;gap:16px}
+.academic-registration-hero{display:flex;justify-content:space-between;gap:24px;align-items:flex-end;padding:28px 30px;border-radius:26px;color:#fff;background:linear-gradient(125deg,#075a42 0%,#1f653c 62%,#8d7210 100%);box-shadow:0 18px 44px rgba(15,78,58,.18);position:relative;overflow:hidden}
+.academic-registration-hero:before{content:"";position:absolute;width:250px;height:250px;border-radius:50%;right:-80px;top:-120px;background:rgba(255,255,255,.08)}
+.academic-registration-hero>div{position:relative;z-index:1}.academic-registration-hero .eyebrow{display:inline-flex;padding:6px 10px;border-radius:999px;background:rgba(255,255,255,.12);color:#f7e9be;border:1px solid rgba(255,255,255,.2);font-size:12px;font-weight:700;margin-bottom:10px}
+.academic-registration-hero h2{font-size:30px;line-height:1.15;margin:0 0 8px;color:#fff}.academic-registration-hero p{margin:0;color:rgba(255,255,255,.82);font-size:14px;max-width:760px}
+.academic-registration-hero-side{display:flex;flex-direction:column;align-items:flex-end;gap:5px;text-align:right}.academic-registration-hero-side span{padding:6px 10px;border-radius:999px;background:linear-gradient(145deg,#fff8d9,#e7c86d);color:#174b35;font-weight:800;font-size:12px}.academic-registration-hero-side strong{font-size:13px;color:#fff}
+.academic-registration-picker{display:grid;grid-template-columns:1fr minmax(280px,430px);gap:18px;align-items:center}.academic-registration-picker>div{display:grid;gap:3px}.academic-registration-picker span{font-size:11px;color:#64748b}
+.academic-registration-card-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.academic-registration-card{display:grid;gap:7px;text-align:left;border:1px solid #dce7d9;background:#fff;border-radius:18px;padding:20px;min-height:150px;transition:.18s ease;color:#111827}.academic-registration-card:hover{transform:translateY(-2px);border-color:#9ed4b2;background:#f4fbf6;box-shadow:0 12px 28px rgba(15,78,58,.08)}.academic-registration-card>span{width:max-content;padding:4px 8px;border-radius:999px;background:#ecfdf5;color:#166534;font-size:9px;font-weight:800}.academic-registration-card.pending>span{background:#f1f5f9;color:#64748b}.academic-registration-card strong{font-size:17px}.academic-registration-card small{font-size:11px;line-height:1.55;color:#64748b}.academic-registration-card b{font-size:11px;color:#166534;margin-top:auto}
+.academic-registration-filter-row{display:grid;grid-template-columns:150px 150px minmax(260px,1fr);gap:10px;align-items:end;margin-bottom:14px}.academic-registration-font-note{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border:1px solid #ead99a;border-radius:13px;background:linear-gradient(145deg,#fffdf4,#f7ecc7)}.academic-registration-font-note strong{font-size:11px;color:#174b35}.academic-registration-font-note span{font-size:10px;color:#6b5d31}
+.academic-transfer-table td strong,.academic-transfer-table td small{display:block}.academic-transfer-table td small{font-size:9.5px;color:#64748b;margin-top:2px}
+.academic-transfer-detail{margin-top:2px}.academic-transfer-summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:16px}.academic-transfer-summary-grid article{padding:12px;border:1px solid #e2e8e0;border-radius:14px;background:#fbfdfb}.academic-transfer-summary-grid span,.academic-transfer-summary-grid strong,.academic-transfer-summary-grid small{display:block}.academic-transfer-summary-grid span{font-size:9.5px;color:#64748b}.academic-transfer-summary-grid strong{font-size:13px;margin:3px 0}.academic-transfer-summary-grid small{font-size:9.5px;color:#64748b}
+.academic-transfer-file-panel{border:1px solid #e2e8e0;border-radius:16px;padding:14px}.academic-transfer-file-label{position:relative;overflow:hidden}.academic-transfer-file-label input{position:absolute;inset:0;opacity:0;cursor:pointer}.academic-transfer-file-list{display:grid;gap:8px}.academic-transfer-file-list>div{display:grid;grid-template-columns:32px minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px 10px;border:1px solid #edf1eb;border-radius:12px;background:#fff}.academic-transfer-file-index{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;background:#ecfdf5;color:#166534;font-size:10px;font-weight:800}.academic-transfer-file-list strong,.academic-transfer-file-list small{display:block}.academic-transfer-file-list strong{font-size:11px}.academic-transfer-file-list small{font-size:9px;color:#64748b}
+.academic-transfer-checks{display:flex;gap:7px;flex-wrap:wrap;margin-top:14px;padding:12px;border:1px solid #e6ebdf;border-radius:14px;background:#fcfdfb}.academic-transfer-checks>strong{width:100%;font-size:11px}.academic-transfer-checks>span{padding:5px 8px;border-radius:999px;background:#f4f7f2;font-size:9.5px;color:#475569}.academic-transfer-bottom-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:14px}.academic-transfer-bottom-actions .helper{margin-left:auto}
+.academic-transfer-modal{width:min(960px,calc(100vw - 32px));max-height:94vh;overflow:auto}.academic-transfer-form-section{display:grid;gap:10px;padding:14px;border:1px solid #e2e8e0;border-radius:15px;background:#fff}.academic-transfer-form-section h4{margin:0;color:#174b35}.academic-transfer-form-section.internal{background:#fffdf5;border-color:#ead99a}.academic-transfer-evidence-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.academic-transfer-evidence-grid label{display:flex;gap:7px;align-items:flex-start;padding:9px;border:1px solid #e7ece5;border-radius:11px;font-size:11px;background:#fbfdfb}.academic-transfer-student-snapshot{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.academic-transfer-student-snapshot>div{padding:9px;border-radius:11px;background:#f8faf8;border:1px solid #edf1eb}.academic-transfer-student-snapshot span,.academic-transfer-student-snapshot strong{display:block}.academic-transfer-student-snapshot span{font-size:8.5px;color:#64748b}.academic-transfer-student-snapshot strong{font-size:10.5px;margin-top:2px}.form-row.three{grid-template-columns:repeat(3,minmax(0,1fr))}
+/* Invisible A4 text layer used only when generating the official transfer-request PDF. */
+.academic-transfer-pdf-overlay{position:fixed;left:-10000px;top:0;width:595.32px;height:841.92px;background:transparent;pointer-events:none;z-index:-1;font-family:"TH SarabunIT๙","THSarabunIT๙","TH SarabunPSK","Sarabun",sans-serif;color:#000;font-size:12.5px;font-weight:400}
+.academic-transfer-pdf-value{position:absolute;display:block;min-height:14px;line-height:14px;white-space:nowrap;overflow:hidden;text-overflow:clip;background:#fff;padding:0 1px;color:#000}.academic-transfer-pdf-value.wrap{white-space:normal;line-height:13px;max-height:28px}.academic-transfer-pdf-value.center{text-align:center}.academic-transfer-pdf-tick{position:absolute;width:12px;height:12px;display:grid;place-items:center;font-family:Arial,sans-serif;font-size:13px;font-weight:900;line-height:12px;color:#000}
+@media(max-width:900px){.academic-registration-hero{align-items:flex-start;flex-direction:column}.academic-registration-hero-side{align-items:flex-start;text-align:left}.academic-registration-picker{grid-template-columns:1fr}.academic-registration-card-grid{grid-template-columns:1fr}.academic-transfer-summary-grid{grid-template-columns:1fr 1fr}.academic-registration-filter-row{grid-template-columns:1fr 1fr}.academic-registration-font-note{grid-column:1/-1}.academic-transfer-student-snapshot{grid-template-columns:1fr 1fr}.form-row.three{grid-template-columns:1fr}}
+@media(max-width:600px){.academic-transfer-summary-grid,.academic-transfer-evidence-grid,.academic-transfer-student-snapshot,.academic-registration-filter-row{grid-template-columns:1fr}.academic-transfer-file-list>div{grid-template-columns:32px 1fr}.academic-transfer-file-list .action-row{grid-column:2}}
+
+
+
+/* BNK V10.9.1 — transfer request RLS fix UI + signatures + file preview */
+.academic-transfer-upload-preview,.academic-transfer-local-preview{display:grid;gap:7px;margin:10px 0 12px;padding:10px 11px;border:1px dashed #a7c9b0;border-radius:12px;background:#f7fbf8;color:#64748b;font-size:10px}
+.academic-transfer-upload-preview>div,.academic-transfer-local-preview>div{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 9px;border:1px solid #dce9df;border-radius:10px;background:#fff}
+.academic-transfer-upload-preview strong,.academic-transfer-local-preview strong{font-size:11px;color:#174b35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.academic-transfer-upload-preview small,.academic-transfer-local-preview small{font-size:9.5px;color:#15803d;white-space:nowrap}
+.academic-transfer-upload-preview .error{border-color:#fecaca;background:#fff7f7}.academic-transfer-upload-preview .error small{color:#b91c1c}
+.academic-transfer-internal-panel{margin-top:16px;padding:14px;border:1px solid #ead99a;border-radius:16px;background:#fffdf7}
+.academic-transfer-review-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.academic-transfer-review-card{display:flex;flex-direction:column;gap:8px;padding:12px;border:1px solid #e3e8df;border-radius:14px;background:#fff}
+.academic-transfer-review-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.academic-transfer-review-head>div{display:grid;gap:2px}.academic-transfer-review-head span{font-size:9.5px;color:#64748b}.academic-transfer-review-head strong{font-size:13px}
+.academic-transfer-review-card p{margin:0;font-size:10.5px;color:#475569}.academic-transfer-review-card>small{font-size:9.5px;color:#7c5b12}
+.academic-transfer-sign-state{display:grid;gap:2px;padding:8px 9px;border-radius:10px;background:#f7faf7;border:1px solid #e5ece3}.academic-transfer-sign-state span{font-size:8.5px;color:#64748b}.academic-transfer-sign-state strong{font-size:10.5px;color:#174b35}.academic-transfer-sign-state small{font-size:9px;color:#64748b}
+.academic-transfer-review-modal{width:min(760px,calc(100vw - 32px));max-height:94vh;overflow:auto}.academic-transfer-payment-box{padding:12px;border:1px solid #ead99a;border-radius:13px;background:#fffdf4}.academic-transfer-payment-box>strong{display:block;margin-bottom:8px;font-size:11px;color:#6b5d31}
+.academic-transfer-sign-choice{display:grid;gap:10px;padding-top:4px}.academic-transfer-current-sign{font-size:10px;color:#64748b}.academic-transfer-sign-ready{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px;border-radius:12px;background:#f8faf8;border:1px solid #e2e8e0}
+.academic-transfer-pdf-cover-label{position:absolute;display:block;height:18px;line-height:16px;background:#fff;color:#000;font-weight:700;padding:0 2px}
+@media(max-width:900px){.academic-transfer-review-grid{grid-template-columns:1fr}.academic-transfer-upload-preview>div,.academic-transfer-local-preview>div{align-items:flex-start;flex-direction:column}}
+
+
+
+/* BNK V10.9.2 — class-first selector + registration role settings */
+.academic-registration-role-button{margin-top:9px;background:rgba(255,255,255,.90)!important;color:#174b35!important;border-color:rgba(255,255,255,.65)!important}
+.academic-registration-role-button:hover{background:#fff8d9!important;border-color:#f4dda0!important;color:#174b35!important}
+#academic-transfer-class + .helper,#academic-transfer-student + .helper{margin-top:5px}
+.academic-transfer-modal .form-row:has(#academic-transfer-class){grid-template-columns:minmax(160px,.75fr) minmax(180px,.75fr) minmax(260px,1.5fr)}
+@media(max-width:900px){.academic-transfer-modal .form-row:has(#academic-transfer-class){grid-template-columns:1fr}}
+
+
+
+/* BNK V10.9.3 — single registrar + file open/update UX */
+.academic-transfer-file-list .action-row{flex-wrap:wrap}
+.academic-transfer-file-list [data-academic-transfer-open-file]{font-weight:800}
+.academic-transfer-file-list [data-academic-transfer-open-file]::before{content:"↗ ";font-weight:900}
+
+
+
+/* BNK V10.9.4 — visible open-state + realtime refresh feedback */
+.academic-transfer-detail{scroll-margin-top:92px;transition:border-color .22s ease,box-shadow .22s ease,background .22s ease}
+.academic-transfer-detail-flash{
+  border-color:#82d8ad !important;
+  box-shadow:0 0 0 4px rgba(130,216,173,.20),0 14px 28px rgba(13,106,69,.10) !important;
+  background:#fbfffc !important;
+}
+.academic-transfer-table [data-academic-transfer-open]{min-width:54px;font-weight:800}
+
+
+
+/* BNK V10.9.5 — cache-busted build + obvious request opening */
+.academic-registration-build{
+  display:inline-flex;
+  align-self:flex-end;
+  margin-top:4px;
+  padding:3px 8px;
+  border-radius:999px;
+  background:rgba(255,255,255,.13);
+  border:1px solid rgba(255,255,255,.22);
+  color:rgba(255,255,255,.82);
+  font-size:9px;
+  font-weight:700;
+}
+.academic-transfer-row{cursor:pointer;transition:background .16s ease}
+.academic-transfer-row:hover{background:#f4fbf6}
+.academic-transfer-detail{order:-1;margin-bottom:14px}
+
+
+
+/* BNK V10.9.6 — paper evidence + guaranteed modal opening */
+.academic-transfer-paper-note{
+  display:flex;align-items:flex-start;gap:12px;margin:12px 0;padding:12px 14px;
+  border:1px solid #d9e6d8;border-radius:14px;background:#f8fcf8;color:#334155;
+}
+.academic-transfer-paper-note strong{color:#174b35;white-space:nowrap}
+.academic-transfer-paper-note span{font-size:11px;line-height:1.5}
+.academic-transfer-detail-modal{width:min(1080px,calc(100vw - 30px));max-height:94vh;overflow:auto}
+.academic-transfer-detail-modal .academic-transfer-detail{box-shadow:none;border:0;padding:0;margin:0}
+.academic-transfer-table td:nth-child(4),.academic-transfer-table th:nth-child(4){text-align:center;width:64px}
+
+
+
+/* BNK V10.9.7 — native :target request opening + robust PDF preview */
+.academic-transfer-native-open{display:inline-flex;text-decoration:none;justify-content:center;min-width:54px;font-weight:800}
+.academic-transfer-target-detail{display:none;position:fixed;inset:0;z-index:180;padding:20px;background:rgba(15,23,42,.55);backdrop-filter:blur(7px);overflow:auto}
+.academic-transfer-target-detail:target{display:grid;place-items:start center}
+.academic-transfer-target-card{width:min(1080px,100%);margin:auto;background:#fff;border-radius:22px;box-shadow:0 35px 80px rgba(15,23,42,.28);padding:20px}
+.academic-transfer-target-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:12px}.academic-transfer-target-head>div{display:grid;gap:2px}.academic-transfer-target-head>div>strong{font-size:16px}.academic-transfer-target-head>div>span{font-size:11px;color:#64748b}
+.academic-transfer-target-close{display:inline-grid;place-items:center;width:36px;height:36px;border-radius:11px;background:#f1f5f9;color:#111827;text-decoration:none;font-size:22px;line-height:1}.academic-transfer-target-close:hover{background:#eef8f2;box-shadow:inset 0 0 0 1px #a7e6c5}
+.academic-transfer-target-body .academic-transfer-detail{border:0;box-shadow:none;padding:0;margin:0}
+@media(max-width:700px){.academic-transfer-target-detail{padding:8px}.academic-transfer-target-card{padding:14px;border-radius:16px}}
+
+
+
+/* BNK V10.9.8 — registration date-only display + request actions */
+.academic-transfer-row-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap;min-width:170px}
+.academic-transfer-table th:last-child,.academic-transfer-table td:last-child{min-width:190px}
+@media(max-width:760px){.academic-transfer-row-actions{justify-content:flex-start;min-width:150px}}
+
+
+
+/* BNK V10.9.9 — system-designed transfer-request PDF, no PDF-template overlay */
+.academic-transfer-pdf-host{position:fixed;left:-12000px;top:0;width:794px;height:1123px;pointer-events:none;z-index:-10}
+.academic-transfer-pdf-document{box-sizing:border-box;width:794px;height:1123px;padding:25px 38px 20px;background:#fff;color:#000;overflow:hidden;font-family:"TH SarabunIT๙","THSarabunIT๙","TH SarabunPSK","Sarabun",sans-serif;font-size:15.5px;line-height:1.12;font-weight:400}
+.transfer-doc-header{position:relative;text-align:center;min-height:118px;padding-top:0}
+.transfer-doc-logo{display:block;width:58px;height:58px;object-fit:contain;margin:0 auto 1px}
+.transfer-doc-header h1{font-size:21px;line-height:1;margin:3px 0 0;font-weight:700}
+.transfer-doc-school-address{position:absolute;right:0;top:66px;width:235px;text-align:right;font-size:12.5px;line-height:1.13;font-weight:400}
+.transfer-doc-school-address strong{font-weight:400}
+.transfer-doc-date{text-align:right;margin:0 7px 3px 0;font-size:14.5px}
+.transfer-doc-date span{display:inline-block;min-width:54px;border-bottom:1px dotted #333;text-align:center;padding:0 2px}
+.transfer-doc-lines{display:grid;gap:0;margin-bottom:2px;font-size:14.5px}
+.transfer-doc-lines>div{display:grid;grid-template-columns:44px 1fr;gap:5px}.transfer-doc-lines b{font-weight:700}
+.transfer-doc-section-title{font-size:15px;text-decoration:underline;margin:2px 0 3px;font-weight:700}
+.transfer-doc-paragraph{font-size:14.5px;margin:2px 0;white-space:nowrap}
+.transfer-doc-field{display:inline-block;border-bottom:1px dotted #333;text-align:center;min-height:15px;padding:0 4px;vertical-align:bottom}
+.transfer-doc-field.w-guardian{width:220px}.transfer-doc-field.w-student{width:225px}.transfer-doc-field.w-date{width:40px}.transfer-doc-field.w-month{width:105px}.transfer-doc-field.w-year{width:65px}
+.transfer-doc-grid{display:grid;gap:2px 10px;margin:2px 0;font-size:14px}.transfer-doc-grid.cols-4{grid-template-columns:1.05fr .9fr .6fr 1.05fr}.transfer-doc-grid.cols-2{grid-template-columns:1fr 1fr}.transfer-doc-grid .span-2{grid-column:1/-1}
+.transfer-doc-grid>div{display:flex;align-items:flex-end;min-width:0;overflow:hidden}.transfer-doc-grid label{white-space:nowrap;margin-right:4px}.transfer-doc-grid span{flex:1;min-width:0;border-bottom:1px dotted #333;padding:0 3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.transfer-doc-reason-block{margin:3px 0 2px;font-size:14px}.transfer-doc-label{margin-bottom:1px}
+.transfer-doc-check{display:inline-flex;align-items:flex-start;gap:4px;min-width:0}.transfer-doc-check i{flex:0 0 12px;width:12px;height:12px;border:1.2px solid #111;display:grid;place-items:center;font:700 11px/11px Arial,sans-serif;margin-top:1px;font-style:normal}.transfer-doc-check>span{min-width:0}
+.transfer-doc-evidence{margin-top:3px;font-size:13.5px}.transfer-doc-evidence>strong{font-weight:700}.transfer-doc-evidence-grid{display:grid;grid-template-columns:1fr 1fr;column-gap:14px;row-gap:1px;margin-top:2px}
+.transfer-doc-request-close{display:grid;grid-template-columns:1.3fr .9fr;gap:12px;align-items:end;margin-top:4px;font-size:13.5px}.transfer-doc-applicant{text-align:center;line-height:1.2}
+.transfer-doc-approval-grid{display:grid;grid-template-columns:1fr 1fr;border:1px solid #222;margin-top:5px}.transfer-doc-approval-box{box-sizing:border-box;min-height:117px;padding:4px 8px 3px;position:relative}.transfer-doc-approval-box:nth-child(odd){border-right:1px solid #222}.transfer-doc-approval-box:nth-child(-n+2){border-bottom:1px solid #222}
+.transfer-doc-box-title{display:block;font-size:14px;text-decoration:underline;margin-bottom:1px}.transfer-doc-mini{display:flex;gap:10px;flex-wrap:wrap;font-size:12.5px;margin:0}.transfer-doc-reason{min-height:15px;font-size:12px;border-bottom:1px dotted #aaa;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.transfer-doc-signature{text-align:center;margin-top:1px;font-size:11.5px;line-height:1.04;min-height:63px}.transfer-doc-signature-image{display:block;max-width:130px;max-height:34px;object-fit:contain;margin:0 auto -2px}.transfer-doc-signature-space{height:31px}.transfer-doc-signer-name{font-size:11.5px;margin-top:0}.transfer-doc-signer-role{font-size:11px;margin-top:0}
+.transfer-doc-note{font-size:12px;margin-top:4px;white-space:nowrap}.transfer-doc-note b{font-weight:700}
+
+
+
+
+/* BNK V10.9.10 — larger official-document typography + standard A4 margins */
+.academic-transfer-pdf-document{
+  width:210mm!important;
+  height:297mm!important;
+  padding:15mm 20mm 20mm 30mm!important; /* ราชการ A4: บน 1.5 ซม. ซ้าย 3 ซม. ขวา 2 ซม. ล่าง 2 ซม. */
+  font-size:19px!important;
+  line-height:1.22!important;
+  overflow:hidden!important;
+}
+.transfer-doc-header{min-height:108px!important;padding-top:0!important}
+.transfer-doc-logo{width:68px!important;height:68px!important;margin:0 auto 3px!important}
+.transfer-doc-header h1{font-size:25px!important;line-height:1.05!important;margin:4px 0 0!important}
+.transfer-doc-school-address{top:54px!important;width:235px!important;font-size:16.5px!important;line-height:1.25!important}
+.transfer-doc-date{font-size:18px!important;margin:5px 2px 7px 0!important}
+.transfer-doc-date span{min-width:62px!important}
+.transfer-doc-lines{gap:2px!important;margin-bottom:6px!important;font-size:18px!important}
+.transfer-doc-lines>div{grid-template-columns:52px 1fr!important;gap:8px!important}
+.transfer-doc-section-title{font-size:19.5px!important;margin:6px 0 7px!important}
+.transfer-doc-paragraph{font-size:18px!important;margin:5px 0!important;line-height:1.3!important}
+.transfer-doc-grid{gap:5px 14px!important;margin:5px 0!important;font-size:17.5px!important;line-height:1.25!important}
+.transfer-doc-grid span{padding:0 4px 2px!important}
+.transfer-doc-reason-block{margin:7px 0 6px!important;font-size:17.5px!important;line-height:1.25!important}
+.transfer-doc-label{margin-bottom:4px!important}
+.transfer-doc-check{gap:6px!important}
+.transfer-doc-check i{flex-basis:15px!important;width:15px!important;height:15px!important;font-size:13px!important;line-height:13px!important;margin-top:2px!important}
+.transfer-doc-evidence{margin-top:7px!important;font-size:16.8px!important;line-height:1.25!important}
+.transfer-doc-evidence-grid{column-gap:20px!important;row-gap:4px!important;margin-top:5px!important}
+.transfer-doc-request-close{gap:18px!important;margin-top:9px!important;font-size:16.5px!important;line-height:1.25!important}
+.transfer-doc-applicant{line-height:1.35!important}
+.transfer-doc-approval-grid{margin-top:10px!important}
+.transfer-doc-approval-box{min-height:158px!important;padding:8px 11px 7px!important}
+.transfer-doc-box-title{font-size:17px!important;margin-bottom:4px!important}
+.transfer-doc-mini{gap:15px!important;font-size:15.5px!important;margin:2px 0!important}
+.transfer-doc-reason{min-height:21px!important;font-size:15px!important}
+.transfer-doc-signature{margin-top:5px!important;font-size:14.5px!important;line-height:1.18!important;min-height:86px!important}
+.transfer-doc-signature-image{max-width:150px!important;max-height:48px!important;margin:0 auto -2px!important}
+.transfer-doc-signature-space{height:44px!important}
+.transfer-doc-signer-name{font-size:14.5px!important;margin-top:2px!important}
+.transfer-doc-signer-role{font-size:14px!important;margin-top:2px!important}
+.transfer-doc-note{font-size:15px!important;margin-top:9px!important;line-height:1.25!important;white-space:normal!important}
+
+
+
+/* BNK V10.9.11 — finance officer workflow */
+.academic-transfer-review-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+@media(max-width:900px){.academic-transfer-review-grid{grid-template-columns:1fr!important}}
+
+
+
+/* BNK V10.9.12 — guaranteed single A4 page while preserving official margins */
+.academic-transfer-pdf-document{
+  padding:15mm 20mm 20mm 30mm!important;
+  overflow:hidden!important;
+}
+.transfer-doc-content{
+  width:100%;
+  transform-origin:top left;
+  box-sizing:border-box;
+}
+.transfer-doc-header{min-height:100px!important}
+.transfer-doc-logo{width:64px!important;height:64px!important;margin-bottom:1px!important}
+.transfer-doc-header h1{font-size:23px!important;margin-top:2px!important}
+.transfer-doc-school-address{top:50px!important;font-size:15.5px!important;line-height:1.17!important}
+.transfer-doc-date{font-size:17px!important;margin:3px 2px 5px 0!important}
+.transfer-doc-lines{font-size:17px!important;gap:1px!important;margin-bottom:4px!important}
+.transfer-doc-section-title{font-size:18.5px!important;margin:4px 0 5px!important}
+.transfer-doc-paragraph{font-size:17px!important;margin:3px 0!important;line-height:1.2!important}
+.transfer-doc-grid{font-size:16.5px!important;line-height:1.18!important;gap:3px 12px!important;margin:3px 0!important}
+.transfer-doc-reason-block{font-size:16.5px!important;line-height:1.18!important;margin:4px 0!important}
+.transfer-doc-label{margin-bottom:2px!important}
+.transfer-doc-evidence{font-size:16px!important;line-height:1.18!important;margin-top:4px!important}
+.transfer-doc-evidence-grid{row-gap:2px!important;margin-top:3px!important}
+.transfer-doc-request-close{font-size:15.8px!important;line-height:1.18!important;margin-top:5px!important}
+.transfer-doc-approval-grid{margin-top:6px!important}
+.transfer-doc-approval-box{min-height:132px!important;padding:5px 9px 4px!important}
+.transfer-doc-box-title{font-size:16px!important;margin-bottom:2px!important}
+.transfer-doc-mini{font-size:14.5px!important;gap:11px!important;margin:1px 0!important}
+.transfer-doc-reason{min-height:17px!important;font-size:14px!important}
+.transfer-doc-signature{font-size:13.5px!important;line-height:1.1!important;min-height:72px!important;margin-top:2px!important}
+.transfer-doc-signature-image{max-width:142px!important;max-height:39px!important}
+.transfer-doc-signature-space{height:35px!important}
+.transfer-doc-signer-name{font-size:13.5px!important;margin-top:1px!important}
+.transfer-doc-signer-role{font-size:13px!important;margin-top:1px!important}
+.transfer-doc-note{font-size:14px!important;line-height:1.18!important;margin-top:5px!important}
+
+
+
+/* BNK V10.9.14 — two-stage transfer output + official government letter */
+.academic-transfer-output-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:14px 0}
+.academic-transfer-output-card{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px;border:1px solid #dce7de;border-radius:16px;background:#fbfdfb}
+.academic-transfer-output-card.ready{border-color:#9ed8b8;background:#f4fbf6}
+.academic-transfer-output-card>div:first-child{display:grid;gap:3px}.academic-transfer-output-card span{font-size:9px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.04em}.academic-transfer-output-card h4{margin:0;font-size:14px;color:#173c2c}.academic-transfer-output-card p{margin:0;font-size:10.5px;color:#64748b;line-height:1.4}
+@media(max-width:850px){.academic-transfer-output-grid{grid-template-columns:1fr}.academic-transfer-output-card{align-items:flex-start;flex-direction:column}}
+
+.academic-transfer-official-host{position:fixed;left:-12000px;top:0;width:794px;height:1123px;pointer-events:none;z-index:-20}
+.academic-transfer-official-document{box-sizing:border-box;width:210mm;height:297mm;padding:15mm 20mm 18mm 30mm;background:#fff;color:#000;overflow:hidden;font-family:"TH SarabunIT๙","THSarabunIT๙","TH SarabunPSK","Sarabun",sans-serif;font-size:20px;line-height:1.35}
+.official-transfer-content{width:100%;box-sizing:border-box;transform-origin:top left}
+.official-transfer-header{text-align:center;height:35mm;display:flex;align-items:flex-start;justify-content:center}
+.official-transfer-header img{width:25mm;height:27mm;object-fit:contain}
+.official-transfer-topline{display:grid;grid-template-columns:1fr 1.22fr;gap:10mm;align-items:start;margin-top:-2mm}
+.official-transfer-number{padding-top:5mm;white-space:nowrap}
+.official-transfer-address{text-align:left;line-height:1.3}
+.official-transfer-address strong{font-weight:400}
+.official-transfer-date{text-align:center;margin:5mm 0 3mm}
+.official-transfer-meta{display:grid;gap:1.5mm}.official-transfer-meta>div{display:grid;grid-template-columns:17mm 1fr}.official-transfer-meta b{font-weight:700}
+.official-transfer-body{margin-top:4mm}.official-transfer-body p{margin:0 0 4mm;text-align:justify;text-indent:25mm}.official-transfer-body p.official-transfer-indent{text-indent:25mm}
+.official-transfer-signoff{width:86mm;margin:8mm 0 0 auto;text-align:center;line-height:1.3}.official-transfer-sign-space{height:20mm}
+.official-transfer-footer{margin-top:8mm;line-height:1.3}
+.official-transfer-note{margin-top:6mm;font-size:18px;line-height:1.3}.official-transfer-note b{font-weight:700}
+
+
+
+/* BNK V10.9.15 — official result letter school address: exactly two clean lines */
+.official-transfer-address{
+  line-height:1.28!important;
+  white-space:normal!important;
+}
+
+
+
+/* BNK V10.10.0 — Academic Certificate Request + ปพ.7 */
+.academic-certificate-review-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+@media(max-width:900px){.academic-certificate-review-grid{grid-template-columns:1fr}}
+.academic-certificate-pdf-host,.academic-certificate-result-host{position:fixed;left:-12000px;top:0;pointer-events:none;z-index:-30}
+.academic-certificate-pdf-page,.academic-certificate-result-page{box-sizing:border-box;width:210mm;height:297mm;background:#fff;color:#000;overflow:hidden;font-family:"TH SarabunIT๙","THSarabunIT๙","TH SarabunPSK","Sarabun",sans-serif}
+.cert-page-inner{padding:12mm 14mm 12mm 14mm;font-size:16px;line-height:1.18;position:relative;height:100%;box-sizing:border-box}.cert-request-no{text-align:right;font-size:15px}.cert-request-head{text-align:center;position:relative;margin-top:-3mm}.cert-request-head img{position:absolute;left:0;top:-2mm;width:25mm;height:25mm;object-fit:contain}.cert-request-head h1{font-size:22px;margin:2mm 0 5mm}.cert-request-head>div{font-size:16px;margin:1mm 0}.cert-form-lines p{margin:2.5mm 0;border-bottom:1px dotted #777;padding-bottom:1mm}.cert-section{margin:3mm 0}.cert-section>strong{display:block;margin-bottom:1.5mm}.cert-section>div{margin:1.2mm 0}.cert-check{display:inline-flex;align-items:flex-start;gap:2mm}.cert-check i{width:4mm;height:4mm;border:.35mm solid #111;display:grid;place-items:center;font:700 10px/1 Arial;font-style:normal;margin-top:.2mm}.cert-evidence{font-size:15px}.cert-request-close{display:grid;grid-template-columns:1.4fr .8fr;gap:4mm;align-items:end;margin-top:4mm}.cert-request-close>div{text-align:center}.cert-approval-grid{display:grid;grid-template-columns:repeat(3,1fr);border:.3mm solid #222;margin-top:5mm}.cert-approval-box{min-height:42mm;padding:2.5mm;border-right:.3mm solid #222;text-align:center;font-size:14px}.cert-approval-box:last-child{border-right:0}.cert-approval-box>strong{display:block;text-align:left;text-decoration:underline;margin-bottom:1.5mm}.cert-approval-box>div:not(.cert-reason):not(.cert-sign-space){text-align:left}.cert-reason{height:8mm;border-bottom:1px dotted #777;text-align:left}.cert-sign-space{height:10mm}.cert-sign-img{display:block;max-width:33mm;max-height:10mm;object-fit:contain;margin:0 auto}.cert-approval-box small{display:block;margin-top:1mm}
+.cert-evidence-page{padding:9mm 6mm 7mm;position:relative;font-size:10.5px;line-height:1.15}.cert-evidence-page-no{text-align:right;margin-bottom:2mm}.cert-slip-grid{display:grid;grid-template-columns:1fr 1fr;border-left:.25mm solid #333;border-top:.25mm solid #333}.cert-evidence-slip{height:50mm;padding:2.5mm;border-right:.25mm solid #333;border-bottom:.25mm solid #333;display:grid;align-content:start;gap:1.3mm}.cert-evidence-slip>strong{font-size:11px}.cert-evidence-slip .cert-check{gap:1.2mm}.cert-evidence-slip .cert-check i{width:3.2mm;height:3.2mm}
+.academic-certificate-result-page{padding:14mm 18mm 15mm 25mm}.cert-result-inner{height:100%;position:relative;font-size:21px;line-height:1.5}.cert-result-garuda{display:block;width:27mm;height:29mm;object-fit:contain;margin:0 auto 1mm}.cert-result-code{position:absolute;right:0;top:9mm;font-size:20px}.cert-result-inner h1{text-align:center;font-size:28px;margin:1mm 0 0}.cert-result-inner h2{text-align:center;font-size:23px;margin:0 0 10mm;font-weight:400}.cert-result-body{position:relative;margin-left:4mm}.cert-result-body p{margin:5mm 0}.cert-result-issue{text-align:center;margin-top:10mm!important}.cert-result-photo{position:absolute;left:0;top:115mm;width:40mm;height:50mm;border:.35mm solid #333;display:flex;align-items:center;justify-content:center;text-align:center;font-size:18px;overflow:hidden}.cert-result-photo img{width:100%;height:100%;object-fit:cover}.cert-result-sign-grid{display:grid;grid-template-columns:1fr 1fr;gap:18mm;margin:16mm 0 0 43mm}.cert-result-sign{text-align:center;font-size:18px;line-height:1.35}.cert-result-sign img{display:block;max-width:45mm;max-height:15mm;object-fit:contain;margin:0 auto -2mm}.cert-result-sign-space{height:15mm}.cert-result-valid{text-align:center;margin-top:18mm;font-size:17px}
+
+
+
+/* BNK V10.10.1 — certificate request fills A4 + ปพ.7 photo 1.5" + handwritten doc no */
+
+/* คำร้อง: ใช้พื้นที่เต็ม A4 แต่คงขอบมาตรฐานราชการ
+   บน 1.5 ซม. / ซ้าย 3 ซม. / ขวา 2 ซม. / ล่าง 2 ซม. */
+.cert-page-inner{
+  box-sizing:border-box!important;
+  width:100%!important;
+  height:100%!important;
+  margin:0 auto!important;
+  padding:15mm 20mm 20mm 30mm!important;
+  font-size:18.5px!important;
+  line-height:1.28!important;
+  display:flex!important;
+  flex-direction:column!important;
+}
+.cert-request-no{
+  font-size:17px!important;
+  line-height:1.2!important;
+  margin-bottom:1.5mm!important;
+}
+.cert-request-head{
+  width:100%!important;
+  margin:0 auto 5mm!important;
+  text-align:center!important;
+  min-height:34mm!important;
+}
+.cert-request-head img{
+  width:27mm!important;
+  height:27mm!important;
+  left:0!important;
+  top:-1mm!important;
+}
+.cert-request-head h1{
+  font-size:25px!important;
+  line-height:1.1!important;
+  margin:2mm 0 5mm!important;
+}
+.cert-request-head>div{
+  font-size:18px!important;
+  line-height:1.25!important;
+  margin:1.5mm 0!important;
+}
+
+/* ช่วงข้อมูลด้านบน: จัดกึ่งกลางในพื้นที่เอกสาร และขยายเส้นข้อความเต็มความกว้าง */
+.cert-form-lines{
+  width:100%!important;
+  margin:0 auto 2mm!important;
+}
+.cert-form-lines p{
+  width:100%!important;
+  box-sizing:border-box!important;
+  margin:3.5mm 0!important;
+  padding:0 2mm 1.5mm!important;
+  border-bottom:1px dotted #555!important;
+  font-size:18.5px!important;
+  line-height:1.3!important;
+  text-align:left!important;
+}
+
+/* ใช้พื้นที่แนวตั้งให้เต็มหน้า ไม่กองอยู่ด้านบน */
+.cert-section{
+  width:100%!important;
+  margin:4mm 0!important;
+  font-size:18px!important;
+  line-height:1.28!important;
+}
+.cert-section>strong{
+  margin-bottom:2mm!important;
+}
+.cert-section>div{
+  margin:1.8mm 0!important;
+}
+.cert-check{
+  gap:2.2mm!important;
+}
+.cert-check i{
+  width:4.5mm!important;
+  height:4.5mm!important;
+  flex:0 0 4.5mm!important;
+  font-size:11px!important;
+}
+.cert-evidence{
+  font-size:17px!important;
+  margin-top:4.5mm!important;
+}
+.cert-request-close{
+  width:100%!important;
+  margin-top:5mm!important;
+  gap:7mm!important;
+  font-size:17px!important;
+  line-height:1.3!important;
+}
+.cert-approval-grid{
+  width:100%!important;
+  margin-top:auto!important;
+  border:.35mm solid #222!important;
+}
+.cert-approval-box{
+  min-height:48mm!important;
+  padding:3mm 3mm 2.5mm!important;
+  font-size:15.5px!important;
+  line-height:1.2!important;
+}
+.cert-approval-box>strong{
+  font-size:16.5px!important;
+  margin-bottom:2mm!important;
+}
+.cert-reason{
+  height:10mm!important;
+}
+.cert-sign-space{
+  height:12mm!important;
+}
+.cert-sign-img{
+  max-width:36mm!important;
+  max-height:12mm!important;
+}
+
+/* ปพ.7: เลขเอกสารเขียนมือด้านซ้ายบน ระดับเดียวกับ ปพ.7 ด้านขวา */
+.cert-result-docno{
+  position:absolute;
+  left:0;
+  top:9mm;
+  font-size:20px;
+  line-height:1;
+  letter-spacing:.3px;
+}
+.cert-result-code{
+  top:9mm!important;
+  right:0!important;
+}
+
+/* รูปนักเรียน 1.5 นิ้ว: กว้าง 38.1 มม. x สูงประมาณ 50.8 มม. */
+.cert-result-photo{
+  width:38.1mm!important;
+  height:50.8mm!important;
+  font-size:17px!important;
+}
+.cert-result-photo img{
+  width:100%!important;
+  height:100%!important;
+  object-fit:cover!important;
+}
+
+
+
+/* BNK V10.10.2 — clean single-page certificate request + separated rights + revised ปพ.7 */
+.cert-request-page{padding:0!important}
+.cert-page-inner{
+  box-sizing:border-box!important;width:210mm!important;height:297mm!important;
+  padding:15mm 20mm 20mm 30mm!important;margin:0!important;
+  display:flex!important;flex-direction:column!important;
+  font-size:17px!important;line-height:1.18!important;overflow:hidden!important;
+  transform-origin:top left!important;
+}
+.cert-request-top{display:grid!important;grid-template-columns:30mm 1fr 45mm!important;align-items:start!important;min-height:30mm!important;margin-bottom:3mm!important}
+.cert-request-top>img{width:24mm!important;height:24mm!important;object-fit:contain!important;justify-self:start!important}
+.cert-request-title{text-align:center!important;padding-top:2mm!important}.cert-request-title h1{font-size:23px!important;margin:0 0 3mm!important;line-height:1.05!important}.cert-request-title>div{font-size:17px!important}
+.cert-request-number-date{text-align:right!important;font-size:15.5px!important;line-height:1.45!important;white-space:nowrap!important}
+.cert-personal-info{display:grid!important;grid-template-columns:1fr 1fr!important;gap:2.2mm 7mm!important;margin:0 0 3mm!important;align-items:end!important}
+.cert-info-cell{display:grid!important;grid-template-columns:auto 1fr!important;gap:2mm!important;align-items:end!important;min-width:0!important}
+.cert-info-cell.wide{grid-column:1/-1!important}.cert-info-label{white-space:nowrap!important;font-weight:400!important}.cert-info-value{min-width:0!important;border-bottom:.25mm dotted #555!important;padding:0 2mm 1mm!important;white-space:normal!important;line-height:1.15!important}
+.cert-choice-section{margin:2.3mm 0!important;font-size:16.5px!important;line-height:1.12!important}.cert-choice-section>strong{margin-bottom:1mm!important}.cert-choice-section>div{margin:.7mm 0!important}
+.cert-choice-section .cert-check,.cert-evidence .cert-check{gap:1.6mm!important;line-height:1.12!important}.cert-choice-section .cert-check i,.cert-evidence .cert-check i{width:4mm!important;height:4mm!important;flex:0 0 4mm!important;margin-top:.15mm!important}
+.cert-evidence{font-size:15.8px!important;margin:2.5mm 0!important;line-height:1.1!important}.cert-evidence>strong{margin-bottom:1mm!important}.cert-evidence-columns{display:grid!important;grid-template-columns:1fr 1fr!important;gap:.8mm 5mm!important}.cert-evidence-columns>div{margin:0!important}
+.cert-request-close{display:grid!important;grid-template-columns:1.35fr .9fr!important;gap:6mm!important;margin:3mm 0 2mm!important;font-size:15.5px!important;line-height:1.15!important;align-items:end!important}.cert-request-close>div{text-align:center!important}
+.cert-approval-grid{margin-top:auto!important;width:100%!important;display:grid!important;grid-template-columns:repeat(3,1fr)!important;border:.3mm solid #222!important}
+.cert-approval-box{box-sizing:border-box!important;min-height:37mm!important;padding:2.2mm!important;font-size:13.5px!important;line-height:1.05!important}.cert-approval-box>strong{font-size:14.5px!important;margin-bottom:1mm!important}.cert-approval-box .cert-check{gap:1mm!important}.cert-approval-box .cert-check i{width:3.5mm!important;height:3.5mm!important;flex:0 0 3.5mm!important}.cert-reason{height:6mm!important}.cert-sign-space{height:8mm!important}.cert-sign-img{max-height:8mm!important;max-width:32mm!important}
+
+/* ปพ.7 — ไม่มีกรอบรูป, เว้นพื้นที่ติดรูปจริง 1.5 นิ้วและประทับตราโรงเรียน */
+.cert-result-bottom-grid{display:grid!important;grid-template-columns:1fr 1fr!important;gap:18mm!important;margin-top:11mm!important;align-items:start!important}
+.cert-result-left{display:flex!important;flex-direction:column!important;align-items:center!important;min-height:82mm!important}.cert-result-photo-note{width:38.1mm!important;height:38mm!important;border:0!important;display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;text-align:center!important;font-size:17px!important;line-height:1.3!important;margin-bottom:4mm!important}.cert-result-photo-note small{font-size:13px!important;margin-top:2mm!important}
+.cert-result-right{padding-top:17mm!important}.cert-result-sign{width:100%!important;text-align:center!important;font-size:17px!important;line-height:1.28!important}.cert-result-sign.registrar{margin-top:0!important}.cert-result-sign.director{margin-top:0!important}.cert-result-sign img{display:block!important;max-width:45mm!important;max-height:14mm!important;object-fit:contain!important;margin:0 auto -1mm!important}.cert-result-sign-space{height:14mm!important}
+.cert-result-valid{margin-top:10mm!important;font-size:16px!important;text-align:center!important}
+/* old photo/sign grid no longer participates */
+.cert-result-photo,.cert-result-sign-grid{display:none!important}
+/* BNK V10.10.2 photo/stamp spacing refinement */
+.cert-result-photo-note{height:50.8mm!important}
+.cert-result-right{padding-top:42mm!important}
+
+
+
+/* BNK V10.10.3 — request typography/signatures + centered ปพ.7 body */
+
+/* 16-point body typography while keeping the same official A4 margins. */
+.cert-page-inner{
+  font-size:16pt!important;
+  line-height:1.13!important;
+}
+
+/* Header remains compact so the larger body can still fit one A4 page. */
+.cert-request-top{
+  min-height:27mm!important;
+  margin-bottom:2mm!important;
+}
+.cert-request-top>img{
+  width:22mm!important;
+  height:22mm!important;
+}
+.cert-request-title{
+  padding-top:1mm!important;
+}
+.cert-request-title h1{
+  font-size:18pt!important;
+  margin:0 0 2mm!important;
+}
+.cert-request-title>div{
+  font-size:15pt!important;
+}
+.cert-request-number-date{
+  font-size:13.5pt!important;
+  line-height:1.2!important;
+}
+
+/* Personal information rows: stable spacing and aligned baselines. */
+.cert-personal-info{
+  display:block!important;
+  margin:0 0 2mm!important;
+}
+.cert-info-row{
+  display:grid!important;
+  align-items:end!important;
+  width:100%!important;
+  column-gap:7mm!important;
+  margin:0 0 1.5mm!important;
+}
+.cert-info-row.one{
+  grid-template-columns:1fr!important;
+}
+.cert-info-row.two{
+  grid-template-columns:1fr 1fr!important;
+}
+.cert-info-cell{
+  display:grid!important;
+  grid-template-columns:auto minmax(0,1fr)!important;
+  gap:1.6mm!important;
+  align-items:end!important;
+  min-width:0!important;
+  font-size:15.5pt!important;
+}
+.cert-info-label{
+  white-space:nowrap!important;
+}
+.cert-info-value{
+  min-height:6.2mm!important;
+  padding:0 1.3mm .6mm!important;
+  line-height:1.05!important;
+  border-bottom:.25mm dotted #444!important;
+}
+
+/* Tighter checkbox sections; no giant gaps between lines. */
+.cert-choice-section{
+  margin:1.6mm 0!important;
+  font-size:15.2pt!important;
+  line-height:1.08!important;
+}
+.cert-choice-section>strong{
+  margin-bottom:.7mm!important;
+}
+.cert-choice-section>div{
+  margin:.35mm 0!important;
+}
+.cert-choice-section .cert-check,
+.cert-evidence .cert-check{
+  align-items:flex-start!important;
+  gap:1.4mm!important;
+}
+.cert-choice-section .cert-check i,
+.cert-evidence .cert-check i{
+  width:3.8mm!important;
+  height:3.8mm!important;
+  flex:0 0 3.8mm!important;
+  margin-top:.3mm!important;
+}
+.cert-former-line .cert-check>span{
+  display:inline!important;
+}
+.cert-inline-dots{
+  display:inline-block!important;
+  min-width:28mm!important;
+  border-bottom:.25mm dotted #444!important;
+  text-align:center!important;
+  min-height:4.5mm!important;
+  padding:0 1mm!important;
+  vertical-align:baseline!important;
+}
+.cert-inline-dots.year{min-width:21mm!important}
+.cert-inline-dots.gpa{min-width:18mm!important}
+
+/* Evidence remains readable at larger type without wasting vertical space. */
+.cert-evidence{
+  font-size:14.6pt!important;
+  line-height:1.05!important;
+  margin:1.8mm 0!important;
+}
+.cert-evidence>strong{
+  margin-bottom:.8mm!important;
+}
+.cert-evidence-columns{
+  gap:.45mm 4mm!important;
+}
+.cert-evidence-columns>div{
+  min-height:5mm!important;
+}
+
+/* Applicant signature now sits directly under the closing sentence. */
+.cert-request-close{
+  display:block!important;
+  margin:2mm 0 1.5mm!important;
+  font-size:14.8pt!important;
+  line-height:1.08!important;
+}
+.cert-request-close-text{
+  width:100%!important;
+}
+.cert-applicant-sign{
+  width:72mm!important;
+  margin:2mm 2mm 0 auto!important;
+  text-align:center!important;
+  line-height:1.12!important;
+}
+.cert-applicant-sign>div:last-child{
+  margin-top:.7mm!important;
+}
+
+/* Approval boxes: larger, centered signer identity, signature line close to name/title. */
+.cert-approval-grid{
+  margin-top:auto!important;
+}
+.cert-approval-box{
+  min-height:42mm!important;
+  padding:2.4mm 2.2mm 2mm!important;
+  font-size:14pt!important;
+  line-height:1.06!important;
+  text-align:left!important;
+}
+.cert-approval-title{
+  display:block!important;
+  text-align:center!important;
+  font-size:15pt!important;
+  margin-bottom:1.2mm!important;
+  text-decoration:underline!important;
+}
+.cert-approval-choice{
+  text-align:left!important;
+  margin:.35mm 0!important;
+}
+.cert-approval-box .cert-check{
+  gap:1.1mm!important;
+}
+.cert-approval-box .cert-check i{
+  width:3.7mm!important;
+  height:3.7mm!important;
+  flex:0 0 3.7mm!important;
+}
+.cert-reason{
+  height:5.5mm!important;
+  font-size:13.5pt!important;
+  line-height:1!important;
+}
+.cert-approval-signature{
+  margin-top:.5mm!important;
+  text-align:center!important;
+}
+.cert-sign-space{
+  height:5.5mm!important;
+}
+.cert-sign-img{
+  display:block!important;
+  max-width:34mm!important;
+  max-height:8mm!important;
+  object-fit:contain!important;
+  margin:0 auto -1mm!important;
+}
+.cert-sign-line{
+  text-align:center!important;
+  white-space:nowrap!important;
+  font-size:13.8pt!important;
+  line-height:1!important;
+}
+.cert-sign-name{
+  text-align:center!important;
+  font-size:14.2pt!important;
+  line-height:1.05!important;
+  margin-top:.7mm!important;
+}
+.cert-sign-role{
+  text-align:center!important;
+  font-size:13.5pt!important;
+  line-height:1.05!important;
+  margin-top:.5mm!important;
+}
+
+/* ปพ.7 body: center the whole text block, but keep every line left-aligned
+   and starting from the same vertical axis. */
+.cert-result-body{
+  width:100%!important;
+  margin:0!important;
+}
+.cert-result-body-block{
+  width:148mm!important;
+  max-width:100%!important;
+  margin:0 auto!important;
+  text-align:left!important;
+}
+.cert-result-body-block p{
+  margin:4.2mm 0!important;
+  text-align:left!important;
+  text-indent:0!important;
+}
+.cert-result-issue{
+  text-align:left!important;
+  margin-top:8mm!important;
+}
+
+/* Registrar must begin immediately beneath the 1.5-inch photo/stamp area. */
+.cert-result-left{
+  align-items:center!important;
+}
+.cert-result-photo-note{
+  margin-bottom:1.2mm!important;
+}
+.cert-result-sign.registrar{
+  margin-top:0!important;
+}
+.cert-result-sign.registrar .cert-result-sign-space{
+  height:4mm!important;
+}
+.cert-result-sign.registrar>div{
+  text-align:center!important;
+}
+
+/* Director remains on the right, slightly higher than registrar for formal balance. */
+.cert-result-right{
+  padding-top:33mm!important;
+}
+.cert-result-sign.director .cert-result-sign-space{
+  height:12mm!important;
+}
+
+
+
+/* BNK V10.10.4 — approval boxes stay inside frame + registrar directly under photo area */
+
+/* 1) ช่องอนุมัติ: ป้องกันเนื้อหา/เส้นลายเซ็นดันกรอบเกินความกว้าง */
+.cert-approval-grid{
+  grid-template-columns:repeat(3,minmax(0,1fr))!important;
+  width:100%!important;
+  max-width:100%!important;
+  box-sizing:border-box!important;
+  overflow:hidden!important;
+}
+.cert-approval-box{
+  min-width:0!important;
+  max-width:100%!important;
+  width:auto!important;
+  box-sizing:border-box!important;
+  overflow:hidden!important;
+}
+.cert-approval-box:last-child{
+  border-right:0!important;
+}
+.cert-approval-title,
+.cert-sign-name,
+.cert-sign-role{
+  width:100%!important;
+  max-width:100%!important;
+  box-sizing:border-box!important;
+  white-space:normal!important;
+  overflow-wrap:anywhere!important;
+}
+.cert-reason{
+  width:100%!important;
+  max-width:100%!important;
+  box-sizing:border-box!important;
+  overflow:hidden!important;
+  border-bottom:.25mm dotted #777!important;
+}
+
+/* เส้นลงชื่อเป็นเส้นจริงแบบยืดหยุ่น ไม่ใช้จุดยาว ๆ ที่ล้นกรอบ */
+.cert-sign-line{
+  width:100%!important;
+  display:flex!important;
+  align-items:flex-end!important;
+  justify-content:center!important;
+  gap:1.2mm!important;
+  box-sizing:border-box!important;
+  white-space:nowrap!important;
+  font-size:13.8pt!important;
+  line-height:1!important;
+}
+.cert-sign-rule{
+  flex:1 1 auto!important;
+  min-width:0!important;
+  height:3.5mm!important;
+  border-bottom:.25mm dotted #222!important;
+}
+.cert-sign-name{
+  margin-top:.8mm!important;
+  text-align:center!important;
+}
+.cert-sign-role{
+  margin-top:.5mm!important;
+  text-align:center!important;
+}
+
+/* 2) ปพ.7: พื้นที่ติดรูป 1.5 นิ้วใช้ความสูงจริง 1.5 นิ้ว
+   และนายทะเบียนเริ่มทันทีใต้พื้นที่รูป */
+.cert-result-left{
+  min-height:0!important;
+  justify-content:flex-start!important;
+}
+.cert-result-photo-note{
+  width:38.1mm!important;
+  height:38.1mm!important;
+  flex:0 0 38.1mm!important;
+  margin:0 auto .8mm!important;
+  padding:0!important;
+  box-sizing:border-box!important;
+  justify-content:center!important;
+}
+.cert-result-photo-note small{
+  margin-top:1mm!important;
+}
+.cert-result-sign.registrar{
+  margin:0!important;
+  padding:0!important;
+}
+.cert-result-sign.registrar .cert-result-sign-space{
+  height:.8mm!important;
+  min-height:0!important;
+}
+.cert-result-sign.registrar img{
+  max-height:9mm!important;
+  margin:0 auto -1mm!important;
+}
+.cert-result-sign.registrar>div{
+  margin-top:.5mm!important;
+  line-height:1.16!important;
+  text-align:center!important;
+}
+
+
+
+/* BNK V10.10.5 — center request logo + lower ปพ.7 photo/registrar block */
+
+/* แบบคำร้องใบรับรอง: โลโก้อยู่กึ่งกลางด้านบนจริง
+   เลขที่/วันที่ยังอยู่มุมขวาบน และหัวเรื่องอยู่ใต้โลโก้ */
+.cert-request-top{
+  position:relative!important;
+  display:block!important;
+  min-height:36mm!important;
+  margin-bottom:2mm!important;
+}
+.cert-request-top>img{
+  position:absolute!important;
+  left:50%!important;
+  top:0!important;
+  transform:translateX(-50%)!important;
+  width:22mm!important;
+  height:22mm!important;
+  object-fit:contain!important;
+  justify-self:auto!important;
+}
+.cert-request-title{
+  width:100%!important;
+  text-align:center!important;
+  padding-top:23mm!important;
+  box-sizing:border-box!important;
+}
+.cert-request-title h1{
+  margin:0 0 1.5mm!important;
+}
+.cert-request-number-date{
+  position:absolute!important;
+  right:0!important;
+  top:0!important;
+  width:47mm!important;
+  text-align:right!important;
+  z-index:2!important;
+}
+
+/* ปพ.7:
+   ย้ายก้อน "ติดรูป + นายทะเบียน" ลงด้านล่างชัดเจน
+   เพื่อให้ลายเซ็น ผอ. อยู่สูงกว่าและเยื้องกันตามรูปแบบราชการ */
+.cert-result-bottom-grid{
+  align-items:start!important;
+}
+.cert-result-left{
+  padding-top:14mm!important;
+  box-sizing:border-box!important;
+}
+.cert-result-photo-note{
+  margin-bottom:1mm!important;
+}
+.cert-result-sign.registrar{
+  margin-top:0!important;
+}
+.cert-result-sign.registrar .cert-result-sign-space{
+  height:1.2mm!important;
+}
+.cert-result-right{
+  padding-top:18mm!important;
+  box-sizing:border-box!important;
+}
+.cert-result-sign.director{
+  margin-top:0!important;
+}
+
+
+
+/* BNK V10.10.6 — exact page-centered request header + automatic ปพ.7 numbering */
+
+/* A4 official margins are asymmetric (left 30mm / right 20mm).
+   The center of the printable area is therefore 5mm right of the physical page center.
+   Offset the header by 5mm so logo/title are truly centered on the A4 sheet. */
+.cert-request-top{
+  position:relative!important;
+  display:block!important;
+  min-height:38mm!important;
+}
+.cert-request-center{
+  position:absolute!important;
+  left:calc(50% - 5mm)!important;
+  top:0!important;
+  width:112mm!important;
+  transform:translateX(-50%)!important;
+  display:flex!important;
+  flex-direction:column!important;
+  align-items:center!important;
+  text-align:center!important;
+}
+.cert-request-center>img{
+  position:static!important;
+  width:22mm!important;
+  height:22mm!important;
+  transform:none!important;
+  object-fit:contain!important;
+  margin:0 auto 1mm!important;
+}
+.cert-request-center .cert-request-title{
+  width:100%!important;
+  padding:0!important;
+  margin:0!important;
+  text-align:center!important;
+}
+.cert-request-center .cert-request-title h1{
+  text-align:center!important;
+  margin:0 0 1.2mm!important;
+}
+.cert-request-number-date{
+  right:0!important;
+  top:0!important;
+  width:48mm!important;
+  text-align:right!important;
+}
+
+/* ปพ.7 no longer prints any photo-placement instructions.
+   Keep only a clean physical space above the registrar for attaching/stamping a photo if desired. */
+.cert-result-photo-space{
+  width:38.1mm!important;
+  height:38.1mm!important;
+  flex:0 0 38.1mm!important;
+  margin:0 auto 1mm!important;
+  border:0!important;
+  background:transparent!important;
+}
+.cert-result-left{
+  padding-top:14mm!important;
+}
+.cert-result-sign.registrar{
+  margin-top:0!important;
+}
+
+/* Automatic document number */
+.cert-result-docno{
+  min-width:34mm!important;
+  font-weight:400!important;
+  letter-spacing:0!important;
+}
+.academic-certificate-number-preview{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:10px 12px;
+  border:1px solid #dbe7dd;
+  border-radius:12px;
+  background:#f7fbf8;
+}
+.academic-certificate-number-preview span{
+  font-size:11px;
+  color:#64748b;
+}
+.academic-certificate-number-preview strong{
+  font-size:16px;
+  color:#174b35;
+}
+.academic-certificate-docno-pill{
+  display:inline-flex;
+  align-items:center;
+  padding:5px 9px;
+  border-radius:999px;
+  background:#eef8f2;
+  border:1px solid #b8dec8;
+  color:#174b35;
+  font-size:10px;
+  font-weight:800;
+}
+
+
+
+/* BNK V10.10.7 — truly center certificate-request header on the physical A4 sheet */
+
+/*
+  A4 width = 210mm
+  official margins = left 30mm / right 20mm
+  normal content area therefore starts at x=30mm and ends at x=190mm.
+  To center the header on the physical page (x=105mm), create a header band
+  from x=20mm to x=190mm: width = content width + 10mm, margin-left = -10mm.
+*/
+.cert-request-top{
+  position:relative!important;
+  display:block!important;
+  width:calc(100% + 10mm)!important;
+  margin-left:-10mm!important;
+  margin-right:0!important;
+  min-height:40mm!important;
+  box-sizing:border-box!important;
+}
+
+.cert-request-center{
+  position:static!important;
+  width:100%!important;
+  transform:none!important;
+  display:flex!important;
+  flex-direction:column!important;
+  align-items:center!important;
+  justify-content:flex-start!important;
+  text-align:center!important;
+  padding:0!important;
+  margin:0!important;
+}
+
+.cert-request-center>img{
+  position:static!important;
+  display:block!important;
+  width:22mm!important;
+  height:22mm!important;
+  object-fit:contain!important;
+  transform:none!important;
+  margin:0 auto 1mm!important;
+}
+
+.cert-request-center .cert-request-title{
+  position:static!important;
+  width:100%!important;
+  padding:0!important;
+  margin:0!important;
+  text-align:center!important;
+}
+
+.cert-request-center .cert-request-title h1,
+.cert-request-center .cert-request-title>div{
+  text-align:center!important;
+  margin-left:auto!important;
+  margin-right:auto!important;
+}
+
+.cert-request-number-date{
+  position:absolute!important;
+  top:0!important;
+  right:0!important;
+  width:48mm!important;
+  text-align:right!important;
+  z-index:3!important;
+}

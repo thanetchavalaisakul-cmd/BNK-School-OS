@@ -1,0 +1,9 @@
+-- BNK School OS V10.10.2
+-- Applied migrations:
+-- academic_certificate_separate_roles_v10_10_2
+-- academic_certificate_role_candidates_v10_10_2
+--
+-- Adds academic_certificate_settings as a fully separate role/settings scope for certificate requests.
+-- Certificate preparer / registrar / director no longer reuse transfer-request assignments.
+-- Super Admin can set all; certificate registrar can set preparer and hand over registrar; Academic Head can set preparer.
+-- Certificate registrar / Academic Head / Super Admin can approve all.

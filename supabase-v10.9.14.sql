@@ -1,0 +1,10 @@
+-- BNK School OS V10.9.14
+-- Applied to Supabase project thvusgkxhiwsilipigno
+-- Adds guardian_address, destination_residence, official_note to transfer requests.
+-- Adds editable official-document text settings.
+-- Adds private.can_finalize_academic_transfer_request().
+-- Registrar / Academic Head / Super Admin can approve all sections.
+-- approve_all_academic_transfer_request() sets all four decisions to approve,
+-- status=approved, finalized_at/by and unlocks official-result PDF.
+-- Official-letter number remains intentionally blank/dotted for handwriting.
+-- Production migration: academic_registration_official_result_v10_9_14

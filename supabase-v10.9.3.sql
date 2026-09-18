@@ -1,0 +1,8 @@
+-- BNK School OS V10.9.3
+-- Applied to Supabase project thvusgkxhiwsilipigno
+-- - Removed registration_teacher_user_id and its index
+-- - Kept a single registrar_user_id as the only registrar role
+-- - Registrar and Super Admin can manage academic registration
+-- - Current registrar can hand over registrar assignment using RPC
+-- - Assessment/director role assignment remains Super Admin controlled
+-- Production migration: academic_registration_single_registrar_v10_9_3

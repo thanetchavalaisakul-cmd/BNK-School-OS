@@ -1,0 +1,7 @@
+-- BNK School OS V10.9.4
+-- Applied to Supabase project thvusgkxhiwsilipigno
+-- Enabled Supabase Realtime publication for:
+--   public.academic_transfer_requests
+--   public.academic_transfer_request_files
+--   public.academic_transfer_request_signatures
+-- Production migration: academic_registration_realtime_v10_9_4

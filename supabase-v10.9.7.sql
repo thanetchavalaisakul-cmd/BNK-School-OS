@@ -1,0 +1,6 @@
+-- BNK School OS V10.9.7
+-- Applied to Supabase project thvusgkxhiwsilipigno
+-- Delete policy now allows academic registration managers to delete any request,
+-- while ordinary creators remain limited by private.can_edit_transfer_request (draft only).
+-- Storage delete policy also permits registration managers to clean legacy hidden evidence/signature assets.
+-- Production migration: academic_registration_delete_requests_v10_9_7

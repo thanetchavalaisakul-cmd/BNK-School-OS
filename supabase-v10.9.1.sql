@@ -1,0 +1,12 @@
+-- BNK School OS V10.9.1
+-- Applied to Supabase project thvusgkxhiwsilipigno
+-- Changes:
+-- 1) academic_registration_settings for registrar / assessment / director assignees
+-- 2) academic_transfer_request_signatures with paper/drawn/upload methods
+-- 3) SECURITY DEFINER save_academic_transfer_request RPC to avoid client INSERT RLS false negatives
+--    while explicitly validating active user + student scope
+-- 4) set_academic_transfer_review and set_academic_transfer_signature RPCs
+-- 5) academic-registration Storage bucket now permits PDF evidence + PNG/JPG/WebP signatures
+-- 6) Storage RLS distinguishes transfer evidence vs transfer-signatures paths
+-- 7) transfer-request counter gets an explicit no-direct-access SELECT policy
+-- See production migration: academic_registration_transfer_signatures_v10_9_1

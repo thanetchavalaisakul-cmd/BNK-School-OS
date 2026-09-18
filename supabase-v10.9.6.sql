@@ -1,0 +1,9 @@
+-- BNK School OS V10.9.6
+-- Applied to Supabase project thvusgkxhiwsilipigno
+-- Global student-number repair:
+--   boys first -> girls -> student_code ascending -> 1..N per class
+-- Added automatic renumber triggers on enrollment membership/status/class changes
+-- and on student gender/student_code changes.
+-- Existing active enrollments and transfer-request snapshots were repaired.
+-- Verified mismatch_count = 0 across active enrollments.
+-- Production migration: student_number_global_rule_v10_9_6

@@ -1,0 +1,11 @@
+-- BNK School OS V10.9.2
+-- Applied to Supabase project thvusgkxhiwsilipigno
+-- Key changes:
+-- - academic_registration_settings.registration_teacher_user_id
+-- - ครูทะเบียนหลัก + นายทะเบียน share academic registration permissions
+-- - Super Admin configures all registration roles; registrar-side setting can change registrar
+-- - strict homeroom scope by academic_year + semester for transfer request student picker
+-- - get_transfer_request_student_options returns only own homeroom students for ordinary homeroom teachers
+-- - save_academic_transfer_request validates the same period scope
+-- - saved student name uses prefix+first name, then one space before last name
+-- Production migration: academic_registration_picker_permissions_v10_9_2

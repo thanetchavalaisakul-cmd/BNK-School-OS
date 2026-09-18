@@ -1,0 +1,14 @@
+-- BNK School OS V10.10.6
+-- Applied to Supabase project thvusgkxhiwsilipigno
+-- Automatic ปพ.7 document numbering:
+--   academic_certificate_settings.document_number_next (default 1)
+--   academic_certificate_settings.document_number_year (default 2569)
+--   academic_certificate_requests.official_document_number / serial / year / assigned_at/by
+-- Number-setting permission:
+--   document preparer, certificate registrar, Academic Head, Super Admin
+-- approve_all_academic_certificate_request() assigns and locks the number automatically.
+-- Export also calls ensure_academic_certificate_document_number() as a safe fallback for older approved records.
+-- Initial next number verified: 1/2569
+-- Applied migrations:
+--   academic_certificate_auto_number_v10_10_6
+--   academic_certificate_number_ensure_access_v10_10_6

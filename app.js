@@ -1,8 +1,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 import html2canvas from "https://esm.sh/html2canvas@1.4.1";
 import { jsPDF } from "https://esm.sh/jspdf@2.5.2";
+import { PDFDocument } from "https://esm.sh/pdf-lib@1.17.1";
 import * as XLSX from "https://esm.sh/xlsx@0.18.5";
-import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, APP_NAME } from "./config.js";
+import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, APP_NAME } from "./config.js?v=10.10.7";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: {
@@ -14,6 +15,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
 
 const app = document.querySelector("#app");
 const toastRoot = document.querySelector("#toast-root");
+const APP_BUILD = "10.10.7";
 
 const state = {
   session: null,
@@ -154,6 +156,21 @@ const state = {
   academicCalendarClasses: [],
   academicStageTeachers: {},
   academicMyStages: [],
+  academicRegistrationSection: "home",
+  academicRegistrationAcademicYear: null,
+  academicRegistrationSemester: null,
+  academicRegistrationSettings: null,
+  academicCertificateSettings: null,
+  academicTransferRequests: [],
+  academicTransferFiles: [],
+  academicTransferSignatures: [],
+  academicTransferStudents: [],
+  selectedAcademicTransferId: null,
+  academicCertificateRequests: [],
+  academicCertificateSignatures: [],
+  academicCertificateStudents: [],
+  selectedAcademicCertificateId: null,
+  academicRegistrationSkipNextLoad: false,
   currentView: "dashboard",
   sidebarOpen: false,
   sidebarExpandedDepartments: new Set(),
@@ -632,7 +649,7 @@ function renderPending() {
 
 async function loadActiveUserData() {
   await loadPublicData();
-  const [departmentsRes, modulesRes, notificationsRes, personnelOwnRes, academicTermsRes, academicCalendarSettingsRes, academicSupervisionSettingsRes] = await Promise.all([
+  const [departmentsRes, modulesRes, notificationsRes, personnelOwnRes, academicTermsRes, academicCalendarSettingsRes, academicSupervisionSettingsRes, academicRegistrationSettingsRes, academicCertificateSettingsRes] = await Promise.all([
     supabase.from("departments").select("*").eq("is_active", true).order("sort_order"),
     supabase.from("modules").select("*, departments(code,name_th,name_en)").eq("is_active", true).order("sort_order"),
     supabase.from("notifications").select("*").is("dismissed_at", null).order("created_at", { ascending: false }).limit(20),
@@ -640,6 +657,8 @@ async function loadActiveUserData() {
     supabase.from("academic_terms").select("*").order("academic_year", { ascending: false }).order("semester"),
     supabase.from("academic_calendar_settings").select("*").eq("id",1).maybeSingle(),
     supabase.from("academic_supervision_settings").select("*").eq("id",1).maybeSingle(),
+    supabase.from("academic_registration_settings").select("*").eq("id",1).maybeSingle(),
+    supabase.from("academic_certificate_settings").select("*").eq("id",1).maybeSingle(),
   ]);
 
   state.departments = departmentsRes.data || [];
@@ -648,6 +667,8 @@ async function loadActiveUserData() {
   state.academicTerms = academicTermsRes.error ? [] : (academicTermsRes.data || []);
   state.academicCalendarSettings = academicCalendarSettingsRes.error ? null : (academicCalendarSettingsRes.data || null);
   state.academicSupervisionSettings = academicSupervisionSettingsRes.error ? null : (academicSupervisionSettingsRes.data || null);
+  state.academicRegistrationSettings = academicRegistrationSettingsRes.error ? null : (academicRegistrationSettingsRes.data || null);
+  state.academicCertificateSettings = academicCertificateSettingsRes.error ? null : (academicCertificateSettingsRes.data || null);
   state.personnelOwnRecord = personnelOwnRes.error ? null : (personnelOwnRes.data || null);
 
   if (state.profile.role === "super_admin") {
@@ -723,6 +744,10 @@ function sidebarHtml() {
 async function renderDashboard() {
   if (state.currentView === "module:academic_calendar") {
     await loadAcademicCalendarWorkspace();
+  }
+  if (state.currentView === "module:academic_registration") {
+    if(state.academicRegistrationSkipNextLoad)state.academicRegistrationSkipNextLoad=false;
+    else await loadAcademicRegistrationWorkspace();
   }
   if (state.currentView === "module:lesson_plans") {
     await loadLessonPlanWorkspace();
@@ -1070,6 +1095,18 @@ function settingsView() {
             <div class="field"><label>ผู้รับผิดชอบนิเทศเพิ่มเติม</label><select class="select" id="setting-supervision-coordinator"><option value="">— ยังไม่แต่งตั้ง —</option>${(state.pendingUsers||[]).filter(u=>u.account_status==="active"&&u.id!==state.user?.id).sort((a,b)=>(a.full_name||"").localeCompare(b.full_name||"","th")).map(u=>`<option value="${u.id}" ${state.academicSupervisionSettings?.coordinator_user_id===u.id?"selected":""}>${escapeHtml(u.full_name||u.email)} · ${escapeHtml(ROLE_LABEL[u.role]||u.role)}</option>`).join("")}</select></div>
           </div>
           <span class="helper">ผู้กำหนด PLC ยังคงเป็น Super Admin และหัวหน้าวิชาการเท่านั้น</span>
+        </div>
+        <div class="settings-rule-box">
+          <div><strong>ผู้รับผิดชอบคำร้องใบย้ายนักเรียน</strong><span>สิทธิ์ชุดนี้ใช้เฉพาะระบบใบย้าย นักทะเบียนใบรับรองนักเรียนตั้งแยกจากหน้าระบบใบรับรองโดยตรง</span></div>
+          <div class="form-row">
+            <div class="field"><label>ครูทะเบียน</label><select class="select" id="setting-registration-registrar"><option value="">— ยังไม่กำหนด —</option>${(state.pendingUsers||[]).filter(u=>u.account_status==="active").sort((a,b)=>(a.full_name||"").localeCompare(b.full_name||"","th")).map(u=>`<option value="${u.id}" ${state.academicRegistrationSettings?.registrar_user_id===u.id?"selected":""}>${escapeHtml(u.full_name||u.email)} · ${escapeHtml(ROLE_LABEL[u.role]||u.role)}</option>`).join("")}</select></div>
+            <div class="field"><label>ครูการเงิน / เจ้าหน้าที่การเงิน</label><select class="select" id="setting-registration-finance"><option value="">— ยังไม่กำหนด —</option>${(state.pendingUsers||[]).filter(u=>u.account_status==="active").sort((a,b)=>(a.full_name||"").localeCompare(b.full_name||"","th")).map(u=>`<option value="${u.id}" ${state.academicRegistrationSettings?.finance_user_id===u.id?"selected":""}>${escapeHtml(u.full_name||u.email)} · ${escapeHtml(ROLE_LABEL[u.role]||u.role)}</option>`).join("")}</select></div>
+          </div>
+          <div class="form-row">
+            <div class="field"><label>ครูวัดและประเมินผล</label><select class="select" id="setting-registration-assessment"><option value="">— ยังไม่กำหนด —</option>${(state.pendingUsers||[]).filter(u=>u.account_status==="active").sort((a,b)=>(a.full_name||"").localeCompare(b.full_name||"","th")).map(u=>`<option value="${u.id}" ${state.academicRegistrationSettings?.assessment_user_id===u.id?"selected":""}>${escapeHtml(u.full_name||u.email)} · ${escapeHtml(ROLE_LABEL[u.role]||u.role)}</option>`).join("")}</select></div>
+            <div class="field"><label>ผู้บริหารสถานศึกษา</label><select class="select" id="setting-registration-director"><option value="">— ใช้ผู้บริหารตามบทบาท / ยังไม่กำหนด —</option>${(state.pendingUsers||[]).filter(u=>u.account_status==="active").sort((a,b)=>(a.full_name||"").localeCompare(b.full_name||"","th")).map(u=>`<option value="${u.id}" ${state.academicRegistrationSettings?.director_user_id===u.id?"selected":""}>${escapeHtml(u.full_name||u.email)} · ${escapeHtml(ROLE_LABEL[u.role]||u.role)}</option>`).join("")}</select></div>
+          </div>
+          <span class="helper">ครูการเงินมีสิทธิ์ตรวจการชำระเงิน อนุมัติ/ไม่อนุมัติ และลงลายเซ็นในส่วนการเงิน · ครูประจำชั้นยังสร้างคำร้องได้เฉพาะนักเรียนในห้องของตน</span>
         </div>
         <div class="settings-rule-box">
           <div><strong>เกณฑ์ติดตามความก้าวหน้าวิทยฐานะ</strong><span>ใช้เป็นตัวช่วยแจ้งเตือนเท่านั้น ควรตรวจสอบหลักเกณฑ์ ก.ค.ศ. ก่อนยื่นจริง</span></div>
@@ -5607,10 +5644,1062 @@ async function academicCalendarTogglePublish(){const calendar=academicCalendarCu
 async function academicCalendarExport(kind){const calendar=academicCalendarCurrent();if(!calendar)return;const source=document.querySelector("#academic-calendar-export-document");if(!source)return;const btn=document.querySelector(kind==="pdf"?"#academic-calendar-export-pdf":"#academic-calendar-export-image");buttonLoading(btn,true,"กำลังสร้างไฟล์...");try{if(document.fonts){await document.fonts.ready;await Promise.all([document.fonts.load('16px "TH SarabunPSK"'),document.fonts.load('700 16px "TH SarabunPSK"')]);}const canvas=await html2canvas(source,{scale:2.2,backgroundColor:"#ffffff",useCORS:true,logging:false});const fileBase=`BNK_ปฏิทิน100วัน_${calendar.academic_year}_ภาคเรียน${calendar.semester}`;if(kind==="image"){canvas.toBlob(blob=>{if(blob)downloadBlob(blob,`${fileBase}.png`);},"image/png",1);}else{const pdf=new jsPDF({orientation:"landscape",unit:"mm",format:"a4"}),pw=pdf.internal.pageSize.getWidth(),ph=pdf.internal.pageSize.getHeight(),margin=5,ratio=Math.min((pw-margin*2)/canvas.width,(ph-margin*2)/canvas.height),w=canvas.width*ratio,h=canvas.height*ratio,x=(pw-w)/2,y=(ph-h)/2;pdf.addImage(canvas.toDataURL("image/jpeg",0.96),"JPEG",x,y,w,h);pdf.save(`${fileBase}.pdf`);}toast("สร้างไฟล์เรียบร้อย",kind==="pdf"?"ดาวน์โหลด PDF แล้ว":"ดาวน์โหลดรูปภาพ PNG แล้ว","success");}catch(err){console.error(err);toast("Export ไม่สำเร็จ",err?.message||"เกิดข้อผิดพลาด","error");}finally{buttonLoading(btn,false);}}
 
 
+
+const ACADEMIC_REGISTRATION_SECTION_LABEL = {
+  home:"เลือกระบบย่อยงานทะเบียน",
+  transfer:"คำร้องใบย้ายนักเรียน",
+  certificate:"คำร้องใบรับรองนักเรียน",
+  qualification:"คำร้องขอวุฒิการศึกษา",
+  verification:"ตรวจสอบวุฒิการศึกษา",
+};
+const ACADEMIC_TRANSFER_STATUS_LABEL = {draft:"แบบร่าง",submitted:"ยื่นคำร้องแล้ว",approved:"อนุมัติ",rejected:"ไม่อนุมัติ"};
+const ACADEMIC_CERTIFICATE_STATUS_LABEL = ACADEMIC_TRANSFER_STATUS_LABEL;
+const ACADEMIC_CERTIFICATE_PURPOSE_LABEL = {
+  passport_area:"ใช้เป็นหลักฐานประกอบการขอหนังสือเดินทางออกนอกพื้นที่",
+  civil_registration:"ใช้เป็นหลักฐานประกอบการพิจารณาจัดทำทะเบียนประวัติบุคคล",
+  id_card:"ใช้เป็นหลักฐานประกอบการทำบัตรประจำตัวประชาชน",
+  other:"อื่น ๆ"
+};
+
+function academicRegistrationCanManageUi(){
+  const s=state.academicRegistrationSettings||{};
+  return state.profile?.role==="super_admin"||s.registrar_user_id===state.user?.id;
+}
+function academicRegistrationCanConfigureUi(){return academicRegistrationCanManageUi()||isAcademicHead();}
+function academicRegistrationCanFinalizeUi(){
+  const s=state.academicRegistrationSettings||{};
+  return state.profile?.role==="super_admin"||isAcademicHead()||s.registrar_user_id===state.user?.id;
+}
+function academicTransferFilesFor(requestId){return (state.academicTransferFiles||[]).filter(f=>f.request_id===requestId).sort((a,b)=>Number(a.sort_order||0)-Number(b.sort_order||0)||String(a.created_at||"").localeCompare(String(b.created_at||"")));}
+function academicTransferSignaturesFor(requestId){return (state.academicTransferSignatures||[]).filter(s=>s.request_id===requestId);}
+function academicTransferSignatureFor(requestId,slot){return academicTransferSignaturesFor(requestId).find(s=>s.signer_slot===slot)||null;}
+function academicTransferCanEditUi(r){return !!r&&(academicRegistrationCanManageUi()||(r.created_by===state.user?.id&&r.status==="draft"));}
+function academicTransferCanReviewSlotUi(slot){
+  if(state.profile?.role==="super_admin")return true;
+  const s=state.academicRegistrationSettings||{};
+  if(slot==="finance")return s.finance_user_id===state.user?.id;
+  if(slot==="registrar")return s.registrar_user_id===state.user?.id;
+  if(slot==="assessment")return s.assessment_user_id===state.user?.id;
+  if(slot==="director")return state.profile?.role==="director"||s.director_user_id===state.user?.id;
+  return false;
+}
+function academicTransferSignatureMethodLabel(method){return method==="paper"?"เซ็นสดบนกระดาษ":method==="drawn"?"เซ็นสดในระบบ":method==="upload"?"อัปโหลดรูปลายเซ็น":"ยังไม่กำหนด";}
+function academicTransferSlotLabel(slot){return slot==="finance"?"ครูการเงิน / เจ้าหน้าที่การเงิน":slot==="registrar"?"ครูทะเบียน":slot==="assessment"?"ครูวัดและประเมินผล":"ผู้บริหารสถานศึกษา";}
+function academicTransferStudentName(s){
+  const prefix=String(s?.prefix||"").trim(),first=String(s?.first_name||"").trim(),last=String(s?.last_name||"").trim();
+  return `${prefix}${first}${last?` ${last}`:""}`.trim();
+}
+function academicTransferStudentOptionLabel(s){return `เลขที่ ${s.student_number||"—"} · ${academicTransferStudentName(s)} · รหัส ${s.student_code||"—"}`;}
+function academicTransferClassOptions(students){
+  const seen=new Set(),rows=[];
+  (students||[]).forEach(s=>{if(s.class_id&&!seen.has(s.class_id)){seen.add(s.class_id);rows.push({id:s.class_id,label:s.class_label||"—"});}});
+  return rows;
+}
+function academicTransferRequestById(id){return (state.academicTransferRequests||[]).find(r=>r.id===id)||null;}
+function academicCertificateRequestById(id){return (state.academicCertificateRequests||[]).find(r=>r.id===id)||null;}
+function academicCertificateSignaturesFor(requestId){return (state.academicCertificateSignatures||[]).filter(s=>s.request_id===requestId);}
+function academicCertificateSignatureFor(requestId,slot){return academicCertificateSignaturesFor(requestId).find(s=>s.signer_slot===slot)||null;}
+function academicCertificateCanManageUi(){
+  const s=state.academicCertificateSettings||{};
+  return state.profile?.role==="super_admin"||s.registrar_user_id===state.user?.id;
+}
+function academicCertificateCanConfigureUi(){
+  const s=state.academicCertificateSettings||{};
+  return state.profile?.role==="super_admin"||isAcademicHead()||s.registrar_user_id===state.user?.id;
+}
+function academicCertificateCanConfigureNumberUi(){
+  const s=state.academicCertificateSettings||{};
+  return state.profile?.role==="super_admin"||isAcademicHead()||s.registrar_user_id===state.user?.id||s.preparer_user_id===state.user?.id;
+}
+function academicCertificateCanFinalizeUi(){return academicCertificateCanConfigureUi();}
+function academicCertificateCanEditUi(r){return !!r&&(academicCertificateCanManageUi()||academicCertificateCanFinalizeUi()||(r.created_by===state.user?.id&&r.status==="draft"));}
+function academicCertificateCanReviewSlotUi(slot){
+  if(state.profile?.role==="super_admin")return true;
+  const s=state.academicCertificateSettings||{};
+  if(slot==="preparer")return s.preparer_user_id===state.user?.id;
+  if(slot==="registrar")return s.registrar_user_id===state.user?.id;
+  if(slot==="director")return state.profile?.role==="director"||s.director_user_id===state.user?.id;
+  return false;
+}
+function academicCertificateSlotLabel(slot){return slot==="preparer"?"ผู้จัดทำเอกสาร":slot==="registrar"?"นายทะเบียน":"ผู้บริหารสถานศึกษา";}
+function academicCertificateStudentName(s){return academicTransferStudentName(s);}
+function academicCertificateStudentOptionLabel(s){return `${s.class_label||"—"} · เลขที่ ${s.student_number||"—"} · ${academicCertificateStudentName(s)} · รหัส ${s.student_code||"—"}`;}
+function academicCertificateClassOptions(students){
+  const seen=new Set(),rows=[];
+  (students||[]).forEach(s=>{const key=s.class_id||`former-${s.class_label||"other"}`;if(!seen.has(key)){seen.add(key);rows.push({id:key,label:s.class_label||"ไม่มีชั้นปัจจุบัน"});}});
+  return rows;
+}
+function academicRegThaiDigits(value){return String(value??"").replace(/[0-9]/g,d=>"๐๑๒๓๔๕๖๗๘๙"[Number(d)]);}
+function academicRegDisplayDate(value){
+  const d=dateOnly(value);if(!d)return "—";
+  return new Intl.DateTimeFormat("th-TH",{day:"numeric",month:"short",year:"numeric"}).format(d);
+}
+
+function academicRegThaiDateParts(value){const d=dateOnly(value);if(!d)return {day:"",month:"",year:""};const months=["มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน","กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"];return {day:academicRegThaiDigits(d.getDate()),month:months[d.getMonth()],year:academicRegThaiDigits(d.getFullYear()+543)};}
+function academicRegPdfText(value){return academicRegThaiDigits(value??"");}
+function academicRegDecisionLabel(v){return v==="approve"?"เห็นควรอนุมัติ":v==="reject"?"ไม่ควรอนุมัติ":"รอตรวจสอบ";}
+function academicRegSafeFileBase(value){return String(value||"เอกสาร").replace(/[\\/:*?"<>|]+/g,"-").replace(/\s+/g,"_").slice(0,90);}
+function academicRegFormalClassLabel(value){
+  const v=String(value||"").trim();
+  let m=v.match(/^อ\.(\d+)/);if(m)return `อนุบาลปีที่ ${academicRegThaiDigits(m[1])}`;
+  m=v.match(/^ป\.(\d+)/);if(m)return `ประถมศึกษาปีที่ ${academicRegThaiDigits(m[1])}`;
+  m=v.match(/^ม\.(\d+)/);if(m)return `มัธยมศึกษาปีที่ ${academicRegThaiDigits(m[1])}`;
+  return academicRegPdfText(v);
+}
+function academicTransferOfficialSchoolAddressHtml(value){
+  const raw=String(value||"").trim();
+  let lines=raw.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+  if(lines.length===1){
+    const idx=raw.indexOf("อำเภอ");
+    if(idx>0)lines=[raw.slice(0,idx).trim(),raw.slice(idx).trim()];
+  }
+  const first=[schoolName(),lines[0]||""].filter(Boolean).join(" ");
+  const rest=lines.slice(1);
+  return `${escapeHtml(academicRegPdfText(first))}${rest.length?`<br>${rest.map(x=>escapeHtml(academicRegPdfText(x))).join("<br>")}`:""}`;
+}
+
+async function loadAcademicRegistrationWorkspace(){
+  const p=currentAcademicPeriod();
+  if(!state.academicRegistrationAcademicYear)state.academicRegistrationAcademicYear=p.academicYear;
+  if(!state.academicRegistrationSemester)state.academicRegistrationSemester=p.semester;
+  const year=String(state.academicRegistrationAcademicYear),sem=Number(state.academicRegistrationSemester);
+  const [rr,sigr,sr,cr,csigr,csr]=await Promise.all([
+    supabase.from("academic_transfer_requests").select("*").order("updated_at",{ascending:false}),
+    supabase.from("academic_transfer_request_signatures").select("*").order("updated_at",{ascending:false}),
+    supabase.rpc("get_transfer_request_student_options",{p_academic_year:year,p_semester:sem}),
+    supabase.from("academic_certificate_requests").select("*").order("updated_at",{ascending:false}),
+    supabase.from("academic_certificate_request_signatures").select("*").order("updated_at",{ascending:false}),
+    supabase.rpc("get_certificate_request_student_options",{p_academic_year:year,p_semester:sem})
+  ]);
+  state.academicTransferRequests=rr.error?[]:(rr.data||[]);
+  state.academicTransferFiles=[];
+  state.academicTransferSignatures=sigr.error?[]:(sigr.data||[]);
+  state.academicTransferStudents=sr.error?[]:(sr.data||[]);
+  state.academicCertificateRequests=cr.error?[]:(cr.data||[]);
+  state.academicCertificateSignatures=csigr.error?[]:(csigr.data||[]);
+  state.academicCertificateStudents=csr.error?[]:(csr.data||[]);
+  if(state.selectedAcademicTransferId&&!state.academicTransferRequests.some(r=>r.id===state.selectedAcademicTransferId))state.selectedAcademicTransferId=null;
+  if(state.selectedAcademicCertificateId&&!state.academicCertificateRequests.some(r=>r.id===state.selectedAcademicCertificateId))state.selectedAcademicCertificateId=null;
+}
+
+
+async function refreshAcademicRegistrationWorkspace(options={}){
+  if(state.currentView!=="module:academic_registration")return;
+  const requestId=options.requestId||state.selectedAcademicTransferId||null;
+  await loadAcademicRegistrationWorkspace();
+  if(requestId&&state.academicTransferRequests.some(r=>r.id===requestId))state.selectedAcademicTransferId=requestId;
+  state.academicRegistrationSkipNextLoad=true;
+  await renderDashboard();
+  if(state.selectedAcademicTransferId){
+    requestAnimationFrame(()=>{
+      const target=document.querySelector(`[data-academic-transfer-detail="${state.selectedAcademicTransferId}"]`);
+      if(target){
+        target.classList.add("academic-transfer-detail-flash");
+        target.scrollIntoView({behavior:"smooth",block:"start"});
+        setTimeout(()=>target.classList.remove("academic-transfer-detail-flash"),1200);
+      }
+    });
+  }
+}
+
+
+function academicRegistrationSubsystemCardsHtml(){
+  const items=[
+    ["transfer","คำร้องใบย้ายนักเรียน","สร้างคำร้องตามแบบโรงเรียน ออก PDF 1 หน้า และรับหลักฐานฉบับกระดาษจากผู้ปกครอง"],
+    ["certificate","คำร้องใบรับรองนักเรียน","กรอกคำร้อง → ตรวจอนุมัติ → ออก ปพ.7 ใบรับรองการเป็นนักเรียน"],
+    ["qualification","คำร้องขอวุฒิการศึกษา","ระบบคำร้องขอวุฒิการศึกษา — เตรียมไว้สำหรับขั้นถัดไป"],
+    ["verification","ตรวจสอบวุฒิการศึกษา","หนังสือตรวจสอบวุฒิการศึกษา — เตรียมไว้สำหรับขั้นถัดไป"],
+  ];
+  return `<div class="academic-registration-card-grid">${items.map(([key,title,desc],i)=>`<button class="academic-registration-card ${i<=1?"ready":"pending"}" data-academic-registration-open="${key}"><span>${i<=1?"พร้อมใช้งาน":"ขั้นถัดไป"}</span><strong>${title}</strong><small>${desc}</small><b>เปิดระบบ →</b></button>`).join("")}</div>`;
+}
+
+function academicRegistrationWorkspaceHtml(module){
+  const section=state.academicRegistrationSection||"home";
+  const selected=academicTransferRequestById(state.selectedAcademicTransferId);
+  const certificateSelected=academicCertificateRequestById(state.selectedAcademicCertificateId);
+  const body=section==="home"?academicRegistrationSubsystemCardsHtml():section==="transfer"?academicTransferWorkspaceHtml(selected):section==="certificate"?academicCertificateWorkspaceHtml(certificateSelected):`<section class="panel"><div class="empty"><strong>${escapeHtml(ACADEMIC_REGISTRATION_SECTION_LABEL[section]||"ระบบงานทะเบียน")}</strong><span>วางโครงระบบไว้แล้ว และจะพัฒนาตามแบบฟอร์มที่ส่งมาในขั้นถัดไป</span></div></section>`;
+  const settingsButton=section==="certificate"?((academicCertificateCanConfigureUi()||academicCertificateCanConfigureNumberUi())?`<button class="btn btn-ghost btn-small academic-registration-role-button" id="academic-certificate-role-settings">⚙ ตั้งค่าระบบใบรับรอง</button>`:""):section==="transfer"?(academicRegistrationCanConfigureUi()?`<button class="btn btn-ghost btn-small academic-registration-role-button" id="academic-registration-role-settings">⚙ ตั้งค่าสิทธิ์ใบย้าย</button>`:""):"";
+  return `<section class="academic-registration-shell">
+    <div class="academic-registration-hero"><div><span class="eyebrow">กลุ่มงานบริหารวิชาการ · Academic Registration</span><h2>ระบบงานทะเบียนวิชาการ</h2><p>จัดทำคำร้องและหนังสืองานทะเบียน โดยเชื่อมข้อมูลนักเรียนกลางและจัดเก็บเอกสารหลักฐานอย่างเป็นระบบ</p></div><div class="academic-registration-hero-side"><span>TH SarabunIT๙</span><strong>เอกสารราชการ · ตัวเลขไทย</strong><small class="academic-registration-build">Build ${APP_BUILD}</small>${settingsButton}</div></div>
+    <section class="panel academic-registration-picker"><div><strong>เลือกระบบย่อย</strong><span>เลือกงานที่ต้องการ แล้วระบบจะเปิดหน้าทำงานเฉพาะ</span></div><select class="select" id="academic-registration-section"><option value="home" ${section==="home"?"selected":""}>— เลือกระบบย่อยงานทะเบียน —</option><option value="transfer" ${section==="transfer"?"selected":""}>คำร้องใบย้ายนักเรียน</option><option value="certificate" ${section==="certificate"?"selected":""}>คำร้องใบรับรองนักเรียน</option><option value="qualification" ${section==="qualification"?"selected":""}>คำร้องขอวุฒิการศึกษา</option><option value="verification" ${section==="verification"?"selected":""}>ตรวจสอบวุฒิการศึกษา</option></select></section>
+    ${body}
+  </section>`;
+}
+
+
+function academicCertificateWorkspaceHtml(selected){
+  const p=currentAcademicPeriod(),year=Number(state.academicRegistrationAcademicYear||p.academicYear),sem=Number(state.academicRegistrationSemester||p.semester);
+  const requests=(state.academicCertificateRequests||[]).filter(r=>Number(r.academic_year)===year&&Number(r.semester)===sem);
+  return `<section class="panel" id="academic-certificate-list"><div class="panel-head"><div class="panel-title-wrap"><h3>คำร้องใบรับรองนักเรียน</h3><p>กรอกคำร้องตามแบบโรงเรียน → ตรวจอนุมัติ → ออก ปพ.7 ใบรับรองการเป็นนักเรียน</p></div><div class="action-row">${(academicCertificateCanConfigureUi()||academicCertificateCanConfigureNumberUi())?`<button class="btn btn-ghost" id="academic-certificate-role-settings-inline">⚙ ตั้งค่าระบบใบรับรอง</button>`:""}<button class="btn btn-primary" id="academic-certificate-create">+ สร้างคำร้อง</button></div></div>
+    <div class="academic-registration-filter-row"><div class="field"><label>ปีการศึกษา</label><input class="input" id="academic-registration-year" type="number" min="2500" max="2800" value="${year}"></div><div class="field"><label>ภาคเรียน</label><select class="select" id="academic-registration-semester"><option value="1" ${sem===1?"selected":""}>ภาคเรียนที่ 1</option><option value="2" ${sem===2?"selected":""}>ภาคเรียนที่ 2</option><option value="3" ${sem===3?"selected":""}>ภาคเรียนที่ 3</option></select></div><div class="academic-registration-font-note"><strong>ผลเอกสาร</strong><span>คำร้อง PDF + ปพ.7 PDF · TH SarabunIT๙</span></div></div>
+    ${requests.length?`<div class="table-wrap"><table class="table academic-transfer-table"><thead><tr><th>เลขคำร้อง</th><th>นักเรียน</th><th>ชั้น</th><th>ประเภท</th><th>วัตถุประสงค์</th><th>สถานะ</th><th></th></tr></thead><tbody>${requests.map(academicCertificateRowHtml).join("")}</tbody></table></div>`:`<div class="empty"><strong>ยังไม่มีคำร้องใบรับรองนักเรียน</strong><span>กด “สร้างคำร้อง” เพื่อเริ่มจากข้อมูล Student Registry</span></div>`}
+    <div id="academic-certificate-detail-targets">${requests.map(academicCertificateTargetDetailHtml).join("")}</div>
+  </section>`;
+}
+function academicCertificateRowHtml(r){
+  const canEdit=academicCertificateCanEditUi(r);
+  return `<tr data-certificate-request-id="${r.id}"><td><strong>${escapeHtml(r.request_code||"—")}</strong><small>${academicRegDisplayDate(r.request_date)}</small></td><td><strong>${escapeHtml(r.student_name)}</strong><small>รหัส ${escapeHtml(r.student_code||"—")}</small></td><td>${escapeHtml(r.class_label||r.former_class_label||"—")}</td><td>${r.certificate_type==="former"?"เคยเป็นนักเรียน":"นักเรียนปัจจุบัน"}</td><td>${escapeHtml(ACADEMIC_CERTIFICATE_PURPOSE_LABEL[r.purpose_type]||r.purpose_other||"—")}</td><td><span class="pill ${r.status==="draft"?"neutral":r.status==="submitted"?"pending":r.status==="approved"?"active":"rejected"}">${escapeHtml(ACADEMIC_CERTIFICATE_STATUS_LABEL[r.status]||r.status)}</span></td><td><div class="academic-transfer-row-actions"><a class="btn btn-ghost btn-small" href="#academic-certificate-detail-${r.id}">รายละเอียด</a>${canEdit?`<button class="btn btn-ghost btn-small" data-academic-certificate-edit="${r.id}">แก้ไขคำร้อง</button>`:""}</div></td></tr>`;
+}
+function academicCertificateTargetDetailHtml(r){
+  return `<section id="academic-certificate-detail-${r.id}" class="academic-transfer-target-detail"><div class="academic-transfer-target-card"><div class="academic-transfer-target-head"><div><strong>รายละเอียดคำร้องใบรับรองนักเรียน</strong><span>${escapeHtml(r.request_code||"")}</span></div><a class="academic-transfer-target-close" href="#academic-certificate-list">×</a></div><div class="academic-transfer-target-body">${academicCertificateDetailHtml(r)}</div></div></section>`;
+}
+function academicCertificateReviewCard(r,slot,decision,reason){
+  const sig=academicCertificateSignatureFor(r.id,slot),can=academicCertificateCanReviewSlotUi(slot);
+  return `<article class="academic-transfer-review-card"><div class="academic-transfer-review-head"><div><span>${academicCertificateSlotLabel(slot)}</span><strong>${academicRegDecisionLabel(decision)}</strong></div><span class="pill ${decision==="approve"?"active":decision==="reject"?"rejected":"neutral"}">${decision==="approve"?"อนุมัติ":decision==="reject"?"ไม่อนุมัติ":"รอตรวจ"}</span></div>${reason?`<p>${escapeHtml(reason)}</p>`:""}<div class="academic-transfer-sign-state"><span>ลายเซ็น</span><strong>${academicTransferSignatureMethodLabel(sig?.method)}</strong>${sig?.signer_name?`<small>${escapeHtml(sig.signer_name)}</small>`:""}</div>${can?`<button class="btn btn-ghost btn-small" data-academic-certificate-review="${r.id}" data-certificate-review-slot="${slot}">ตรวจและลงนาม</button>`:""}</article>`;
+}
+function academicCertificateDetailHtml(r){
+  const canEdit=academicCertificateCanEditUi(r),canFinalize=academicCertificateCanFinalizeUi(),ready=r.status==="approved",current=r.certificate_type==="current";
+  return `<section class="panel academic-transfer-detail">
+    <div class="panel-head"><div class="panel-title-wrap"><h3>${escapeHtml(r.request_code||"คำร้องใบรับรอง")}</h3><p>${escapeHtml(r.student_name)} · ${escapeHtml(r.class_label||r.former_class_label||"—")} · อัปเดต ${academicRegDisplayDate(r.updated_at)}</p></div><div class="action-row">${canEdit?`<button class="btn btn-ghost" data-academic-certificate-edit="${r.id}">แก้ไขคำร้อง</button>`:""}</div></div>
+    <div class="academic-transfer-summary-grid"><article><span>นักเรียน</span><strong>${escapeHtml(r.student_name)}</strong><small>รหัส ${escapeHtml(r.student_code||"—")}</small></article><article><span>ประเภทคำรับรอง</span><strong>${r.certificate_type==="former"?"เคยเป็นนักเรียน":"นักเรียนปัจจุบัน"}</strong><small>${escapeHtml(r.class_label||r.former_class_label||"—")}</small></article><article><span>วัตถุประสงค์</span><strong>${escapeHtml(ACADEMIC_CERTIFICATE_PURPOSE_LABEL[r.purpose_type]||"อื่น ๆ")}</strong><small>${escapeHtml(r.purpose_other||"")}</small></article><article><span>วันที่ยื่น</span><strong>${academicRegDisplayDate(r.request_date)}</strong><small>ผู้ยื่น ${escapeHtml(r.applicant_name||"—")}</small></article></div>
+    <div class="academic-transfer-output-grid"><article class="academic-transfer-output-card"><div><span>ส่วนที่ 1</span><h4>แบบคำร้องเพื่อขอหนังสือรับรองนักเรียน</h4><p>PDF ตามแบบฟอร์มที่แนบ พร้อมหน้ารายการหลักฐาน</p></div><button class="btn btn-ghost" data-academic-certificate-export-request="${r.id}">Export PDF คำร้อง</button></article>
+      <article class="academic-transfer-output-card ${ready&&current?"ready":""}"><div><span>ส่วนที่ 2</span><h4>ปพ.7 ใบรับรองการเป็นนักเรียน</h4><p>${!current?"ฟอร์มผลที่แนบรองรับนักเรียนปัจจุบันเท่านั้น":ready?`อนุมัติครบแล้วเมื่อ ${academicRegDisplayDate(r.finalized_at)} · พร้อมออก ปพ.7`:"ต้องยื่นคำร้องและอนุมัติครบก่อน"}</p></div><div class="action-row">${current&&!ready&&r.status==="submitted"&&canFinalize?`<button class="btn btn-primary" data-academic-certificate-approve-all="${r.id}">อนุมัติทุกส่วน</button>`:""}${current&&ready?`<span class="academic-certificate-docno-pill">เลขที่ ${escapeHtml(r.official_document_number||"กำลังรันเลขอัตโนมัติ")}</span><button class="btn btn-primary" data-academic-certificate-export-result="${r.id}">Export ปพ.7</button>`:""}</div></article></div>
+    <div class="academic-transfer-checks"><strong>หลักฐานฉบับกระดาษ</strong><span>${r.evidence_photo?"✓":"○"} รูปถ่าย 1.5 นิ้ว 2 ใบ</span><span>${r.evidence_birth_certificate?"✓":"○"} สำเนาสูติบัตร</span><span>${r.evidence_house_registration?"✓":"○"} สำเนาทะเบียนบ้าน</span><span>${r.evidence_parent_id?"✓":"○"} สำเนาบัตรประชาชนบิดา/มารดา</span><span>${r.evidence_phone?"✓":"○"} เบอร์โทรผู้ปกครอง</span><span>${r.evidence_other?"✓":"○"} อื่น ๆ ${escapeHtml(r.evidence_other_note||"")}</span></div>
+    <section class="academic-transfer-internal-panel"><div class="panel-head"><div class="panel-title-wrap"><h3>ส่วนตรวจอนุมัติ</h3><p>ผู้จัดทำเอกสาร · นายทะเบียน · ผู้บริหารสถานศึกษา</p></div></div><div class="academic-certificate-review-grid">${academicCertificateReviewCard(r,"preparer",r.preparer_decision,r.preparer_reason)}${academicCertificateReviewCard(r,"registrar",r.registrar_decision,r.registrar_reason)}${academicCertificateReviewCard(r,"director",r.director_decision,r.director_reason)}</div></section>
+    <div class="academic-transfer-bottom-actions">${r.status==="draft"&&canEdit?`<button class="btn btn-primary" data-academic-certificate-submit="${r.id}">ยื่นคำร้อง</button>`:""}${canEdit?`<button class="btn btn-danger" data-academic-certificate-delete="${r.id}">ลบคำร้อง</button>`:""}</div>
+  </section>`;
+}
+function academicCertificateStudentPickerOptions(students,selectedId,classKey){
+  return students.filter(s=>!classKey||(s.class_id||`former-${s.class_label||"other"}`)===classKey).map(s=>`<option value="${s.student_id}" ${s.student_id===selectedId?"selected":""}>${escapeHtml(academicCertificateStudentOptionLabel(s))}</option>`).join("");
+}
+function academicCertificateFormModal(existing=null){
+  const students=state.academicCertificateStudents||[],manager=academicCertificateCanFinalizeUi()||academicCertificateCanManageUi();
+  if(!existing&&!students.length)return toast("ไม่พบรายชื่อนักเรียน","ไม่มีนักเรียนในขอบเขตที่สามารถสร้างคำร้องได้","error");
+  const initial=students.find(s=>s.student_id===existing?.student_id)||students[0],classes=academicCertificateClassOptions(students);
+  const initialClassKey=initial?.class_id||`former-${initial?.class_label||"other"}`,today=new Date().toISOString().slice(0,10);
+  const m=document.createElement("div");m.className="modal-backdrop";
+  m.innerHTML=`<div class="modal wide"><div class="modal-head"><div><h3>${existing?"แก้ไข":"สร้าง"}คำร้องใบรับรองนักเรียน</h3><p>ข้อมูลนักเรียน บิดา มารดา ที่อยู่ และรูปถ่ายเชื่อมจาก Student Registry</p></div><button class="modal-close">×</button></div><form id="academic-certificate-form" class="form-grid">
+    <section class="academic-transfer-form-section"><h4>ข้อมูลคำร้อง</h4><div class="form-row"><div class="field"><label>วันที่ยื่นคำร้อง</label><input class="input" type="date" name="request_date" required value="${escapeHtml(existing?.request_date||today)}"></div><div class="field"><label>ประเภท</label><select class="select" name="certificate_type"><option value="current" ${existing?.certificate_type!=="former"?"selected":""}>นักเรียนปัจจุบัน</option>${manager?`<option value="former" ${existing?.certificate_type==="former"?"selected":""}>เคยเป็นนักเรียน</option>`:""}</select></div></div>
+      ${manager&&!existing?`<div class="field"><label>ชั้น / ห้อง</label><select class="select" id="academic-certificate-class">${classes.map(c=>`<option value="${c.id}" ${c.id===initialClassKey?"selected":""}>${escapeHtml(c.label)}</option>`).join("")}</select></div>`:""}
+      <div class="field"><label>นักเรียน</label><select class="select" id="academic-certificate-student" name="student_id" ${existing?"disabled":""}>${academicCertificateStudentPickerOptions(students,initial?.student_id,manager&&!existing?initialClassKey:null)}</select></div>
+      <div id="academic-certificate-student-preview" class="academic-transfer-student-snapshot"></div>
+      <div class="former-certificate-fields ${existing?.certificate_type==="former"?"":"hidden"}"><div class="form-row"><div class="field"><label>เคยเป็นนักเรียนชั้น</label><input class="input" name="former_class_label" value="${escapeHtml(existing?.former_class_label||initial?.class_label||"")}"></div><div class="field"><label>ปีการศึกษา</label><input class="input" name="former_academic_year" value="${escapeHtml(existing?.former_academic_year||initial?.enrollment_academic_year||"")}"></div></div><div class="field"><label>ผลการเรียนเฉลี่ย</label><input class="input" type="number" step="0.01" min="0" max="4" name="former_gpa" value="${escapeHtml(existing?.former_gpa??"")}"></div></div>
+    </section>
+    <section class="academic-transfer-form-section"><h4>วัตถุประสงค์</h4><div class="field"><label>ขอหนังสือรับรองเพื่อ</label><select class="select" name="purpose_type">${Object.entries(ACADEMIC_CERTIFICATE_PURPOSE_LABEL).map(([v,l])=>`<option value="${v}" ${existing?.purpose_type===v?"selected":""}>${escapeHtml(l)}</option>`).join("")}</select></div><div class="field"><label>รายละเอียดอื่น ๆ (กรณีเลือกอื่น ๆ)</label><input class="input" name="purpose_other" value="${escapeHtml(existing?.purpose_other||"")}"></div></section>
+    <section class="academic-transfer-form-section"><h4>หลักฐาน</h4><div class="academic-transfer-evidence-grid"><label><input type="checkbox" name="evidence_photo" ${existing?.evidence_photo?"checked":""}> รูปถ่ายนักเรียน 1.5 นิ้ว จำนวน 2 ใบ</label><label><input type="checkbox" name="evidence_birth_certificate" ${existing?.evidence_birth_certificate?"checked":""}> สำเนาสูติบัตร 1 ฉบับ</label><label><input type="checkbox" name="evidence_house_registration" ${existing?.evidence_house_registration?"checked":""}> สำเนาทะเบียนบ้าน 1 ฉบับ</label><label><input type="checkbox" name="evidence_parent_id" ${existing?.evidence_parent_id?"checked":""}> สำเนาบัตรประชาชนบิดา/มารดา 1 ฉบับ</label><label><input type="checkbox" name="evidence_phone" ${existing?.evidence_phone?"checked":""}> เบอร์โทรผู้ปกครอง</label><label><input type="checkbox" name="evidence_other" ${existing?.evidence_other?"checked":""}> อื่น ๆ</label></div><div class="form-row"><div class="field"><label>เบอร์โทรผู้ปกครอง</label><input class="input" name="contact_phone" value="${escapeHtml(existing?.contact_phone||"")}"></div><div class="field"><label>หลักฐานอื่น ๆ</label><input class="input" name="evidence_other_note" value="${escapeHtml(existing?.evidence_other_note||"")}"></div></div><div class="field"><label>ผู้ยื่นคำร้อง</label><input class="input" name="applicant_name" required value="${escapeHtml(existing?.applicant_name||academicCertificateStudentName(initial))}"></div><div class="academic-transfer-paper-note"><strong>หลักฐานฉบับกระดาษ</strong><span>ผู้ยื่นนำหลักฐานมายื่นที่โรงเรียน ไม่ต้องอัปโหลดไฟล์</span></div></section>
+    <div class="modal-actions"><button type="button" class="btn btn-ghost modal-cancel">ยกเลิก</button><button type="submit" class="btn btn-primary">บันทึกแบบร่าง</button></div>
+  </form></div>`;
+  document.body.appendChild(m);const close=()=>m.remove();m.querySelector(".modal-close").onclick=close;m.querySelector(".modal-cancel").onclick=close;
+  const studentSelect=m.querySelector("#academic-certificate-student"),preview=m.querySelector("#academic-certificate-student-preview"),typeSelect=m.querySelector('[name="certificate_type"]'),formerFields=m.querySelector(".former-certificate-fields");
+  const draw=()=>{const s=students.find(x=>x.student_id===studentSelect.value)||initial;if(!s)return;preview.innerHTML=`<strong>${escapeHtml(academicCertificateStudentName(s))}</strong><span>เลขประจำตัว ${escapeHtml(s.student_code||"—")} · เลขประชาชน ${escapeHtml(s.citizen_id||"—")} · ${escapeHtml(s.class_label||"—")} · เลขที่ ${escapeHtml(s.student_number||"—")}</span><small>บิดา ${escapeHtml(s.father_name||"—")} · มารดา ${escapeHtml(s.mother_name||"—")} · ${escapeHtml(s.student_address||"ไม่พบที่อยู่")}</small>`;if(!existing)m.querySelector('[name="applicant_name"]').value=academicCertificateStudentName(s);};
+  draw();studentSelect.onchange=draw;
+  m.querySelector("#academic-certificate-class")?.addEventListener("change",e=>{studentSelect.innerHTML=academicCertificateStudentPickerOptions(students,null,e.currentTarget.value);draw();});
+  typeSelect.onchange=()=>formerFields.classList.toggle("hidden",typeSelect.value!=="former");
+  m.querySelector("#academic-certificate-form").onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.currentTarget),btn=e.submitter,student=students.find(x=>x.student_id===(existing?.student_id||studentSelect.value))||initial;if(!student)return;
+    const type=fd.get("certificate_type"),purpose=fd.get("purpose_type");if(type==="former"&&purpose&&false){}
+    buttonLoading(btn,true,"กำลังบันทึก...");
+    const payload={academic_year:String(existing?.academic_year||state.academicRegistrationAcademicYear),semester:String(existing?.semester||state.academicRegistrationSemester),student_id:existing?.student_id||student.student_id,request_date:fd.get("request_date"),certificate_type:type,former_class_label:String(fd.get("former_class_label")||"").trim()||null,former_academic_year:String(fd.get("former_academic_year")||"").trim()||null,former_gpa:String(fd.get("former_gpa")||"").trim()||null,purpose_type:purpose,purpose_other:String(fd.get("purpose_other")||"").trim()||null,contact_phone:String(fd.get("contact_phone")||"").trim()||null,evidence_photo:e.currentTarget.elements.evidence_photo.checked,evidence_birth_certificate:e.currentTarget.elements.evidence_birth_certificate.checked,evidence_house_registration:e.currentTarget.elements.evidence_house_registration.checked,evidence_parent_id:e.currentTarget.elements.evidence_parent_id.checked,evidence_phone:e.currentTarget.elements.evidence_phone.checked,evidence_other:e.currentTarget.elements.evidence_other.checked,evidence_other_note:String(fd.get("evidence_other_note")||"").trim()||null,applicant_name:String(fd.get("applicant_name")||"").trim()};
+    const {data,error}=await supabase.rpc("save_academic_certificate_request",{p_request_id:existing?.id||null,p_payload:payload});buttonLoading(btn,false);if(error)return toast("บันทึกคำร้องไม่สำเร็จ",error.message,"error");
+    const row=Array.isArray(data)?data[0]:data;state.academicCertificateRequests=[row,...(state.academicCertificateRequests||[]).filter(x=>x.id!==row.id)];state.selectedAcademicCertificateId=row.id;close();toast("บันทึกแบบร่างแล้ว",row.request_code||"คำร้อง","success");await renderDashboard();requestAnimationFrame(()=>{location.hash=`academic-certificate-detail-${row.id}`;});
+  };
+}
+async function academicCertificateSubmit(requestId){
+  if(!confirm("ยืนยันยื่นคำร้องใบรับรองนักเรียน?"))return;
+  const {data,error}=await supabase.rpc("submit_academic_certificate_request",{p_request_id:requestId});if(error)return toast("ยื่นคำร้องไม่สำเร็จ",error.message,"error");
+  const row=Array.isArray(data)?data[0]:data;if(row)state.academicCertificateRequests=[row,...state.academicCertificateRequests.filter(x=>x.id!==row.id)];toast("ยื่นคำร้องแล้ว","เข้าสู่ขั้นตอนตรวจอนุมัติ","success");await renderDashboard();requestAnimationFrame(()=>location.hash=`academic-certificate-detail-${requestId}`);
+}
+async function academicCertificateApproveAll(requestId){
+  const r=academicCertificateRequestById(requestId);if(!r)return;
+  if(!confirm(`อนุมัติทุกส่วนสำหรับ ${r.student_name} ?\nผู้จัดทำเอกสาร นายทะเบียน และผู้บริหารจะถูกตั้งเป็น “เห็นควรอนุมัติ”`))return;
+  const {data,error}=await supabase.rpc("approve_all_academic_certificate_request",{p_request_id:requestId});if(error)return toast("อนุมัติทั้งหมดไม่สำเร็จ",error.message,"error");
+  const row=Array.isArray(data)?data[0]:data;if(row)state.academicCertificateRequests=[row,...state.academicCertificateRequests.filter(x=>x.id!==row.id)];toast("อนุมัติครบแล้ว","พร้อม Export ปพ.7","success");await renderDashboard();requestAnimationFrame(()=>location.hash=`academic-certificate-detail-${requestId}`);
+}
+async function academicCertificateDelete(requestId){
+  const r=academicCertificateRequestById(requestId);if(!r||!confirm(`ยืนยันลบ ${r.request_code||"คำร้อง"} ?`))return;
+  try{
+    const {data:sigs}=await supabase.from("academic_certificate_request_signatures").select("bucket,storage_path").eq("request_id",requestId);
+    for(const s of sigs||[])if(s.storage_path)await supabase.storage.from(s.bucket||"academic-registration").remove([s.storage_path]);
+    const {error}=await supabase.from("academic_certificate_requests").delete().eq("id",requestId);if(error)throw error;
+    state.academicCertificateRequests=state.academicCertificateRequests.filter(x=>x.id!==requestId);state.academicCertificateSignatures=state.academicCertificateSignatures.filter(x=>x.request_id!==requestId);location.hash="academic-certificate-list";toast("ลบคำร้องแล้ว","","success");await renderDashboard();
+  }catch(err){toast("ลบคำร้องไม่สำเร็จ",err.message||String(err),"error");}
+}
+async function academicCertificateReviewModal(requestId,slot){
+  const r=academicCertificateRequestById(requestId);if(!r||!academicCertificateCanReviewSlotUi(slot))return;
+  const sig=academicCertificateSignatureFor(requestId,slot),decision=slot==="preparer"?r.preparer_decision:slot==="registrar"?r.registrar_decision:r.director_decision,reason=slot==="preparer"?r.preparer_reason:slot==="registrar"?r.registrar_reason:r.director_reason;
+  const m=document.createElement("div");m.className="modal-backdrop";m.innerHTML=`<div class="modal"><div class="modal-head"><div><h3>${academicCertificateSlotLabel(slot)}</h3><p>บันทึกความเห็นและลายเซ็น</p></div><button class="modal-close">×</button></div><div class="form-grid"><div class="field"><label>ความเห็น</label><select class="select" name="decision"><option value="pending" ${decision==="pending"?"selected":""}>รอตรวจ</option><option value="approve" ${decision==="approve"?"selected":""}>เห็นควรอนุมัติ</option><option value="reject" ${decision==="reject"?"selected":""}>ไม่ควรอนุมัติ</option></select></div><div class="field"><label>เหตุผล / หมายเหตุ</label><input class="input" name="reason" value="${escapeHtml(reason||"")}"></div><div class="academic-transfer-sign-choice"><strong>วิธีลงลายเซ็น</strong><div class="signature-mode-grid"><button type="button" class="signature-mode-option" data-cert-sign="paper"><strong>เซ็นสดบนกระดาษ</strong><span>เว้นช่องใน PDF</span></button><button type="button" class="signature-mode-option" data-cert-sign="drawn"><strong>เซ็นสดในระบบ</strong><span>เมาส์ / นิ้ว / ปากกา</span></button><button type="button" class="signature-mode-option" data-cert-sign="upload"><strong>อัปโหลดรูปลายเซ็น</strong><span>PNG / JPG / WebP</span></button></div><div class="academic-transfer-current-sign">ปัจจุบัน: <strong>${academicTransferSignatureMethodLabel(sig?.method)}</strong></div><div id="certificate-sign-work"></div></div></div><div class="modal-actions"><button class="btn btn-ghost modal-cancel">ปิด</button></div></div>`;
+  document.body.appendChild(m);const close=()=>m.remove(),work=m.querySelector("#certificate-sign-work");m.querySelector(".modal-close").onclick=close;m.querySelector(".modal-cancel").onclick=close;
+  const save=async(method,blob=null,mime=null,btn=null)=>{if(btn)buttonLoading(btn,true,"กำลังบันทึก...");let path=null;try{
+    const rv=await supabase.rpc("set_academic_certificate_review",{p_request_id:requestId,p_slot:slot,p_decision:m.querySelector('[name="decision"]').value,p_reason:m.querySelector('[name="reason"]').value||null});if(rv.error)throw rv.error;
+    if(blob){const ext=mime==="image/png"?"png":mime==="image/webp"?"webp":"jpg";path=`certificate-signatures/${requestId}/${slot}/${crypto.randomUUID()}.${ext}`;const up=await supabase.storage.from("academic-registration").upload(path,blob,{contentType:mime});if(up.error)throw up.error;}
+    const sg=await supabase.rpc("set_academic_certificate_signature",{p_request_id:requestId,p_slot:slot,p_method:method,p_storage_path:path});if(sg.error)throw sg.error;
+    if(sig?.storage_path&&sig.storage_path!==path)await supabase.storage.from(sig.bucket||"academic-registration").remove([sig.storage_path]);
+    close();toast("บันทึกส่วนตรวจแล้ว",academicCertificateSlotLabel(slot),"success");await loadAcademicRegistrationWorkspace();await renderDashboard();requestAnimationFrame(()=>location.hash=`academic-certificate-detail-${requestId}`);
+  }catch(err){if(path)await supabase.storage.from("academic-registration").remove([path]);toast("บันทึกไม่สำเร็จ",err.message||String(err),"error");}finally{if(btn)buttonLoading(btn,false);}};
+  m.querySelectorAll("[data-cert-sign]").forEach(b=>b.onclick=()=>{const method=b.dataset.certSign;if(method==="paper"){work.innerHTML=`<button class="btn btn-primary" id="cert-paper">บันทึกความเห็นและเลือกเซ็นบนกระดาษ</button>`;work.querySelector("#cert-paper").onclick=e=>save("paper",null,null,e.target);}else if(method==="drawn"){work.innerHTML=`<div class="signature-canvas-wrap"><canvas id="signature-canvas" width="900" height="300"></canvas></div><div class="signature-canvas-actions"><button class="btn btn-ghost" id="signature-clear">ล้าง</button><button class="btn btn-primary" id="cert-drawn">บันทึก</button></div>`;setupSignatureCanvas(m);work.querySelector("#cert-drawn").onclick=async e=>{if(!m._signatureHasInk?.())return toast("ยังไม่มีลายเซ็น","","error");await save("drawn",await canvasBlob(work.querySelector("#signature-canvas")),"image/png",e.target);};}else{work.innerHTML=`<div class="field"><label>ไฟล์ลายเซ็น</label><input class="input" id="cert-sign-file" type="file" accept="image/png,image/jpeg,image/webp"></div><button class="btn btn-primary" id="cert-upload">บันทึก</button>`;work.querySelector("#cert-upload").onclick=async e=>{const f=work.querySelector("#cert-sign-file").files[0];if(!f)return toast("กรุณาเลือกไฟล์","","error");await save("upload",f,f.type,e.target);};}});
+}
+async function academicCertificatePdfSigners(){const {data,error}=await supabase.rpc("get_academic_certificate_signers");if(error)throw error;return Object.fromEntries((data||[]).map(x=>[x.signer_slot,x]));}
+async function academicCertificatePdfSignatures(requestId){
+  const rows=academicCertificateSignaturesFor(requestId),out={};
+  for(const s of rows){let image_data_url=null;if(s.method!=="paper"&&s.storage_path){const dl=await supabase.storage.from(s.bucket||"academic-registration").download(s.storage_path);if(!dl.error)image_data_url=await blobToDataUrl(dl.data);}out[s.signer_slot]={...s,image_data_url};}
+  return out;
+}
+function academicCertificateCheck(checked,label){return `<span class="cert-check"><i>${checked?"✓":""}</i><span>${label}</span></span>`;}
+function academicCertificateApprovalBox(r,slot,title,signers,sigs){
+  const decision=slot==="preparer"?r.preparer_decision:slot==="registrar"?r.registrar_decision:r.director_decision,reason=slot==="preparer"?r.preparer_reason:slot==="registrar"?r.registrar_reason:r.director_reason,sig=sigs[slot]||{},assigned=signers[slot]||{},name=sig.signer_name||assigned.full_name||"—";
+  return `<section class="cert-approval-box">
+    <strong class="cert-approval-title">${title}</strong>
+    <div class="cert-approval-choice">${academicCertificateCheck(decision==="approve","เห็นควรอนุมัติ")}</div>
+    <div class="cert-approval-choice">${academicCertificateCheck(decision==="reject","ไม่ควรอนุมัติ เพราะ")}</div>
+    <div class="cert-reason">${escapeHtml(reason||"")}</div>
+    <div class="cert-approval-signature">
+      ${sig.image_data_url?`<img src="${sig.image_data_url}" class="cert-sign-img">`:`<div class="cert-sign-space"></div>`}
+      <div class="cert-sign-line"><span>ลงชื่อ</span><span class="cert-sign-rule"></span></div>
+      <div class="cert-sign-name">( ${escapeHtml(name)} )</div>
+      <div class="cert-sign-role">${title}</div>
+    </div>
+  </section>`;
+}
+function academicCertificateInfoCell(label,value,wide=false){
+  return `<div class="cert-info-cell ${wide?"wide":""}"><span class="cert-info-label">${label}</span><span class="cert-info-value">${value||"—"}</span></div>`;
+}
+function academicCertificateRequestPageHtml(r,signers,sigs){
+  const d=academicRegThaiDateParts(r.request_date),b=academicRegThaiDateParts(r.birth_date),current=r.certificate_type==="current";
+  return `<article class="academic-certificate-pdf-page cert-request-page"><div class="cert-page-inner">
+    <div class="cert-request-top"><div class="cert-request-center"><img src="./school-logo.png"><div class="cert-request-title"><h1>แบบคำร้องเพื่อขอหนังสือรับรองนักเรียน</h1><div>ที่ ${escapeHtml(schoolName())}</div></div></div><div class="cert-request-number-date"><div>ที่.........../..........</div><div>วันที่ ${d.day} เดือน ${d.month} พ.ศ. ${d.year}</div></div></div>
+    <section class="cert-personal-info">
+      <div class="cert-info-row one">${academicCertificateInfoCell("ด้วยข้าพเจ้า",escapeHtml(r.student_name))}</div>
+      <div class="cert-info-row two">${academicCertificateInfoCell("เกิดวันที่",`${b.day} ${b.month} ${b.year}`)}${academicCertificateInfoCell("เลขประจำตัวนักเรียน",academicRegPdfText(r.student_code||""))}</div>
+      <div class="cert-info-row two">${academicCertificateInfoCell("กำลังศึกษาอยู่ชั้น",escapeHtml(r.class_label||r.former_class_label||"—"))}${academicCertificateInfoCell("บิดาชื่อ",escapeHtml(r.father_name||"—"))}</div>
+      <div class="cert-info-row one">${academicCertificateInfoCell("มารดาชื่อ",escapeHtml(r.mother_name||"—"))}</div>
+      <div class="cert-info-row one">${academicCertificateInfoCell("ที่อยู่",escapeHtml(academicRegPdfText(r.student_address||"—")))}</div>
+    </section>
+    <div class="cert-section cert-choice-section"><strong>มีความประสงค์จะขอหนังสือรับรอง</strong>
+      <div>${academicCertificateCheck(current,"นักเรียน")}</div>
+      <div class="cert-former-line">${academicCertificateCheck(!current,`เคยเป็นนักเรียนชั้น <span class="cert-inline-dots">${escapeHtml(r.former_class_label||"")}</span> ปีการศึกษา <span class="cert-inline-dots year">${academicRegPdfText(r.former_academic_year||"")}</span> ผลการเรียนเฉลี่ย <span class="cert-inline-dots gpa">${academicRegPdfText(r.former_gpa??"")}</span>`)}</div>
+    </div>
+    <div class="cert-section cert-choice-section"><strong>เพื่อประโยชน์ ดังนี้</strong>${Object.entries(ACADEMIC_CERTIFICATE_PURPOSE_LABEL).map(([v,l])=>`<div>${academicCertificateCheck(r.purpose_type===v,v==="other"?`อื่น ๆ (โปรดระบุ) ${escapeHtml(r.purpose_other||"")}`:l)}</div>`).join("")}</div>
+    <div class="cert-section cert-evidence"><strong>ซึ่งแนบหลักฐาน ดังรายการต่อไปนี้</strong><div class="cert-evidence-columns"><div>${academicCertificateCheck(r.evidence_photo,"๑. รูปถ่ายของนักเรียน ๑.๕ นิ้ว จำนวน ๒ ใบ")}</div><div>${academicCertificateCheck(r.evidence_birth_certificate,"๒. สำเนาสูติบัตรของนักเรียน จำนวน ๑ ฉบับ")}</div><div>${academicCertificateCheck(r.evidence_house_registration,"๓. สำเนาทะเบียนบ้านของนักเรียน จำนวน ๑ ฉบับ")}</div><div>${academicCertificateCheck(r.evidence_parent_id,"๔. สำเนาบัตรประจำตัวประชาชนของบิดา/มารดา จำนวน ๑ ฉบับ")}</div><div>${academicCertificateCheck(r.evidence_phone,`๕. เบอร์โทรผู้ปกครอง ${academicRegPdfText(r.contact_phone||"")}`)}</div><div>${academicCertificateCheck(r.evidence_other,`๖. อื่น ๆ โปรดระบุ ${escapeHtml(r.evidence_other_note||"")}`)}</div></div></div>
+    <div class="cert-request-close">
+      <div class="cert-request-close-text">จึงเรียนมาเพื่อโปรดพิจารณาตรวจสอบความถูกต้องและออกเอกสารดังกล่าว</div>
+      <div class="cert-applicant-sign">
+        <div>ลงชื่อ ............................................................ ผู้ยื่นคำร้อง</div>
+        <div>( ${escapeHtml(r.applicant_name||"")} )</div>
+      </div>
+    </div>
+    <div class="cert-approval-grid">${academicCertificateApprovalBox(r,"preparer","ผู้จัดทำเอกสาร",signers,sigs)}${academicCertificateApprovalBox(r,"registrar","นายทะเบียน",signers,sigs)}${academicCertificateApprovalBox(r,"director","ผู้บริหารสถานศึกษา",signers,sigs)}</div>
+  </div></article>`;
+}
+function academicCertificateEvidencePageHtml(r){
+  const slip=()=>`<div class="cert-evidence-slip"><strong>เอกสารประกอบในการยื่นแบบคำร้องเพื่อขอหนังสือรับรองนักเรียน มีดังนี้</strong>${academicCertificateCheck(r.evidence_photo,"๑. รูปถ่ายของนักเรียน ๑.๕ นิ้ว จำนวน ๒ ใบ")}${academicCertificateCheck(r.evidence_birth_certificate,"๒. สำเนาสูติบัตรของนักเรียน จำนวน ๑ ฉบับ")}${academicCertificateCheck(r.evidence_house_registration,"๓. สำเนาทะเบียนบ้านของนักเรียน จำนวน ๑ ฉบับ")}${academicCertificateCheck(r.evidence_parent_id,"๔. สำเนาบัตรประจำตัวประชาชนของบิดา/มารดา จำนวน ๑ ฉบับ")}${academicCertificateCheck(r.evidence_phone,`๕. เบอร์โทรผู้ปกครอง ${academicRegPdfText(r.contact_phone||"")}`)}${academicCertificateCheck(r.evidence_other,`๖. อื่น ๆ โปรดระบุ ${escapeHtml(r.evidence_other_note||"")}`)}</div>`;
+  return `<article class="academic-certificate-pdf-page cert-evidence-page"><div class="cert-evidence-page-no">ที่.........../..........</div><div class="cert-slip-grid">${Array.from({length:10},slip).join("")}</div></article>`;
+}
+function academicCertificateFitRequestPage(page){
+  const inner=page.querySelector(".cert-page-inner");if(!inner)return 1;
+  inner.style.transform="none";inner.style.transformOrigin="top left";inner.style.width="100%";
+  const availableW=page.clientWidth,availableH=page.clientHeight;
+  let scale=Math.min(1,availableW/Math.max(inner.scrollWidth,1),availableH/Math.max(inner.scrollHeight,1));
+  scale=Math.max(.74,Math.min(1,scale*.992));
+  inner.style.width=`${100/scale}%`;inner.style.transform=`scale(${scale})`;return scale;
+}
+async function academicCertificateBuildRequestPdf(requestId){
+  const r=academicCertificateRequestById(requestId);if(!r)throw new Error("ไม่พบคำร้อง");
+  const [signers,sigs]=await Promise.all([academicCertificatePdfSigners(),academicCertificatePdfSignatures(requestId)]);
+  const host=document.createElement("div");host.className="academic-certificate-pdf-host";host.innerHTML=academicCertificateRequestPageHtml(r,signers,sigs);document.body.appendChild(host);
+  try{
+    if(document.fonts)await Promise.race([document.fonts.ready,new Promise(res=>setTimeout(res,1500))]);
+    await Promise.race([academicTransferWaitImages(host),new Promise(res=>setTimeout(res,1000))]);
+    const page=host.querySelector(".academic-certificate-pdf-page");academicCertificateFitRequestPage(page);void page.offsetHeight;
+    const canvas=await html2canvas(page,{scale:2.25,backgroundColor:"#fff",useCORS:true,logging:false});
+    const pdf=new jsPDF({orientation:"portrait",unit:"mm",format:"a4",compress:true});pdf.addImage(canvas.toDataURL("image/jpeg",.97),"JPEG",0,0,210,297);return pdf.output("blob");
+  }finally{host.remove();}
+}
+async function academicCertificateStudentPhotoDataUrl(requestId){
+  const r=academicCertificateRequestById(requestId),s=(state.academicCertificateStudents||[]).find(x=>x.student_id===r?.student_id);let bucket=s?.photo_bucket,path=s?.photo_path;
+  if(!path){const {data}=await supabase.rpc("get_academic_certificate_student_photo",{p_request_id:requestId});bucket=data?.[0]?.photo_bucket;path=data?.[0]?.photo_path;}
+  if(!path)return null;const dl=await supabase.storage.from(bucket||"student-photos").download(path);if(dl.error)return null;return blobToDataUrl(dl.data);
+}
+function academicCertificateResultSignBlock(slot,title,signers,sigs,extraClass=""){
+  const sig=sigs[slot]||{},assigned=signers[slot]||{},name=sig.signer_name||assigned.full_name||"—";
+  return `<div class="cert-result-sign ${extraClass}">${sig.image_data_url?`<img src="${sig.image_data_url}">`:`<div class="cert-result-sign-space"></div>`}<div>(ลงชื่อ) ........................................................</div><div>( ${escapeHtml(name)} )</div><div>${escapeHtml(title)}</div></div>`;
+}
+function academicCertificateResultHtml(r,signers,sigs){
+  const b=academicRegThaiDateParts(r.birth_date),d=academicRegThaiDateParts(r.finalized_at||new Date().toISOString()),valid=Number(state.academicCertificateSettings?.certificate_valid_days||120);
+  const directorTitle=signers?.director?.position_title||`ผู้อำนวยการ${schoolName()}`;
+  return `<article class="academic-certificate-result-page"><div class="cert-result-inner"><img class="cert-result-garuda" src="./assets/academic-registration/garuda-official.png"><div class="cert-result-docno">${escapeHtml(r.official_document_number||"")}</div><div class="cert-result-code">ปพ. ๗</div><h1>ใบรับรองการเป็นนักเรียน</h1><h2>${escapeHtml(schoolName())}</h2>
+    <div class="cert-result-body"><div class="cert-result-body-block"><p>ข้าพเจ้าขอรับรองว่า <strong>${escapeHtml(r.student_name)}</strong> เลขประจำตัว ${academicRegPdfText(r.student_code||"")}</p><p>เลขประจำตัวประชาชน ${academicRegPdfText(r.citizen_id||"")} เกิดวันที่ ${b.day} เดือน ${b.month} พุทธศักราช ${b.year}</p><p>บิดาชื่อ ${escapeHtml(r.father_name||"")} มารดาชื่อ ${escapeHtml(r.mother_name||"")}</p><p>กำลังเรียนระดับชั้น ${academicRegFormalClassLabel(r.class_label)} ปีการศึกษา ${academicRegPdfText(r.academic_year)}</p><p class="cert-result-issue">ออกให้ ณ วันที่ ${d.day} เดือน ${d.month} พุทธศักราช ${d.year}</p></div></div>
+    <div class="cert-result-bottom-grid"><div class="cert-result-left"><div class="cert-result-photo-space" aria-hidden="true"></div>${academicCertificateResultSignBlock("registrar","นายทะเบียน",signers,sigs,"registrar")}</div><div class="cert-result-right">${academicCertificateResultSignBlock("director",directorTitle,signers,sigs,"director")}</div></div>
+    <div class="cert-result-valid">(ใบรับรองนี้มีกำหนดอายุ ${academicRegThaiDigits(valid)} วัน นับตั้งแต่วันออก)</div></div></article>`;
+}
+async function academicCertificateBuildResultPdf(requestId){
+  let r=academicCertificateRequestById(requestId);if(!r||r.status!=="approved")throw new Error("ต้องอนุมัติคำร้องครบก่อน");if(r.certificate_type!=="current")throw new Error("ฟอร์ม ปพ.7 ที่แนบรองรับนักเรียนปัจจุบันเท่านั้น");
+  if(!r.official_document_number){
+    const numbered=await supabase.rpc("ensure_academic_certificate_document_number",{p_request_id:requestId});
+    if(numbered.error)throw numbered.error;
+    r=Array.isArray(numbered.data)?numbered.data[0]:numbered.data;
+    state.academicCertificateRequests=[r,...(state.academicCertificateRequests||[]).filter(x=>x.id!==r.id)];
+    state.academicCertificateSettings={...(state.academicCertificateSettings||{}),document_number_next:Number(r.official_document_serial||0)+1,document_number_year:r.official_document_year||state.academicCertificateSettings?.document_number_year};
+  }
+  const [signers,sigs]=await Promise.all([academicCertificatePdfSigners(),academicCertificatePdfSignatures(requestId)]);const host=document.createElement("div");host.className="academic-certificate-result-host";host.innerHTML=academicCertificateResultHtml(r,signers,sigs);document.body.appendChild(host);
+  try{if(document.fonts)await Promise.race([document.fonts.ready,new Promise(res=>setTimeout(res,1500))]);await Promise.race([academicTransferWaitImages(host),new Promise(res=>setTimeout(res,1000))]);const page=host.querySelector(".academic-certificate-result-page");void page.offsetHeight;const canvas=await html2canvas(page,{scale:2.4,backgroundColor:"#fff",useCORS:true,logging:false});const pdf=new jsPDF({orientation:"portrait",unit:"mm",format:"a4",compress:true});pdf.addImage(canvas.toDataURL("image/jpeg",.98),"JPEG",0,0,210,297);return pdf.output("blob");}finally{host.remove();}
+}
+async function academicCertificateExport(requestId,result=false){
+  const r=academicCertificateRequestById(requestId);if(!r)return;const preview=window.open("about:blank","_blank");if(preview){try{preview.document.body.innerHTML='<div style="font-family:sans-serif;padding:28px">กำลังสร้าง PDF กรุณารอสักครู่...</div>';preview.blur();window.focus();}catch{}}
+  const selector=result?`[data-academic-certificate-export-result="${requestId}"]`:`[data-academic-certificate-export-request="${requestId}"]`,btn=document.querySelector(selector);buttonLoading(btn,true,"กำลังสร้าง...");
+  try{const blob=result?await academicCertificateBuildResultPdf(requestId):await academicCertificateBuildRequestPdf(requestId),name=result?`ปพ7_ใบรับรองการเป็นนักเรียน_${academicRegSafeFileBase(r.student_name)}.pdf`:`คำร้องใบรับรองนักเรียน_${academicRegSafeFileBase(r.student_name)}_${academicRegSafeFileBase(r.request_code)}.pdf`,url=URL.createObjectURL(blob);if(preview){preview.location.replace(url);try{preview.focus();}catch{}setTimeout(()=>URL.revokeObjectURL(url),300000);}else downloadBlob(blob,name);toast("สร้าง PDF เรียบร้อย",result?"ปพ.7 พร้อมพิมพ์":"แบบคำร้องพร้อมพิมพ์","success");}catch(err){if(preview)preview.close();toast("สร้าง PDF ไม่สำเร็จ",err.message||String(err),"error");}finally{buttonLoading(btn,false);}
+}
+
+function academicTransferWorkspaceHtml(selected){
+  const p=currentAcademicPeriod(),year=Number(state.academicRegistrationAcademicYear||p.academicYear),sem=Number(state.academicRegistrationSemester||p.semester);
+  const requests=(state.academicTransferRequests||[]).filter(r=>Number(r.academic_year)===year&&Number(r.semester)===sem);
+  return `<section class="panel" id="academic-transfer-list"><div class="panel-head"><div class="panel-title-wrap"><h3>คำร้องใบย้ายนักเรียน</h3><p>ใบคำร้องออกเป็น PDF หน้าเดียวตามแบบโรงเรียน ส่วนเอกสารหลักฐานรับเป็นเอกสารกระดาษจากผู้ปกครอง</p></div><button class="btn btn-primary" id="academic-transfer-create">+ สร้างคำร้อง</button></div>
+    <div class="academic-registration-filter-row"><div class="field"><label>ปีการศึกษา</label><input class="input" id="academic-registration-year" type="number" min="2500" max="2800" value="${year}"></div><div class="field"><label>ภาคเรียน</label><select class="select" id="academic-registration-semester"><option value="1" ${sem===1?"selected":""}>ภาคเรียนที่ 1</option><option value="2" ${sem===2?"selected":""}>ภาคเรียนที่ 2</option><option value="3" ${sem===3?"selected":""}>ภาคเรียนที่ 3</option></select></div><div class="academic-registration-font-note"><strong>รูปแบบเอกสาร</strong><span>TH SarabunIT๙ · ตัวเลขไทย · A4 1 หน้า</span></div></div>
+    ${requests.length?`<div class="table-wrap"><table class="table academic-transfer-table"><thead><tr><th>เลขคำร้อง</th><th>นักเรียน</th><th>ชั้น</th><th>เลขที่</th><th>วันที่ขอย้าย</th><th>สถานะ</th><th></th></tr></thead><tbody id="academic-transfer-request-tbody">${requests.map(academicTransferRowHtml).join("")}</tbody></table></div>`:`<div class="empty" id="academic-transfer-empty"><strong>ยังไม่มีคำร้องในปี/ภาคเรียนนี้</strong><span>กด “สร้างคำร้อง” เพื่อเริ่มกรอกข้อมูลจากทะเบียนนักเรียน</span></div>`}
+    <div id="academic-transfer-detail-targets">${requests.map(academicTransferTargetDetailHtml).join("")}</div>
+  </section>`;
+}
+
+function academicTransferRowHtml(r){
+  const canEdit=academicTransferCanEditUi(r);
+  return `<tr class="academic-transfer-row" data-academic-transfer-row="${r.id}" data-transfer-request-id="${r.id}"><td><strong>${escapeHtml(r.request_code||"—")}</strong><small>${academicRegDisplayDate(r.request_date)}</small></td><td><strong>${escapeHtml(r.student_name)}</strong><small>รหัส ${escapeHtml(r.student_code)}</small></td><td>${escapeHtml(r.class_label)}</td><td><strong>${escapeHtml(r.student_number??"—")}</strong></td><td>${academicRegDisplayDate(r.transfer_date)}</td><td><span class="pill ${r.status==="draft"?"neutral":r.status==="submitted"?"pending":r.status==="approved"?"active":"rejected"}">${escapeHtml(ACADEMIC_TRANSFER_STATUS_LABEL[r.status]||r.status)}</span></td><td><div class="academic-transfer-row-actions"><a class="btn btn-ghost btn-small academic-transfer-native-open" href="#academic-transfer-detail-${r.id}">รายละเอียด</a>${canEdit?`<button class="btn btn-ghost btn-small" type="button" data-academic-transfer-edit="${r.id}">แก้ไขคำร้อง</button>`:""}</div></td></tr>`;
+}
+
+function academicTransferTargetDetailHtml(r){
+  return `<section id="academic-transfer-detail-${r.id}" class="academic-transfer-target-detail" aria-label="รายละเอียดคำร้อง ${escapeHtml(r.request_code||"")}"><div class="academic-transfer-target-card"><div class="academic-transfer-target-head"><div><strong>รายละเอียดคำร้องใบย้ายนักเรียน</strong><span>${escapeHtml(r.request_code||"")}</span></div><a class="academic-transfer-target-close" href="#academic-transfer-list" aria-label="ปิด">×</a></div><div class="academic-transfer-target-body">${academicTransferDetailHtml(r)}</div></div></section>`;
+}
+
+function academicTransferUpsertRequestDom(r,{open=false}={}){
+  const tbody=document.querySelector('#academic-transfer-request-tbody'),targets=document.querySelector('#academic-transfer-detail-targets');
+  if(!tbody||!targets)return false;
+  const rowBox=document.createElement('tbody');rowBox.innerHTML=academicTransferRowHtml(r);const newRow=rowBox.firstElementChild;
+  const oldRow=tbody.querySelector(`[data-transfer-request-id="${r.id}"]`);if(oldRow)oldRow.replaceWith(newRow);else tbody.prepend(newRow);
+  const detailBox=document.createElement('div');detailBox.innerHTML=academicTransferTargetDetailHtml(r);const newDetail=detailBox.firstElementChild;
+  const oldDetail=document.getElementById(`academic-transfer-detail-${r.id}`);if(oldDetail)oldDetail.replaceWith(newDetail);else targets.prepend(newDetail);
+  document.querySelector('#academic-transfer-empty')?.remove();
+  if(open)location.hash=`academic-transfer-detail-${r.id}`;
+  return true;
+}
+
+function academicTransferDetailHtml(r){
+  const canEdit=academicTransferCanEditUi(r),manager=academicRegistrationCanManageUi(),canFinalize=academicRegistrationCanFinalizeUi();
+  const reviewCard=(slot,decision,reason)=>{
+    const sig=academicTransferSignatureFor(r.id,slot),canReview=academicTransferCanReviewSlotUi(slot);
+    const pay=slot==="finance"&&r.finance_status!=="pending"?`<small>การชำระเงิน: ${r.finance_status==="paid"?"ชำระเงินครบ":`ต้องชำระ ${Number(r.finance_amount_due||0).toLocaleString("th-TH")} บาท`}</small>`:"";
+    return `<article class="academic-transfer-review-card"><div class="academic-transfer-review-head"><div><span>${escapeHtml(academicTransferSlotLabel(slot))}</span><strong>${escapeHtml(academicRegDecisionLabel(decision))}</strong></div><span class="pill ${decision==="approve"?"active":decision==="reject"?"rejected":"neutral"}">${decision==="approve"?"อนุมัติ":decision==="reject"?"ไม่อนุมัติ":"รอตรวจ"}</span></div>${reason?`<p>${escapeHtml(reason)}</p>`:""}${pay}<div class="academic-transfer-sign-state"><span>ลายเซ็น</span><strong>${escapeHtml(academicTransferSignatureMethodLabel(sig?.method))}</strong>${sig?.signer_name?`<small>${escapeHtml(sig.signer_name)}</small>`:""}</div>${canReview?`<button class="btn btn-ghost btn-small" data-academic-transfer-review="${r.id}" data-review-slot="${slot}">ตรวจและลงนาม</button>`:""}</article>`;
+  };
+  const resultReady=r.status==="approved";
+  return `<section class="panel academic-transfer-detail" data-academic-transfer-detail="${r.id}">
+    <div class="panel-head"><div class="panel-title-wrap"><h3>${escapeHtml(r.request_code||"คำร้องใบย้าย")}</h3><p>${escapeHtml(r.student_name)} · ${escapeHtml(r.class_label)} · เลขที่ ${escapeHtml(r.student_number??"—")} · อัปเดต ${academicRegDisplayDate(r.updated_at)}</p></div><div class="action-row">${canEdit?`<button class="btn btn-ghost" data-academic-transfer-edit="${r.id}">แก้ไขคำร้อง</button>`:""}</div></div>
+    <div class="academic-transfer-summary-grid"><article><span>ผู้ปกครอง/ผู้ยื่น</span><strong>${escapeHtml(r.guardian_name)}</strong><small>${escapeHtml(r.contact_phone)}</small></article><article><span>นักเรียน</span><strong>${escapeHtml(r.student_name)}</strong><small>${escapeHtml(r.class_label)} · เลขที่ ${escapeHtml(r.student_number??"—")} · รหัส ${escapeHtml(r.student_code)}</small></article><article><span>เหตุผล</span><strong>${r.reason_type==="continue_study"?`ศึกษาต่อ ณ ${escapeHtml(r.destination_school||"—")}`:escapeHtml(r.other_reason||"อื่น ๆ")}</strong><small>${r.reason_type==="continue_study"?`${escapeHtml(r.destination_district||"")} ${escapeHtml(r.destination_province||"")}`:""}</small></article><article><span>กำหนดย้าย</span><strong>${academicRegDisplayDate(r.transfer_date)}</strong><small>ปีการศึกษา ${escapeHtml(r.academic_year)}</small></article></div>
+
+    <div class="academic-transfer-output-grid">
+      <article class="academic-transfer-output-card">
+        <div><span>ส่วนที่ 1</span><h4>คำร้องขอย้ายสถานศึกษา</h4><p>เอกสารคำร้อง A4 1 หน้า พร้อมส่วนตรวจสอบของเจ้าหน้าที่</p></div>
+        <button class="btn btn-ghost" data-academic-transfer-export-one="${r.id}">Export PDF คำร้อง</button>
+      </article>
+      <article class="academic-transfer-output-card ${resultReady?"ready":""}">
+        <div><span>ส่วนที่ 2</span><h4>ผลจากการกรอกใบย้ายสถานศึกษา</h4><p>${resultReady?`อนุมัติครบแล้วเมื่อ ${academicRegDisplayDate(r.finalized_at)} · พร้อมออกหนังสือราชการ`:`ต้องยื่นคำร้องและอนุมัติทุกส่วนก่อน จึงจะออกหนังสือราชการได้`}</p></div>
+        <div class="action-row">
+          ${!resultReady&&r.status==="submitted"&&canFinalize?`<button class="btn btn-primary" data-academic-transfer-approve-all="${r.id}">อนุมัติทุกส่วน</button>`:""}
+          ${resultReady?`<button class="btn btn-primary" data-academic-transfer-export-official="${r.id}">Export หนังสือราชการ</button>`:""}
+        </div>
+      </article>
+    </div>
+
+    <div class="academic-transfer-paper-note"><strong>เอกสารหลักฐาน</strong><span>ผู้ปกครองนำเอกสารหลักฐานฉบับกระดาษมายื่นต่อโรงเรียน ไม่ต้องอัปโหลดไฟล์เข้าระบบ</span></div>
+    <div class="academic-transfer-checks"><strong>รายการหลักฐานตามแบบฟอร์ม</strong><span>${r.evidence_photo?"✓":"○"} รูปถ่ายนักเรียน 1.5 นิ้ว 2 ใบ</span><span>${r.evidence_birth_certificate?"✓":"○"} สำเนาสูติบัตร</span><span>${r.evidence_house_registration?"✓":"○"} สำเนาทะเบียนบ้าน</span><span>${r.evidence_parent_id?"✓":"○"} สำเนาบัตรประชาชนบิดา/มารดา</span><span>${r.evidence_phone?"✓":"○"} เบอร์โทรผู้ปกครอง</span><span>${r.evidence_other?"✓":"○"} อื่น ๆ ${escapeHtml(r.evidence_other_note||"")}</span></div>
+    <section class="academic-transfer-internal-panel"><div class="panel-head"><div class="panel-title-wrap"><h3>ส่วนเจ้าหน้าที่ภายใน</h3><p>ครูการเงิน / ครูทะเบียน / ครูวัดผล / ผู้บริหาร ตรวจและลงนามได้ตามสิทธิ์ หรือผู้มีสิทธิ์อนุมัติทั้งหมดสามารถใช้ปุ่ม “อนุมัติทุกส่วน” ได้</p></div></div><div class="academic-transfer-review-grid">${reviewCard("finance",r.finance_decision||"pending",r.finance_reason)}${reviewCard("registrar",r.registrar_decision,r.registrar_reason)}${reviewCard("assessment",r.assessment_decision,r.assessment_reason)}${reviewCard("director",r.director_decision,r.director_reason)}</div></section>
+    <div class="academic-transfer-bottom-actions">${r.status==="draft"&&canEdit?`<button class="btn btn-primary" data-academic-transfer-submit="${r.id}">ยื่นคำร้อง</button>`:""}${canEdit?`<button class="btn btn-danger" data-academic-transfer-delete-request="${r.id}">ลบคำร้อง</button>`:""}${manager?`<span class="helper">ครูทะเบียนสามารถดูแลคำร้องและแก้ไขข้อมูลหนังสือราชการก่อนอนุมัติสุดท้ายได้</span>`:""}</div>
+  </section>`;
+}
+
+function academicTransferBindDetailActions(root){
+  root.querySelectorAll("[data-academic-transfer-edit]").forEach(b=>b.addEventListener("click",()=>{root.closest(".modal-backdrop")?.remove();academicTransferFormModal(academicTransferRequestById(b.dataset.academicTransferEdit));}));
+  root.querySelectorAll("[data-academic-transfer-export-one]").forEach(b=>b.addEventListener("click",()=>academicTransferExport(b.dataset.academicTransferExportOne,false)));
+  root.querySelectorAll("[data-academic-transfer-review]").forEach(b=>b.addEventListener("click",()=>academicTransferReviewModal(b.dataset.academicTransferReview,b.dataset.reviewSlot)));
+  root.querySelectorAll("[data-academic-transfer-submit]").forEach(b=>b.addEventListener("click",async()=>{await academicTransferSubmit(b.dataset.academicTransferSubmit);root.closest(".modal-backdrop")?.remove();}));
+  root.querySelectorAll("[data-academic-transfer-delete]").forEach(b=>b.addEventListener("click",async()=>{await academicTransferDeleteDraft(b.dataset.academicTransferDelete);root.closest(".modal-backdrop")?.remove();}));
+}
+
+function academicTransferDetailModal(requestId){
+  const r=academicTransferRequestById(requestId);
+  if(!r)return toast("ไม่พบคำร้อง","กรุณาลองเปิดใหม่อีกครั้ง","error");
+  document.querySelector(".academic-transfer-detail-modal")?.closest(".modal-backdrop")?.remove();
+  const m=document.createElement("div");m.className="modal-backdrop";
+  m.innerHTML=`<div class="modal wide academic-transfer-detail-modal"><div class="modal-head"><div><h3>รายละเอียดคำร้องใบย้ายนักเรียน</h3><p>${escapeHtml(r.request_code||"")}</p></div><button class="modal-close">×</button></div><div class="academic-transfer-detail-modal-body">${academicTransferDetailHtml(r)}</div><div class="modal-actions"><button class="btn btn-ghost modal-cancel">ปิด</button></div></div>`;
+  document.body.appendChild(m);
+  const close=()=>m.remove();m.querySelector(".modal-close").onclick=close;m.querySelector(".modal-cancel").onclick=close;
+  academicTransferBindDetailActions(m);
+}
+
+async function academicRegistrationRoleSettingsModal(){
+  if(!academicRegistrationCanConfigureUi())return;
+  const {data,error}=await supabase.rpc("get_academic_registration_role_candidates");
+  if(error)return toast("โหลดรายชื่อผู้ใช้งานไม่สำเร็จ",error.message,"error");
+  const users=data||[],s=state.academicRegistrationSettings||{},isSuper=state.profile?.role==="super_admin",isRegistrar=s.registrar_user_id===state.user?.id;
+  const options=(selected)=>`<option value="">— ยังไม่กำหนด —</option>${users.map(u=>`<option value="${u.user_id}" ${selected===u.user_id?"selected":""}>${escapeHtml(u.full_name)} · ${escapeHtml(ROLE_LABEL[u.role]||u.role)}</option>`).join("")}`;
+  const m=document.createElement("div");m.className="modal-backdrop";
+  m.innerHTML=`<div class="modal wide"><div class="modal-head"><div><h3>ตั้งค่าสิทธิ์ระบบคำร้องใบย้ายนักเรียน</h3><p>${isSuper?"Super Admin กำหนดผู้รับผิดชอบได้ทุกส่วน":isRegistrar?"ครูทะเบียนกำหนดครูการเงินและส่งต่อสิทธิ์ครูทะเบียนได้":"หัวหน้าวิชาการกำหนดครูการเงินได้"}</p></div><button class="modal-close">×</button></div><form id="academic-registration-role-form" class="form-grid">
+    <section class="academic-transfer-form-section"><h4>ผู้รับผิดชอบใบย้าย</h4>${(isSuper||isRegistrar)?`<div class="field"><label>ครูทะเบียน</label><select class="select" name="registrar_user_id">${options(s.registrar_user_id)}</select></div>`:""}<div class="field"><label>ครูการเงิน / เจ้าหน้าที่การเงิน</label><select class="select" name="finance_user_id">${options(s.finance_user_id)}</select></div>${isSuper?`<div class="form-row"><div class="field"><label>ครูวัดและประเมินผล</label><select class="select" name="assessment_user_id">${options(s.assessment_user_id)}</select></div><div class="field"><label>ผู้บริหารสถานศึกษา</label><select class="select" name="director_user_id">${options(s.director_user_id)}</select></div></div>`:""}</section>
+    <section class="academic-transfer-form-section"><h4>ข้อความหนังสือราชการ “ผลจากการกรอกใบย้ายสถานศึกษา”</h4><div class="field"><label>ที่อยู่โรงเรียนที่แสดงบนหนังสือ</label><textarea class="input textarea" name="official_school_address_text">${escapeHtml(s.official_school_address_text||"หมู่ที่ 12 ตำบลเมืองนะ อำเภอเชียงดาว จังหวัดเชียงใหม่ 50170")}</textarea></div><div class="field"><label>ตำแหน่งใต้ชื่อผู้บริหาร</label><input class="input" name="official_director_position_text" value="${escapeHtml(s.official_director_position_text||`ผู้อำนวยการ${schoolName()}`)}"></div><div class="form-row"><div class="field"><label>ชื่อกลุ่มงานท้ายหนังสือ</label><input class="input" name="official_registration_group_text" value="${escapeHtml(s.official_registration_group_text||"กลุ่มงานทะเบียน")}"></div><div class="field"><label>เบอร์โทรท้ายหนังสือ</label><input class="input" name="official_phone_text" value="${escapeHtml(s.official_phone_text||"053 - 045558")}"></div></div></section>
+    <div class="modal-actions"><button type="button" class="btn btn-ghost modal-cancel">ยกเลิก</button><button type="submit" class="btn btn-primary">บันทึกการตั้งค่า</button></div></form></div>`;
+  document.body.appendChild(m);const close=()=>m.remove();m.querySelector(".modal-close").onclick=close;m.querySelector(".modal-cancel").onclick=close;
+  m.querySelector("#academic-registration-role-form").onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.currentTarget),btn=e.submitter;buttonLoading(btn,true,"กำลังบันทึก...");const roleArgs={p_registrar_user_id:(isSuper||isRegistrar)?(fd.get("registrar_user_id")||null):(s.registrar_user_id||null),p_finance_user_id:fd.get("finance_user_id")||null,p_assessment_user_id:isSuper?(fd.get("assessment_user_id")||null):(s.assessment_user_id||null),p_director_user_id:isSuper?(fd.get("director_user_id")||null):(s.director_user_id||null)};const roleRes=await supabase.rpc("set_academic_registration_roles",roleArgs);if(roleRes.error){buttonLoading(btn,false);return toast("บันทึกสิทธิ์ไม่สำเร็จ",roleRes.error.message,"error");}const docRes=await supabase.rpc("set_academic_registration_document_settings",{p_official_school_address_text:String(fd.get("official_school_address_text")||"").trim(),p_official_director_position_text:String(fd.get("official_director_position_text")||"").trim(),p_official_registration_group_text:String(fd.get("official_registration_group_text")||"").trim(),p_official_phone_text:String(fd.get("official_phone_text")||"").trim()});buttonLoading(btn,false);if(docRes.error)return toast("บันทึกข้อความหนังสือราชการไม่สำเร็จ",docRes.error.message,"error");state.academicRegistrationSettings=Array.isArray(docRes.data)?docRes.data[0]:docRes.data;close();toast("บันทึกสิทธิ์ใบย้ายแล้ว","การตั้งค่าใบรับรองนักเรียนแยกออกจากส่วนนี้แล้ว","success");await loadActiveUserData();await renderDashboard();};
+}
+
+async function academicCertificateRoleSettingsModal(){
+  const canRoles=academicCertificateCanConfigureUi(),canNumber=academicCertificateCanConfigureNumberUi();
+  if(!canRoles&&!canNumber)return;
+
+  let users=[];
+  if(canRoles){
+    const {data,error}=await supabase.rpc("get_academic_certificate_role_candidates");
+    if(error)return toast("โหลดรายชื่อผู้ใช้งานไม่สำเร็จ",error.message,"error");
+    users=data||[];
+  }
+
+  const s=state.academicCertificateSettings||{},isSuper=state.profile?.role==="super_admin",isRegistrar=s.registrar_user_id===state.user?.id,isHead=isAcademicHead(),isPreparer=s.preparer_user_id===state.user?.id;
+  const options=(selected)=>`<option value="">— ยังไม่กำหนด —</option>${users.map(u=>`<option value="${u.user_id}" ${selected===u.user_id?"selected":""}>${escapeHtml(u.full_name)} · ${escapeHtml(ROLE_LABEL[u.role]||u.role)}</option>`).join("")}`;
+  const nextNo=Number(s.document_number_next||1),docYear=String(s.document_number_year||state.academicRegistrationAcademicYear||currentAcademicPeriod().academicYear||"2569");
+  const roleIntro=isSuper?"Super Admin กำหนดผู้รับผิดชอบทุกส่วนได้":isRegistrar?"นายทะเบียนกำหนดผู้จัดทำเอกสารและส่งต่อสิทธิ์นายทะเบียนได้":isHead?"หัวหน้าวิชาการกำหนดผู้จัดทำเอกสารได้":"ผู้จัดทำเอกสารสามารถกำหนดเลขหนังสือถัดไปได้";
+
+  const m=document.createElement("div");m.className="modal-backdrop";
+  m.innerHTML=`<div class="modal"><div class="modal-head"><div><h3>ตั้งค่าระบบคำร้องใบรับรองนักเรียน</h3><p>${roleIntro}</p></div><button class="modal-close">×</button></div><form id="academic-certificate-role-form" class="form-grid">
+    ${canRoles?`<section class="academic-transfer-form-section"><h4>สิทธิ์ผู้รับผิดชอบ</h4>
+      <div class="field"><label>ผู้จัดทำเอกสาร</label><select class="select" name="preparer_user_id">${options(s.preparer_user_id)}</select></div>
+      ${(isSuper||isRegistrar)?`<div class="field"><label>นายทะเบียน</label><select class="select" name="registrar_user_id">${options(s.registrar_user_id)}</select></div>`:""}
+      ${isSuper?`<div class="field"><label>ผู้บริหารสถานศึกษา</label><select class="select" name="director_user_id">${options(s.director_user_id)}</select></div>`:""}
+      <div class="field"><label>อายุใบรับรอง (วัน)</label><input class="input" type="number" min="1" name="valid_days" value="${escapeHtml(s.certificate_valid_days||120)}"></div>
+    </section>`:""}
+    ${canNumber?`<section class="academic-transfer-form-section"><h4>เลขที่หนังสือ ปพ.7</h4>
+      <div class="form-row"><div class="field"><label>เลขถัดไป</label><input class="input" type="number" min="1" name="document_number_next" value="${nextNo}"></div><div class="field"><label>ปีของเลขหนังสือ</label><input class="input" inputmode="numeric" maxlength="4" name="document_number_year" value="${escapeHtml(docYear)}"></div></div>
+      <div class="academic-certificate-number-preview"><span>เลขที่จะออกถัดไป</span><strong id="academic-certificate-number-preview">${nextNo}/${escapeHtml(docYear)}</strong></div>
+      <span class="helper">เมื่อคำร้องได้รับอนุมัติครบ ระบบจะล็อกเลขให้เอกสารนั้นอัตโนมัติ และเพิ่มเลขถัดไปให้อีก 1 เช่น 1/2569 → 2/2569</span>
+    </section>`:""}
+    <div class="modal-actions"><button type="button" class="btn btn-ghost modal-cancel">ยกเลิก</button><button type="submit" class="btn btn-primary">บันทึกการตั้งค่า</button></div>
+  </form></div>`;
+  document.body.appendChild(m);
+  const close=()=>m.remove();m.querySelector(".modal-close").onclick=close;m.querySelector(".modal-cancel").onclick=close;
+
+  const numberInput=m.querySelector('[name="document_number_next"]'),yearInput=m.querySelector('[name="document_number_year"]'),preview=m.querySelector("#academic-certificate-number-preview");
+  const redrawNumber=()=>{if(preview)preview.textContent=`${Math.max(1,Number(numberInput?.value||1))}/${String(yearInput?.value||"").trim()}`;};
+  numberInput?.addEventListener("input",redrawNumber);yearInput?.addEventListener("input",redrawNumber);
+
+  m.querySelector("#academic-certificate-role-form").onsubmit=async e=>{
+    e.preventDefault();const fd=new FormData(e.currentTarget),btn=e.submitter;buttonLoading(btn,true,"กำลังบันทึก...");
+    try{
+      if(canRoles){
+        const args={
+          p_preparer_user_id:fd.get("preparer_user_id")||null,
+          p_registrar_user_id:(isSuper||isRegistrar)?(fd.get("registrar_user_id")||null):(s.registrar_user_id||null),
+          p_director_user_id:isSuper?(fd.get("director_user_id")||null):(s.director_user_id||null),
+          p_valid_days:Number(fd.get("valid_days")||120)
+        };
+        const res=await supabase.rpc("set_academic_certificate_roles",args);
+        if(res.error)throw res.error;
+        state.academicCertificateSettings=Array.isArray(res.data)?res.data[0]:res.data;
+      }
+      if(canNumber){
+        const numRes=await supabase.rpc("set_academic_certificate_number_settings",{
+          p_next_number:Number(fd.get("document_number_next")||1),
+          p_document_year:String(fd.get("document_number_year")||"").trim()
+        });
+        if(numRes.error)throw numRes.error;
+        state.academicCertificateSettings=Array.isArray(numRes.data)?numRes.data[0]:numRes.data;
+      }
+      close();toast("บันทึกการตั้งค่าใบรับรองแล้ว",`เลขถัดไป ${state.academicCertificateSettings?.document_number_next||1}/${state.academicCertificateSettings?.document_number_year||"2569"}`,"success");await loadActiveUserData();await renderDashboard();
+    }catch(err){toast("บันทึกการตั้งค่าไม่สำเร็จ",err.message||String(err),"error");}
+    finally{buttonLoading(btn,false);}
+  };
+}
+
+function academicTransferFormModal(existing=null){
+  const students=state.academicTransferStudents||[],manager=academicRegistrationCanManageUi(),classes=academicTransferClassOptions(students);
+  if(!existing&&!students.length)return toast("ไม่พบรายชื่อนักเรียน","ผู้ใช้ไม่มีนักเรียนในขอบเขตที่สามารถสร้างคำร้องได้ หรือยังไม่มีทะเบียนนักเรียนของภาคเรียนนี้","error");
+  const initialStudent=students.find(s=>s.student_id===existing?.student_id)||students[0]||null;
+  const initialClassId=existing?.class_id||initialStudent?.class_id||classes[0]?.id||"";
+  const defaultApplicant=existing?.applicant_name||initialStudent?.guardian_name||state.profile?.full_name||"";
+  const studentOptions=(classId)=>students.filter(s=>!manager||existing||!classId||s.class_id===classId).map(s=>`<option value="${s.student_id}" ${s.student_id===initialStudent?.student_id?"selected":""}>${escapeHtml(academicTransferStudentOptionLabel(s))}</option>`).join("");
+  const m=document.createElement("div");m.className="modal-backdrop";
+  m.innerHTML=`<div class="modal academic-transfer-modal"><div class="modal-head"><div><h3>${existing?"แก้ไข":"สร้าง"}คำร้องขอย้ายสถานศึกษา</h3><p>ข้อมูลนักเรียนดึงจากระบบบัญชีรายชื่อนักเรียนโดยตรง — คำนำหน้าติดกับชื่อ และเว้นวรรคก่อนนามสกุล</p></div><button class="modal-close">×</button></div><form id="academic-transfer-form" class="form-grid">
+    <section class="academic-transfer-form-section"><h4>ข้อมูลคำร้องและนักเรียน</h4>
+    <div class="form-row"><div class="field"><label>วันที่เขียนคำร้อง</label><input class="input" name="request_date" type="date" required value="${escapeHtml(existing?.request_date||new Date().toISOString().slice(0,10))}"></div>
+    ${manager&&!existing?`<div class="field"><label>ชั้น / ห้อง</label><select class="select" id="academic-transfer-class">${classes.map(c=>`<option value="${c.id}" ${c.id===initialClassId?"selected":""}>${escapeHtml(c.label)}</option>`).join("")}</select><span class="helper">เลือกชั้นก่อน แล้วระบบจะแสดงเฉพาะนักเรียนในห้องนั้น</span></div>`:""}
+    <div class="field"><label>นักเรียน</label><select class="select" name="student_id" id="academic-transfer-student" required ${existing?"disabled":""}>${studentOptions(initialClassId)}${existing&&!students.some(s=>s.student_id===existing.student_id)?`<option value="${existing.student_id}" selected>${escapeHtml(existing.student_name)} · ${escapeHtml(existing.class_label)}</option>`:""}</select>${!manager&&!existing?`<span class="helper">แสดงเฉพาะนักเรียนในห้องประจำชั้นของคุณ</span>`:""}</div></div>
+    <div class="form-row"><div class="field"><label>ข้าพเจ้า / ชื่อผู้ปกครอง</label><input class="input" name="guardian_name" required value="${escapeHtml(existing?.guardian_name||initialStudent?.guardian_name||"")}"></div><div class="field"><label>เบอร์โทรที่ติดต่อได้</label><input class="input" name="contact_phone" required value="${escapeHtml(existing?.contact_phone||"")}"></div></div>
+    <div class="field"><label>ที่อยู่ผู้ปกครอง <span class="required">*</span></label><textarea class="input textarea" name="guardian_address" required placeholder="ใช้ในหนังสือราชการ เช่น บ้านเลขที่ ... หมู่ที่ ... ตำบล ... อำเภอ ... จังหวัด ...">${escapeHtml(existing?.guardian_address||initialStudent?.student_address||"")}</textarea></div>
+    <div class="academic-transfer-student-snapshot" id="academic-transfer-student-snapshot"></div></section>
+    <section class="academic-transfer-form-section"><h4>ความประสงค์ในการย้าย</h4><div class="field"><label>เหตุผล</label><select class="select" name="reason_type" id="academic-transfer-reason"><option value="continue_study" ${existing?.reason_type!=="other"?"selected":""}>ศึกษาต่อ ณ สถานศึกษาอื่น</option><option value="other" ${existing?.reason_type==="other"?"selected":""}>อื่น ๆ</option></select></div><div id="academic-transfer-destination"><div class="form-row three"><div class="field"><label>สถานศึกษาปลายทาง</label><input class="input" name="destination_school" value="${escapeHtml(existing?.destination_school||"")}"></div><div class="field"><label>อำเภอ</label><input class="input" name="destination_district" value="${escapeHtml(existing?.destination_district||"")}"></div><div class="field"><label>จังหวัด</label><input class="input" name="destination_province" value="${escapeHtml(existing?.destination_province||"")}"></div></div></div><div class="field" id="academic-transfer-other-wrap"><label>เหตุผลอื่น ๆ</label><textarea class="input textarea" name="other_reason">${escapeHtml(existing?.other_reason||"")}</textarea></div><div class="field"><label>ขอย้ายสถานศึกษาตั้งแต่วันที่</label><input class="input" name="transfer_date" type="date" required value="${escapeHtml(existing?.transfer_date||"")}"></div>
+    <div class="field"><label>สถานที่พักอาศัยของนักเรียนหลังย้าย <span class="required">*</span></label><textarea class="input textarea" name="destination_residence" required placeholder="ใช้ในหนังสือราชการ เช่น เมืองซูวอน จังหวัดคยองกี ประเทศเกาหลีใต้">${escapeHtml(existing?.destination_residence||"")}</textarea><span class="helper">ใช้สร้างประโยค “นักเรียนจะพักอาศัยอยู่...” ในหนังสือราชการ</span></div>
+    <div class="field"><label>หมายเหตุท้ายหนังสือราชการ (ถ้ามี)</label><textarea class="input textarea" name="official_note" placeholder="เช่น นักเรียนยังไม่ได้รับงบอุดหนุน ค่าหนังสือเรียน ค่าอุปกรณ์ และค่าเครื่องแบบนักเรียน ในปีการศึกษา ...">${escapeHtml(existing?.official_note||"")}</textarea></div></section>
+    <section class="academic-transfer-form-section"><h4>หลักฐานตามแบบฟอร์ม</h4><div class="academic-transfer-evidence-grid"><label><input type="checkbox" name="evidence_photo" ${existing?.evidence_photo?"checked":""}> รูปถ่ายนักเรียน 1.5 นิ้ว จำนวน 2 ใบ</label><label><input type="checkbox" name="evidence_birth_certificate" ${existing?.evidence_birth_certificate?"checked":""}> สำเนาสูติบัตรของนักเรียน 1 ฉบับ</label><label><input type="checkbox" name="evidence_house_registration" ${existing?.evidence_house_registration?"checked":""}> สำเนาทะเบียนบ้านของนักเรียน 1 ฉบับ</label><label><input type="checkbox" name="evidence_parent_id" ${existing?.evidence_parent_id?"checked":""}> สำเนาบัตรประชาชนบิดา/มารดา 1 ฉบับ</label><label><input type="checkbox" name="evidence_phone" ${existing?.evidence_phone?"checked":""}> เบอร์โทรผู้ปกครอง</label><label><input type="checkbox" name="evidence_other" ${existing?.evidence_other?"checked":""}> อื่น ๆ</label></div><div class="field"><label>หลักฐานอื่น ๆ (ถ้ามี)</label><input class="input" name="evidence_other_note" value="${escapeHtml(existing?.evidence_other_note||"")}"></div><div class="field"><label>ผู้ยื่นคำร้อง</label><input class="input" name="applicant_name" required value="${escapeHtml(defaultApplicant)}"></div><div class="academic-transfer-paper-note"><strong>หลักฐานฉบับกระดาษ</strong><span>ไม่ต้องอัปโหลดไฟล์ ผู้ปกครองนำหลักฐานมายื่นกับโรงเรียนโดยตรง</span></div></section>
+    <div class="modal-actions"><button class="btn btn-ghost modal-cancel" type="button">ยกเลิก</button><button class="btn btn-primary" type="submit">บันทึกแบบร่าง</button></div></form></div>`;
+  document.body.appendChild(m);const close=()=>m.remove();m.querySelector(".modal-close").onclick=close;m.querySelector(".modal-cancel").onclick=close;
+  const classEl=m.querySelector("#academic-transfer-class"),studentEl=m.querySelector("#academic-transfer-student"),snapshot=m.querySelector("#academic-transfer-student-snapshot"),reasonEl=m.querySelector("#academic-transfer-reason"),dest=m.querySelector("#academic-transfer-destination"),other=m.querySelector("#academic-transfer-other-wrap");
+  const getStudent=()=>students.find(s=>s.student_id===studentEl?.value)||initialStudent;
+  const drawStudent=()=>{const s=getStudent();if(!s){snapshot.innerHTML="";return;}snapshot.innerHTML=`<div><span>ชื่อ-สกุลนักเรียน</span><strong>${escapeHtml(academicTransferStudentName(s))}</strong></div><div><span>ชั้น</span><strong>${escapeHtml(s.class_label||existing?.class_label||"—")}</strong></div><div><span>เลขประจำตัว</span><strong>${escapeHtml(s.student_code||existing?.student_code||"—")}</strong></div><div><span>เลขประชาชน</span><strong>${escapeHtml(s.citizen_id||existing?.citizen_id||"—")}</strong></div><div><span>เกิดวันที่</span><strong>${academicRegDisplayDate(s.birth_date||existing?.birth_date)}</strong></div><div><span>บิดา</span><strong>${escapeHtml(s.father_name||existing?.father_name||"—")}</strong></div><div><span>มารดา</span><strong>${escapeHtml(s.mother_name||existing?.mother_name||"—")}</strong></div>`;if(!existing&&s.guardian_name&&!m.querySelector('[name="guardian_name"]').value)m.querySelector('[name="guardian_name"]').value=s.guardian_name;if(!existing&&s.student_address&&!m.querySelector('[name="guardian_address"]').value)m.querySelector('[name="guardian_address"]').value=s.student_address;};
+  const redrawStudents=()=>{if(!classEl||existing)return;const rows=students.filter(s=>s.class_id===classEl.value);studentEl.innerHTML=rows.map(s=>`<option value="${s.student_id}">${escapeHtml(academicTransferStudentOptionLabel(s))}</option>`).join("");drawStudent();};
+  const syncReason=()=>{const cont=reasonEl.value==="continue_study";dest.classList.toggle("hidden",!cont);other.classList.toggle("hidden",cont);};if(classEl)classEl.onchange=redrawStudents;if(studentEl)studentEl.onchange=drawStudent;reasonEl.onchange=syncReason;drawStudent();syncReason();
+  m.querySelector("#academic-transfer-form").onsubmit=async e=>{
+    e.preventDefault();const fd=new FormData(e.currentTarget),s=getStudent();if(!s&&!existing)return toast("กรุณาเลือกนักเรียน","","error");
+    const reason=String(fd.get("reason_type"));if(reason==="continue_study"&&!String(fd.get("destination_school")||"").trim())return toast("กรุณาระบุสถานศึกษาปลายทาง","","error");if(reason==="other"&&!String(fd.get("other_reason")||"").trim())return toast("กรุณาระบุเหตุผลอื่น ๆ","","error");
+    const btn=e.submitter;buttonLoading(btn,true,"กำลังบันทึก...");const student=s||{};
+    const payload={academic_year:String(existing?.academic_year||student.academic_year||state.academicRegistrationAcademicYear),semester:String(existing?.semester||student.semester||state.academicRegistrationSemester),student_id:existing?.student_id||student.student_id,request_date:fd.get("request_date"),guardian_name:String(fd.get("guardian_name")||"").trim(),contact_phone:String(fd.get("contact_phone")||"").trim(),reason_type:reason,destination_school:reason==="continue_study"?String(fd.get("destination_school")||"").trim():null,destination_district:reason==="continue_study"?String(fd.get("destination_district")||"").trim()||null:null,destination_province:reason==="continue_study"?String(fd.get("destination_province")||"").trim()||null:null,other_reason:reason==="other"?String(fd.get("other_reason")||"").trim():null,transfer_date:fd.get("transfer_date"),applicant_name:String(fd.get("applicant_name")||"").trim(),applicant_role:"guardian",evidence_photo:e.currentTarget.elements.evidence_photo.checked,evidence_birth_certificate:e.currentTarget.elements.evidence_birth_certificate.checked,evidence_house_registration:e.currentTarget.elements.evidence_house_registration.checked,evidence_parent_id:e.currentTarget.elements.evidence_parent_id.checked,evidence_phone:e.currentTarget.elements.evidence_phone.checked,evidence_other:e.currentTarget.elements.evidence_other.checked,evidence_other_note:String(fd.get("evidence_other_note")||"").trim()||null};
+    const res=await supabase.rpc("save_academic_transfer_request",{p_request_id:existing?.id||null,p_payload:payload});
+    if(res.error){buttonLoading(btn,false);return toast("บันทึกคำร้องไม่สำเร็จ",res.error.message,"error");}
+    let saved=Array.isArray(res.data)?res.data[0]:res.data;
+    const officialRes=await supabase.rpc("save_academic_transfer_official_fields",{
+      p_request_id:saved.id,
+      p_guardian_address:String(fd.get("guardian_address")||"").trim(),
+      p_destination_residence:String(fd.get("destination_residence")||"").trim(),
+      p_official_note:String(fd.get("official_note")||"").trim()||null
+    });
+    if(officialRes.error){buttonLoading(btn,false);return toast("บันทึกข้อมูลหนังสือราชการไม่สำเร็จ",officialRes.error.message,"error");}
+    saved=Array.isArray(officialRes.data)?officialRes.data[0]:officialRes.data;
+    state.academicTransferRequests=[saved,...(state.academicTransferRequests||[]).filter(x=>x.id!==saved.id)];
+    buttonLoading(btn,false);
+    state.academicRegistrationSection="transfer";
+    state.academicRegistrationAcademicYear=Number(saved.academic_year);
+    state.academicRegistrationSemester=Number(saved.semester);
+    state.selectedAcademicTransferId=saved.id;
+    close();
+    toast("บันทึกแบบร่างแล้ว",`${saved.request_code||"คำร้อง"} บันทึกและแสดงทันที` ,"success");
+    if(!academicTransferUpsertRequestDom(saved,{open:true})){
+      await renderDashboard();
+      requestAnimationFrame(()=>{location.hash=`academic-transfer-detail-${saved.id}`;});
+    }
+  };
+}
+
+async function academicTransferSaveReview(requestId,slot,modal){
+  const decision=modal.querySelector("[name=review_decision]")?.value||"pending",reason=modal.querySelector("[name=review_reason]")?.value.trim()||null;
+  const args={p_request_id:requestId,p_slot:slot,p_decision:decision,p_reason:reason,p_finance_status:null,p_finance_amount_due:null};
+  if(slot==="finance"){
+    const fs=modal.querySelector("[name=finance_status]")?.value||"pending";args.p_finance_status=fs;args.p_finance_amount_due=fs==="due"?Number(modal.querySelector("[name=finance_amount_due]")?.value||0):null;
+  }
+  const {error}=await supabase.rpc("set_academic_transfer_review",args);if(error)throw error;
+}
+async function academicTransferUploadSignatureAsset(requestId,slot,blob,mime){
+  const ext=mime==="image/png"?"png":mime==="image/webp"?"webp":"jpg",path=`transfer-signatures/${requestId}/${slot}/${crypto.randomUUID()}.${ext}`;
+  const up=await supabase.storage.from("academic-registration").upload(path,blob,{contentType:mime,upsert:false});if(up.error)throw up.error;return path;
+}
+async function academicTransferReviewModal(requestId,slot){
+  const r=academicTransferRequestById(requestId);if(!r||!academicTransferCanReviewSlotUi(slot))return;
+  const sig=academicTransferSignatureFor(requestId,slot),
+    decision=slot==="finance"?(r.finance_decision||"pending"):slot==="registrar"?r.registrar_decision:slot==="assessment"?r.assessment_decision:r.director_decision,
+    reason=slot==="finance"?r.finance_reason:slot==="registrar"?r.registrar_reason:slot==="assessment"?r.assessment_reason:r.director_reason;
+  const m=document.createElement("div");m.className="modal-backdrop";
+  m.innerHTML=`<div class="modal academic-transfer-review-modal"><div class="modal-head"><div><h3>${escapeHtml(academicTransferSlotLabel(slot))}</h3><p>บันทึกความเห็นและเลือกวิธีลงลายเซ็น</p></div><button class="modal-close">×</button></div>
+    <div class="form-grid"><div class="field"><label>ความเห็น</label><select class="select" name="review_decision"><option value="pending" ${decision==="pending"?"selected":""}>รอตรวจ</option><option value="approve" ${decision==="approve"?"selected":""}>เห็นควรอนุมัติ</option><option value="reject" ${decision==="reject"?"selected":""}>ไม่ควรอนุมัติ</option></select></div>
+    <div class="field"><label>เหตุผล / หมายเหตุ</label><input class="input" name="review_reason" value="${escapeHtml(reason||"")}"></div>
+    ${slot==="finance"?`<div class="academic-transfer-payment-box"><strong>ตรวจสอบการชำระเงิน</strong><div class="form-row"><div class="field"><label>สถานะ</label><select class="select" name="finance_status"><option value="pending" ${r.finance_status==="pending"?"selected":""}>ไม่ระบุ / ยังไม่ตรวจ</option><option value="paid" ${r.finance_status==="paid"?"selected":""}>ชำระเงินครบ</option><option value="due" ${r.finance_status==="due"?"selected":""}>ต้องชำระเงิน</option></select></div><div class="field"><label>ยอดที่ต้องชำระ (บาท)</label><input class="input" name="finance_amount_due" type="number" min="0" step="0.01" value="${escapeHtml(r.finance_amount_due??"")}"></div></div></div>`:""}
+    <div class="academic-transfer-sign-choice"><strong>วิธีลงลายเซ็น</strong><div class="signature-mode-grid"><button type="button" class="signature-mode-option" data-transfer-sign-method="paper"><strong>เซ็นสดบนกระดาษ</strong><span>PDF เว้นพื้นที่ลายเซ็นไว้</span></button><button type="button" class="signature-mode-option" data-transfer-sign-method="drawn"><strong>เซ็นสดในระบบ</strong><span>ใช้นิ้ว เมาส์ หรือปากกา</span></button><button type="button" class="signature-mode-option" data-transfer-sign-method="upload"><strong>อัปโหลดรูปภาพ</strong><span>PNG / JPG / WebP</span></button></div><div class="academic-transfer-current-sign">ปัจจุบัน: <strong>${escapeHtml(academicTransferSignatureMethodLabel(sig?.method))}</strong>${sig?.signer_name?` · ${escapeHtml(sig.signer_name)}`:""}</div><div id="academic-transfer-sign-workspace"></div></div></div>
+    <div class="modal-actions"><button class="btn btn-ghost modal-cancel">ปิด</button></div></div>`;
+  document.body.appendChild(m);const close=()=>m.remove(),work=m.querySelector("#academic-transfer-sign-workspace");m.querySelector(".modal-close").onclick=close;m.querySelector(".modal-cancel").onclick=close;
+  const saveSignature=async(method,blob=null,mime=null,button=null)=>{
+    if(button)buttonLoading(button,true,"กำลังบันทึก...");
+    let newPath=null;
+    try{
+      await academicTransferSaveReview(requestId,slot,m);
+      if(blob)newPath=await academicTransferUploadSignatureAsset(requestId,slot,blob,mime);
+      const {error}=await supabase.rpc("set_academic_transfer_signature",{p_request_id:requestId,p_slot:slot,p_method:method,p_storage_path:newPath});if(error)throw error;
+      if(sig?.storage_path&&sig.storage_path!==newPath)await supabase.storage.from(sig.bucket||"academic-registration").remove([sig.storage_path]);
+      toast("บันทึกส่วนเจ้าหน้าที่แล้ว",`${academicTransferSlotLabel(slot)} · ${academicTransferSignatureMethodLabel(method)}`,"success");close();await refreshAcademicRegistrationWorkspace({requestId});
+    }catch(err){if(newPath)await supabase.storage.from("academic-registration").remove([newPath]);toast("บันทึกไม่สำเร็จ",err.message||String(err),"error");}
+    finally{if(button)buttonLoading(button,false);}
+  };
+  m.querySelectorAll("[data-transfer-sign-method]").forEach(btn=>btn.onclick=()=>{
+    const method=btn.dataset.transferSignMethod;
+    if(method==="paper"){work.innerHTML=`<div class="academic-transfer-sign-ready"><span>จะเว้นช่องลายเซ็นไว้สำหรับเซ็นหลังพิมพ์</span><button class="btn btn-primary" id="academic-transfer-save-paper">บันทึกความเห็นและเลือกเซ็นบนกระดาษ</button></div>`;work.querySelector("#academic-transfer-save-paper").onclick=e=>saveSignature("paper",null,null,e.target);}
+    else if(method==="drawn"){work.innerHTML=`<div class="signature-canvas-wrap"><canvas id="signature-canvas" width="900" height="300"></canvas></div><div class="signature-canvas-actions"><span>เซ็นในกรอบด้านบน</span><button class="btn btn-ghost" id="signature-clear" type="button">ล้าง</button><button class="btn btn-primary" id="academic-transfer-save-drawn" type="button">บันทึกความเห็นและลายเซ็น</button></div>`;setupSignatureCanvas(m);work.querySelector("#academic-transfer-save-drawn").onclick=async e=>{if(!m._signatureHasInk?.())return toast("ยังไม่มีลายเซ็น","กรุณาเซ็นก่อนบันทึก","error");const blob=await canvasBlob(work.querySelector("#signature-canvas"));await saveSignature("drawn",blob,"image/png",e.target);};}
+    else{work.innerHTML=`<div class="field"><label>เลือกรูปลายเซ็น</label><input class="input" id="academic-transfer-sign-file" type="file" accept="image/png,image/jpeg,image/webp"><div class="academic-transfer-local-preview" id="academic-transfer-sign-file-preview"><span>ยังไม่ได้เลือกไฟล์</span></div></div><button class="btn btn-primary" id="academic-transfer-save-upload">บันทึกความเห็นและลายเซ็น</button>`;const inp=work.querySelector("#academic-transfer-sign-file"),prev=work.querySelector("#academic-transfer-sign-file-preview");inp.onchange=()=>{const f=inp.files[0];prev.innerHTML=f?`<div><strong>${escapeHtml(f.name)}</strong><small>เลือกแล้ว · ${(f.size/1024/1024).toFixed(2)} MB</small></div>`:`<span>ยังไม่ได้เลือกไฟล์</span>`;};work.querySelector("#academic-transfer-save-upload").onclick=async e=>{const f=inp.files[0];if(!f)return toast("กรุณาเลือกไฟล์ลายเซ็น","","error");await saveSignature("upload",f,f.type,e.target);};}
+  });
+}
+
+async function academicTransferUploadFiles(requestId,files){
+  if(!files?.length)return [];let sort=academicTransferFilesFor(requestId).length,inserted=[];
+  for(const file of files){
+    if(file.type!=="application/pdf"&&!String(file.name).toLowerCase().endsWith(".pdf"))throw new Error(`${file.name} ไม่ใช่ไฟล์ PDF`);
+    const path=`transfer/${requestId}/${String(sort+1).padStart(2,"0")}-${crypto.randomUUID()}.pdf`;
+    const up=await supabase.storage.from("academic-registration").upload(path,file,{contentType:"application/pdf",upsert:false});if(up.error)throw up.error;
+    const meta=await supabase.from("academic_transfer_request_files").insert({request_id:requestId,bucket:"academic-registration",storage_path:path,file_name:file.name,mime_type:"application/pdf",file_size:file.size,sort_order:sort++,created_by:state.user.id}).select().single();
+    if(meta.error){await supabase.storage.from("academic-registration").remove([path]);throw meta.error;}
+    inserted.push(meta.data);
+    state.academicTransferFiles=[...(state.academicTransferFiles||[]).filter(x=>x.id!==meta.data.id),meta.data];
+  }
+  return inserted;
+}
+async function academicTransferDeleteFile(fileId){const f=(state.academicTransferFiles||[]).find(x=>x.id===fileId);if(!f||!confirm(`ลบ ${f.file_name} ใช่หรือไม่?`))return;const rm=await supabase.storage.from(f.bucket||"academic-registration").remove([f.storage_path]);if(rm.error)return toast("ลบไฟล์ไม่สำเร็จ",rm.error.message,"error");const {error}=await supabase.from("academic_transfer_request_files").delete().eq("id",f.id);if(error)return toast("ลบข้อมูลไฟล์ไม่สำเร็จ",error.message,"error");state.academicTransferFiles=(state.academicTransferFiles||[]).filter(x=>x.id!==f.id);toast("ลบไฟล์แล้ว","","success");await refreshAcademicRegistrationWorkspace({requestId:f.request_id});}
+async function academicTransferOpenFile(fileId){
+  const f=(state.academicTransferFiles||[]).find(x=>x.id===fileId);if(!f)return toast("ไม่พบไฟล์","","error");
+  const popup=window.open("about:blank","_blank");
+  try{
+    const signed=await supabase.storage.from(f.bucket||"academic-registration").createSignedUrl(f.storage_path,120);
+    if(!signed.error&&signed.data?.signedUrl){
+      if(popup)popup.location.href=signed.data.signedUrl;
+      else window.location.href=signed.data.signedUrl;
+      return;
+    }
+    const dl=await supabase.storage.from(f.bucket||"academic-registration").download(f.storage_path);
+    if(dl.error)throw dl.error;
+    const url=URL.createObjectURL(dl.data);
+    if(popup)popup.location.href=url;else window.open(url,"_blank");
+    setTimeout(()=>URL.revokeObjectURL(url),120000);
+  }catch(error){
+    if(popup)popup.close();
+    toast("เปิดไฟล์ไม่สำเร็จ",error.message||String(error),"error");
+  }
+}
+async function academicTransferDownloadFile(fileId){const f=(state.academicTransferFiles||[]).find(x=>x.id===fileId);if(!f)return;const {data,error}=await supabase.storage.from(f.bucket||"academic-registration").download(f.storage_path);if(error)return toast("ดาวน์โหลดไม่สำเร็จ",error.message,"error");downloadBlob(data,f.file_name);}
+async function academicTransferApproveAll(requestId){
+  const r=academicTransferRequestById(requestId);if(!r)return;
+  if(!confirm(`ยืนยัน “อนุมัติทุกส่วน” สำหรับ ${r.student_name} ?\nระบบจะตั้งผลตรวจของครูการเงิน ครูทะเบียน ครูวัดผล และผู้บริหารเป็นอนุมัติ และเปิดสิทธิ์ออกหนังสือราชการ`))return;
+  const {data,error}=await supabase.rpc("approve_all_academic_transfer_request",{p_request_id:requestId});
+  if(error)return toast("อนุมัติทั้งหมดไม่สำเร็จ",error.message,"error");
+  const row=Array.isArray(data)?data[0]:data;
+  if(row)state.academicTransferRequests=[row,...(state.academicTransferRequests||[]).filter(x=>x.id!==row.id)];
+  toast("อนุมัติทุกส่วนแล้ว","สามารถ Export “ผลจากการกรอกใบย้ายสถานศึกษา” ได้แล้ว","success");
+  await renderDashboard();
+  requestAnimationFrame(()=>{location.hash=`academic-transfer-detail-${requestId}`;});
+}
+
+async function academicTransferSubmit(requestId){if(!confirm("ยืนยันยื่นคำร้อง? หลังยื่นแล้วผู้สร้างจะไม่สามารถแก้ไขแบบร่างได้ เว้นแต่ครูทะเบียน"))return;const {data,error}=await supabase.rpc("submit_academic_transfer_request",{p_request_id:requestId});if(error)return toast("ยื่นคำร้องไม่สำเร็จ",error.message,"error");const row=Array.isArray(data)?data[0]:data;if(row)state.academicTransferRequests=[row,...(state.academicTransferRequests||[]).filter(x=>x.id!==row.id)];toast("ยื่นคำร้องแล้ว","หน้าจออัปเดตสถานะแล้วโดยไม่ต้องรีโหลด","success");await refreshAcademicRegistrationWorkspace({requestId});}
+async function academicTransferDeleteRequest(requestId){
+  const r=academicTransferRequestById(requestId);if(!r)return toast("ไม่พบคำร้อง","","error");
+  if(!confirm(`ยืนยันลบคำร้อง ${r.request_code||""} ของ ${r.student_name||"นักเรียน"} ?\nการลบนี้ไม่สามารถย้อนกลับได้`))return;
+  try{
+    const [{data:legacyFiles},{data:signatures}]=await Promise.all([
+      supabase.from("academic_transfer_request_files").select("bucket,storage_path").eq("request_id",requestId),
+      supabase.from("academic_transfer_request_signatures").select("bucket,storage_path").eq("request_id",requestId)
+    ]);
+    const byBucket=new Map();[...(legacyFiles||[]),...(signatures||[])].filter(x=>x?.storage_path).forEach(x=>{const b=x.bucket||"academic-registration";if(!byBucket.has(b))byBucket.set(b,[]);byBucket.get(b).push(x.storage_path);});
+    for(const [bucket,paths] of byBucket){if(paths.length)await supabase.storage.from(bucket).remove(paths);}
+    const {error}=await supabase.from("academic_transfer_requests").delete().eq("id",requestId);if(error)throw error;
+    state.academicTransferRequests=(state.academicTransferRequests||[]).filter(x=>x.id!==requestId);state.academicTransferSignatures=(state.academicTransferSignatures||[]).filter(x=>x.request_id!==requestId);state.selectedAcademicTransferId=null;
+    document.querySelector(`[data-transfer-request-id="${requestId}"]`)?.remove();document.getElementById(`academic-transfer-detail-${requestId}`)?.remove();
+    location.hash="academic-transfer-list";
+    toast("ลบคำร้องแล้ว",r.request_code||"","success");
+  }catch(err){toast("ลบคำร้องไม่สำเร็จ",err.message||String(err),"error");}
+}
+
+
+
+async function academicTransferPdfSigners(){
+  const {data,error}=await supabase.rpc("get_academic_registration_signers");
+  if(error)throw error;
+  return Object.fromEntries((data||[]).map(x=>[x.signer_slot,x]));
+}
+
+async function academicTransferPdfSignatureData(requestId){
+  const {data,error}=await supabase.from("academic_transfer_request_signatures").select("*").eq("request_id",requestId);
+  if(error)throw error;
+  const out={};
+  for(const sig of data||[]){
+    let image_data_url=null;
+    if(sig.method!=="paper"&&sig.storage_path){
+      const dl=await supabase.storage.from(sig.bucket||"academic-registration").download(sig.storage_path);
+      if(!dl.error&&dl.data)image_data_url=await blobToDataUrl(dl.data);
+    }
+    out[sig.signer_slot]={...sig,image_data_url};
+  }
+  return out;
+}
+
+function academicTransferPdfCheckbox(checked,label){
+  return `<span class="transfer-doc-check"><i>${checked?"✓":""}</i><span>${label}</span></span>`;
+}
+
+function academicTransferPdfSignerBox({slot,title,decision,reason,finance_status,finance_amount_due,showDecision=true},signers,signatures){
+  const assigned=signers[slot]||{},sig=signatures[slot]||{};
+  const displayName=sig.signer_name||assigned.full_name||"—";
+  const signatureHtml=sig.image_data_url
+    ? `<img class="transfer-doc-signature-image" src="${sig.image_data_url}" alt="ลายเซ็น ${escapeHtml(displayName)}">`
+    : `<div class="transfer-doc-signature-space"></div>`;
+  const financeHtml=slot==="finance"&&finance_status&&finance_status!=="pending"
+    ? `<div class="transfer-doc-mini">${academicTransferPdfCheckbox(finance_status==="paid","ชำระเงินครบ")}${academicTransferPdfCheckbox(finance_status==="due",`ต้องชำระเงิน ${finance_status==="due"?academicRegPdfText(Number(finance_amount_due||0).toLocaleString("th-TH")):""} บาท`)}</div>`
+    : "";
+  return `<section class="transfer-doc-approval-box">
+    <strong class="transfer-doc-box-title">${escapeHtml(title)}</strong>
+    ${financeHtml}
+    ${showDecision?`<div class="transfer-doc-mini">${academicTransferPdfCheckbox(decision==="approve","เห็นควรอนุมัติ")}${academicTransferPdfCheckbox(decision==="reject","ไม่ควรอนุมัติ")}</div>${decision==="reject"&&reason?`<div class="transfer-doc-reason">เพราะ ${escapeHtml(academicRegPdfText(reason))}</div>`:`<div class="transfer-doc-reason">&nbsp;</div>`}`:`<div class="transfer-doc-reason">&nbsp;</div>`}
+    <div class="transfer-doc-signature">
+      ${signatureHtml}
+      <div>ลงชื่อ ....................................................................</div>
+      <div class="transfer-doc-signer-name">( ${escapeHtml(displayName)} )</div>
+      <div class="transfer-doc-signer-role">${escapeHtml(title)}</div>
+    </div>
+  </section>`;
+}
+
+function academicTransferPdfDocumentHtml(r,signers,signatures){
+  const rq=academicRegThaiDateParts(r.request_date),tr=academicRegThaiDateParts(r.transfer_date),bd=academicRegThaiDateParts(r.birth_date);
+  const reasonStudy=r.reason_type==="continue_study";
+  const evOther=r.evidence_other&&r.evidence_other_note?`อื่น ๆ ${escapeHtml(academicRegPdfText(r.evidence_other_note))}`:"อื่น ๆ โปรดระบุ";
+  return `<div class="academic-transfer-pdf-document">
+    <div class="transfer-doc-content">
+    <header class="transfer-doc-header">
+      <img class="transfer-doc-logo" src="./school-logo.png" alt="ตราโรงเรียน">
+      <h1>คำร้องขอย้ายสถานศึกษา</h1>
+      <div class="transfer-doc-school-address"><strong>${escapeHtml(schoolName())}</strong><br>${escapeHtml(schoolAddress())}</div>
+    </header>
+
+    <div class="transfer-doc-date">วันที่ <span>${rq.day}</span> เดือน <span>${rq.month}</span> พ.ศ. <span>${rq.year}</span></div>
+    <div class="transfer-doc-lines">
+      <div><b>เรื่อง</b><span>ขอย้ายสถานศึกษา</span></div>
+      <div><b>เรียน</b><span>ผู้อำนวยการ${escapeHtml(schoolName())}</span></div>
+    </div>
+
+    <h2 class="transfer-doc-section-title">ส่วนของครูประจำชั้น / ผู้ปกครองกรอกข้อความ</h2>
+
+    <div class="transfer-doc-paragraph">
+      ข้าพเจ้า <span class="transfer-doc-field w-guardian">${escapeHtml(r.guardian_name||"")}</span>
+      เป็นผู้ปกครองของ <span class="transfer-doc-field w-student">${escapeHtml(r.student_name||"")}</span>
+    </div>
+    <div class="transfer-doc-grid cols-4">
+      <div><label>นักเรียนชั้น</label><span>${escapeHtml(r.class_label||"")}</span></div>
+      <div><label>ปีการศึกษา</label><span>${academicRegPdfText(r.academic_year||"")}</span></div>
+      <div><label>เลขที่</label><span>${academicRegPdfText(r.student_number??"")}</span></div>
+      <div><label>เลขประจำตัว</label><span>${academicRegPdfText(r.student_code||"")}</span></div>
+    </div>
+    <div class="transfer-doc-grid cols-2">
+      <div><label>เกิดวันที่</label><span>${bd.day} ${bd.month} ${bd.year}</span></div>
+      <div><label>เบอร์โทรที่ติดต่อได้</label><span>${academicRegPdfText(r.contact_phone||"")}</span></div>
+      <div class="span-2"><label>เลขประจำตัวประชาชน</label><span>${academicRegPdfText(r.citizen_id||"")}</span></div>
+      <div><label>ชื่อ-สกุลบิดา</label><span>${escapeHtml(r.father_name||"—")}</span></div>
+      <div><label>ชื่อ-สกุลมารดา</label><span>${escapeHtml(r.mother_name||"—")}</span></div>
+    </div>
+
+    <div class="transfer-doc-reason-block">
+      <div class="transfer-doc-label">มีความประสงค์ให้นักเรียนย้ายสถานศึกษาเพราะ</div>
+      <div>${academicTransferPdfCheckbox(reasonStudy,`ศึกษาต่อ ณ ${reasonStudy?escapeHtml(r.destination_school||""):""} อำเภอ ${reasonStudy?escapeHtml(r.destination_district||""):""} จังหวัด ${reasonStudy?escapeHtml(r.destination_province||""):""}`)}</div>
+      <div>${academicTransferPdfCheckbox(!reasonStudy,`อื่น ๆ ${!reasonStudy?escapeHtml(academicRegPdfText(r.other_reason||"")):""}`)}</div>
+    </div>
+
+    <div class="transfer-doc-paragraph">
+      จึงขอย้ายสถานศึกษาตั้งแต่วันที่ <span class="transfer-doc-field w-date">${tr.day}</span>
+      เดือน <span class="transfer-doc-field w-month">${tr.month}</span>
+      พ.ศ. <span class="transfer-doc-field w-year">${tr.year}</span>
+    </div>
+
+    <div class="transfer-doc-evidence">
+      <strong>ซึ่งแนบหลักฐานฉบับกระดาษ ดังรายการต่อไปนี้</strong>
+      <div class="transfer-doc-evidence-grid">
+        ${academicTransferPdfCheckbox(r.evidence_photo,"๑. รูปถ่ายของนักเรียน ๑.๕ นิ้ว จำนวน ๒ ใบ")}
+        ${academicTransferPdfCheckbox(r.evidence_birth_certificate,"๒. สำเนาสูติบัตรของนักเรียน จำนวน ๑ ฉบับ")}
+        ${academicTransferPdfCheckbox(r.evidence_house_registration,"๓. สำเนาทะเบียนบ้านของนักเรียน จำนวน ๑ ฉบับ")}
+        ${academicTransferPdfCheckbox(r.evidence_parent_id,"๔. สำเนาบัตรประจำตัวประชาชนของบิดา/มารดา จำนวน ๑ ฉบับ")}
+        ${academicTransferPdfCheckbox(r.evidence_phone,`๕. เบอร์โทรผู้ปกครอง ${academicRegPdfText(r.contact_phone||"")}`)}
+        ${academicTransferPdfCheckbox(r.evidence_other,`๖. ${evOther}`)}
+      </div>
+    </div>
+
+    <div class="transfer-doc-request-close">
+      <div>จึงเรียนมาเพื่อโปรดพิจารณาตรวจสอบความถูกต้องและออกเอกสารดังกล่าว</div>
+      <div class="transfer-doc-applicant">
+        <div>ลงชื่อ .................................................................... ผู้ยื่นคำร้อง</div>
+        <div>( ${escapeHtml(r.applicant_name||r.guardian_name||"")} )</div>
+      </div>
+    </div>
+
+    <div class="transfer-doc-approval-grid">
+      ${academicTransferPdfSignerBox({slot:"finance",title:"ครูการเงิน / เจ้าหน้าที่การเงิน",decision:r.finance_decision||"pending",reason:r.finance_reason,finance_status:r.finance_status,finance_amount_due:r.finance_amount_due},signers,signatures)}
+      ${academicTransferPdfSignerBox({slot:"registrar",title:"ครูทะเบียน",decision:r.registrar_decision,reason:r.registrar_reason},signers,signatures)}
+      ${academicTransferPdfSignerBox({slot:"assessment",title:"ครูวัดและประเมินผล",decision:r.assessment_decision,reason:r.assessment_reason},signers,signatures)}
+      ${academicTransferPdfSignerBox({slot:"director",title:"ผู้บริหารสถานศึกษา",decision:r.director_decision,reason:r.director_reason},signers,signatures)}
+    </div>
+
+    <footer class="transfer-doc-note"><b>หมายเหตุ***</b> ในการจัดทำเอกสารการย้ายสถานศึกษาอาจใช้ระยะเวลา ๗ - ๑๐ วัน ในวันทำการ</footer>
+    </div>
+  </div>`;
+}
+
+async function academicTransferWaitImages(root){
+  const images=[...root.querySelectorAll("img")];
+  await Promise.all(images.map(img=>img.complete?Promise.resolve():new Promise(resolve=>{img.onload=resolve;img.onerror=resolve;})));
+}
+
+
+function academicTransferFitPdfToOnePage(doc){
+  const content=doc.querySelector(".transfer-doc-content");if(!content)return 1;
+  const cs=getComputedStyle(doc);
+  const availableWidth=doc.clientWidth-(parseFloat(cs.paddingLeft)||0)-(parseFloat(cs.paddingRight)||0);
+  const availableHeight=doc.clientHeight-(parseFloat(cs.paddingTop)||0)-(parseFloat(cs.paddingBottom)||0);
+
+  content.style.transform="none";
+  content.style.transformOrigin="top left";
+  content.style.width="100%";
+
+  let scale=1;
+  for(let i=0;i<5;i++){
+    content.style.width=`${100/scale}%`;
+    content.style.transform="none";
+    const naturalWidth=Math.max(content.scrollWidth,1);
+    const naturalHeight=Math.max(content.scrollHeight,1);
+    const next=Math.min(1,availableWidth/naturalWidth,availableHeight/naturalHeight);
+    if(Math.abs(next-scale)<0.002){scale=next;break;}
+    scale=next;
+  }
+
+  // Small safety allowance so text/borders never spill below the A4 printable box.
+  scale=Math.max(0.78,Math.min(1,scale*0.992));
+  content.style.width=`${100/scale}%`;
+  content.style.transform=`scale(${scale})`;
+  content.dataset.fitScale=scale.toFixed(4);
+  return scale;
+}
+
+async function academicTransferBuildPdf(requestId,includeEvidence=false){
+  const r=academicTransferRequestById(requestId);if(!r)throw new Error("ไม่พบคำร้อง");
+  const [signers,signatures]=await Promise.all([academicTransferPdfSigners(),academicTransferPdfSignatureData(requestId)]);
+  const host=document.createElement("div");host.className="academic-transfer-pdf-host";
+  host.innerHTML=academicTransferPdfDocumentHtml(r,signers,signatures);document.body.appendChild(host);
+  try{
+    if(document.fonts){
+      const fontReady=Promise.allSettled([
+        document.fonts.ready,
+        document.fonts.load('18px "TH SarabunIT๙"'),
+        document.fonts.load('18px "THSarabunIT๙"'),
+        document.fonts.load('18px "TH SarabunPSK"')
+      ]);
+      await Promise.race([
+        fontReady,
+        new Promise(resolve=>setTimeout(resolve,1800))
+      ]);
+    }
+    await Promise.race([
+      academicTransferWaitImages(host),
+      new Promise(resolve=>setTimeout(resolve,1200))
+    ]);
+    const doc=host.querySelector(".academic-transfer-pdf-document");
+    academicTransferFitPdfToOnePage(doc);
+    // Force layout synchronously. Do not wait for animation frames here:
+    // browsers can suspend those callbacks when this tab is moved to the background.
+    void doc.offsetHeight;
+    const content=doc.querySelector(".transfer-doc-content");
+    if(content)void content.offsetHeight;
+    const canvas=await html2canvas(doc,{scale:2.5,backgroundColor:"#ffffff",logging:false,useCORS:true});
+    const pdf=new jsPDF({orientation:"portrait",unit:"mm",format:"a4",compress:true});
+    pdf.addImage(canvas.toDataURL("image/jpeg",0.97),"JPEG",0,0,210,297);
+    return pdf.output("blob");
+  }finally{host.remove();}
+}
+
+async function academicTransferExport(requestId,includeEvidence=false){
+  const r=academicTransferRequestById(requestId);if(!r)return toast("ไม่พบคำร้อง","","error");
+  const preview=window.open("about:blank","_blank");
+  if(preview){
+    try{
+      preview.document.title="กำลังสร้าง PDF";
+      preview.document.body.innerHTML='<div style="font-family:sans-serif;padding:28px">กำลังสร้าง PDF ใบคำร้องจาก BNK School OS กรุณารอสักครู่...</div>';
+      preview.blur();
+      window.focus();
+    }catch{}
+  }
+  const btn=document.querySelector(`[data-academic-transfer-export-one="${requestId}"]`);buttonLoading(btn,true,"กำลังสร้าง PDF...");
+  try{
+    const blob=await academicTransferBuildPdf(requestId,false),name=`คำร้องใบย้าย_${academicRegSafeFileBase(r.student_name)}_${academicRegSafeFileBase(r.request_code)}.pdf`,url=URL.createObjectURL(blob);
+    if(preview){
+      preview.location.replace(url);
+      try{preview.focus();}catch{}
+      setTimeout(()=>URL.revokeObjectURL(url),300000);
+    }else{
+      downloadBlob(blob,name);
+    }
+    toast("สร้าง PDF เรียบร้อย",preview?"เปิด PDF ในแท็บใหม่แล้ว สามารถบันทึกหรือพิมพ์ได้":"ดาวน์โหลดใบคำร้อง A4 1 หน้าแล้ว","success");
+  }catch(err){if(preview)preview.close();console.error(err);toast("สร้าง PDF ไม่สำเร็จ",err?.message||"เกิดข้อผิดพลาด","error");}
+  finally{buttonLoading(btn,false);}
+}
+
+
+function academicTransferOfficialDocumentHtml(r,signers){
+  const finalized=academicRegThaiDateParts(r.finalized_at||new Date().toISOString());
+  const born=academicRegThaiDateParts(r.birth_date);
+  const director=signers?.director||{};
+  const settings=state.academicRegistrationSettings||{};
+  const directorName=director.full_name&&director.full_name!=="—"?director.full_name:"........................................................";
+  const directorPosition=settings.official_director_position_text||`ผู้อำนวยการ${schoolName()}`;
+  const schoolAddressText=settings.official_school_address_text||schoolAddress();
+  const groupText=settings.official_registration_group_text||"กลุ่มงานทะเบียน";
+  const phoneText=settings.official_phone_text||"";
+  const reasonText=r.reason_type==="other"?(r.other_reason||"ย้ายสถานศึกษา"):"ย้ายสถานศึกษาเพื่อศึกษาต่อ";
+  const destinationSchool=r.destination_school||"สถานศึกษาปลายทาง";
+  return `<div class="academic-transfer-official-document">
+    <div class="official-transfer-content">
+      <header class="official-transfer-header"><img src="./assets/academic-registration/garuda-official.png" alt="ตราครุฑ"></header>
+      <div class="official-transfer-topline">
+        <div class="official-transfer-number">ที่ ศธ ........................................................</div>
+        <div class="official-transfer-address">${academicTransferOfficialSchoolAddressHtml(schoolAddressText)}</div>
+      </div>
+      <div class="official-transfer-date">${finalized.day} ${finalized.month} ${finalized.year}</div>
+      <div class="official-transfer-meta"><div><b>เรื่อง</b><span>ส่งนักเรียนขอย้ายมาเข้าเรียน</span></div><div><b>เรียน</b><span>ผู้อำนวยการโรงเรียน</span></div></div>
+      <div class="official-transfer-body">
+        <p>ด้วย${escapeHtml(r.guardian_name||"")} ที่อยู่ ${escapeHtml(academicRegPdfText(r.guardian_address||""))} มีความประสงค์ขอย้ายนักเรียนในปกครองซึ่งเรียนอยู่ในโรงเรียนนี้ ไปเข้าเรียน${escapeHtml(destinationSchool)} ดังนี้</p>
+        <p class="official-transfer-indent">${escapeHtml(r.student_name||"")} เลขประจำตัวประชาชน ${academicRegPdfText(r.citizen_id||"")} เกิดวันที่ ${born.day} เดือน ${born.month} พ.ศ. ${born.year} นักเรียนชั้น${academicRegFormalClassLabel(r.class_label)}</p>
+        <p>ทั้งนี้เนื่องจาก ${escapeHtml(reasonText)} และการย้ายไปเข้าเรียนในโรงเรียนดังกล่าวนักเรียนจะพักอาศัยอยู่${escapeHtml(academicRegPdfText(r.destination_residence||""))}</p>
+        <p>จึงเรียนมาเพื่อโปรดทราบและพิจารณาดำเนินการต่อไป</p>
+      </div>
+      <div class="official-transfer-signoff">
+        <div>ขอแสดงความนับถือ</div>
+        <div class="official-transfer-sign-space"></div>
+        <div>( ${escapeHtml(directorName)} )</div>
+        <div>${escapeHtml(directorPosition)}</div>
+      </div>
+      <div class="official-transfer-footer">
+        <div>${escapeHtml(groupText)}</div>
+        ${phoneText?`<div>โทร. ${escapeHtml(academicRegPdfText(phoneText))}</div>`:""}
+      </div>
+      ${r.official_note?`<div class="official-transfer-note"><b>หมายเหตุ</b> ${escapeHtml(academicRegPdfText(r.official_note))}</div>`:""}
+    </div>
+  </div>`;
+}
+
+function academicTransferFitOfficialToOnePage(doc){
+  const content=doc.querySelector(".official-transfer-content");if(!content)return 1;
+  const cs=getComputedStyle(doc);
+  const aw=doc.clientWidth-(parseFloat(cs.paddingLeft)||0)-(parseFloat(cs.paddingRight)||0);
+  const ah=doc.clientHeight-(parseFloat(cs.paddingTop)||0)-(parseFloat(cs.paddingBottom)||0);
+  content.style.transform="none";content.style.transformOrigin="top left";content.style.width="100%";
+  let scale=1;
+  for(let i=0;i<4;i++){
+    content.style.width=`${100/scale}%`;
+    const nw=Math.max(content.scrollWidth,1),nh=Math.max(content.scrollHeight,1);
+    const next=Math.min(1,aw/nw,ah/nh);
+    if(Math.abs(next-scale)<0.002){scale=next;break;}scale=next;
+  }
+  scale=Math.max(.82,Math.min(1,scale*.994));
+  content.style.width=`${100/scale}%`;content.style.transform=`scale(${scale})`;return scale;
+}
+
+async function academicTransferBuildOfficialPdf(requestId){
+  const r=academicTransferRequestById(requestId);if(!r)throw new Error("ไม่พบคำร้อง");
+  if(r.status!=="approved")throw new Error("ต้องอนุมัติทุกส่วนก่อนจึงจะออกหนังสือราชการได้");
+  const signers=await academicTransferPdfSigners();
+  const host=document.createElement("div");host.className="academic-transfer-official-host";
+  host.innerHTML=academicTransferOfficialDocumentHtml(r,signers);document.body.appendChild(host);
+  try{
+    if(document.fonts){
+      await Promise.race([
+        Promise.allSettled([document.fonts.ready,document.fonts.load('20px "TH SarabunIT๙"'),document.fonts.load('20px "THSarabunIT๙"')]),
+        new Promise(resolve=>setTimeout(resolve,1800))
+      ]);
+    }
+    await Promise.race([academicTransferWaitImages(host),new Promise(resolve=>setTimeout(resolve,1200))]);
+    const doc=host.querySelector(".academic-transfer-official-document");academicTransferFitOfficialToOnePage(doc);void doc.offsetHeight;
+    const canvas=await html2canvas(doc,{scale:2.5,backgroundColor:"#ffffff",logging:false,useCORS:true});
+    const pdf=new jsPDF({orientation:"portrait",unit:"mm",format:"a4",compress:true});pdf.addImage(canvas.toDataURL("image/jpeg",.98),"JPEG",0,0,210,297);
+    return pdf.output("blob");
+  }finally{host.remove();}
+}
+
+async function academicTransferExportOfficial(requestId){
+  const r=academicTransferRequestById(requestId);if(!r)return;
+  const preview=window.open("about:blank","_blank");
+  if(preview){try{preview.document.title="กำลังสร้างหนังสือราชการ";preview.document.body.innerHTML='<div style="font-family:sans-serif;padding:28px">กำลังสร้าง “ผลจากการกรอกใบย้ายสถานศึกษา” กรุณารอสักครู่...</div>';preview.blur();window.focus();}catch{}}
+  const btn=document.querySelector(`[data-academic-transfer-export-official="${requestId}"]`);buttonLoading(btn,true,"กำลังสร้าง...");
+  try{
+    const blob=await academicTransferBuildOfficialPdf(requestId),name=`ผลจากการกรอกใบย้ายสถานศึกษา_${academicRegSafeFileBase(r.student_name)}.pdf`,url=URL.createObjectURL(blob);
+    if(preview){preview.location.replace(url);try{preview.focus();}catch{}setTimeout(()=>URL.revokeObjectURL(url),300000);}else downloadBlob(blob,name);
+    toast("สร้างหนังสือราชการแล้ว","เว้นเลขที่ ศธ. และพื้นที่ลายเซ็นผู้บริหารไว้สำหรับเขียน/เซ็นสด","success");
+  }catch(err){if(preview)preview.close();toast("สร้างหนังสือราชการไม่สำเร็จ",err.message||String(err),"error");}
+  finally{buttonLoading(btn,false);}
+}
+
+
+
 function moduleView(code) {
   const module = state.modules.find(m => m.code === code);
   if (!module) return `<div class="empty"><strong>ไม่พบระบบย่อย</strong></div>`;
   if (code === "academic_calendar") return academicCalendarWorkspaceHtml(module);
+  if (code === "academic_registration") return academicRegistrationWorkspaceHtml(module);
   if (code === "lesson_plans") return lessonWorkspaceHtml(module);
   if (code === "personnel_records") return personnelWorkspaceHtml(module);
   if (code === "leave_management") return leaveWorkspaceHtml(module);
@@ -6547,6 +7636,12 @@ function bindDashboardEvents() {
         state.academicCalendarSemester=currentAcademicPeriod().semester;
         state.academicCalendarSection="hundred";
       }
+      if (nextView === "module:academic_registration" && state.currentView !== "module:academic_registration") {
+        state.academicRegistrationSection="home";
+        state.academicRegistrationAcademicYear=currentAcademicPeriod().academicYear;
+        state.academicRegistrationSemester=currentAcademicPeriod().semester;
+        state.selectedAcademicTransferId=null;
+      }
       if (nextView === "module:lesson_plans" && state.currentView !== "module:lesson_plans") {
         state.lessonPlanMode = null;
         state.lessonTeacherView = "all";
@@ -6599,6 +7694,17 @@ function bindDashboardEvents() {
       renderDashboard();
     });
   });
+
+
+  document.querySelector("#academic-registration-section")?.addEventListener("change",e=>{state.academicRegistrationSection=e.currentTarget.value;state.selectedAcademicTransferId=null;state.selectedAcademicCertificateId=null;renderDashboard();});
+  document.querySelectorAll("[data-academic-registration-open]").forEach(b=>b.addEventListener("click",()=>{state.academicRegistrationSection=b.dataset.academicRegistrationOpen;state.selectedAcademicTransferId=null;renderDashboard();}));
+  document.querySelector("#academic-registration-year")?.addEventListener("change",e=>{state.academicRegistrationAcademicYear=Number(e.currentTarget.value);state.selectedAcademicTransferId=null;state.selectedAcademicCertificateId=null;renderDashboard();});
+  document.querySelector("#academic-registration-semester")?.addEventListener("change",e=>{state.academicRegistrationSemester=Number(e.currentTarget.value);state.selectedAcademicTransferId=null;state.selectedAcademicCertificateId=null;renderDashboard();});
+  document.querySelector("#academic-registration-role-settings")?.addEventListener("click",()=>academicRegistrationRoleSettingsModal());
+  document.querySelector("#academic-certificate-role-settings")?.addEventListener("click",()=>academicCertificateRoleSettingsModal());
+  document.querySelector("#academic-certificate-role-settings-inline")?.addEventListener("click",()=>academicCertificateRoleSettingsModal());
+  document.querySelector("#academic-transfer-create")?.addEventListener("click",()=>academicTransferFormModal());
+  document.querySelector("#academic-certificate-create")?.addEventListener("click",()=>academicCertificateFormModal());
 
   document.querySelectorAll(".nav-toggle").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -6818,6 +7924,14 @@ function bindDashboardEvents() {
       updated_at:new Date().toISOString(),updated_by:state.user.id
     }).eq("id",1);
     if(supervisionSettingUpdate.error)return toast("ตั้งสิทธิ์ปฏิทินนิเทศไม่สำเร็จ",supervisionSettingUpdate.error.message,"error");
+    const registrationSettingUpdate = await supabase.from("academic_registration_settings").update({
+      registrar_user_id: document.querySelector("#setting-registration-registrar")?.value || null,
+      finance_user_id: document.querySelector("#setting-registration-finance")?.value || null,
+      assessment_user_id: document.querySelector("#setting-registration-assessment")?.value || null,
+      director_user_id: document.querySelector("#setting-registration-director")?.value || null,
+      updated_at:new Date().toISOString(),updated_by:state.user.id
+    }).eq("id",1);
+    if(registrationSettingUpdate.error)return toast("ตั้งผู้รับผิดชอบงานทะเบียนไม่สำเร็จ",registrationSettingUpdate.error.message,"error");
     await loadPublicData();
     await loadActiveUserData();
     toast("บันทึกการตั้งค่าแล้ว", `ระบบกำหนดปีการศึกษา ${selectedAcademicYear} ภาคเรียนที่ ${selectedSemester} เป็นค่าปัจจุบันแล้ว`, "success");
@@ -7309,6 +8423,10 @@ function subscribeRealtime() {
     .on("postgres_changes", { event: "*", schema: "public", table: "home_visit_records" }, async () => { if(state.currentView==="module:home_visit_management") await renderDashboard(); })
     .on("postgres_changes", { event: "*", schema: "public", table: "students" }, async () => { if(state.currentView==="module:student_registry"||state.currentView==="module:student_cards"||state.currentView==="module:home_visit_management") await renderDashboard(); })
     .on("postgres_changes", { event: "*", schema: "public", table: "student_enrollments" }, async () => { if(state.currentView==="module:student_registry"||state.currentView==="module:student_cards"||state.currentView==="module:home_visit_management") await renderDashboard(); })
+    .on("postgres_changes", { event: "*", schema: "public", table: "academic_transfer_requests" }, async () => { if(state.currentView==="module:academic_registration") await renderDashboard(); })
+    .on("postgres_changes", { event: "*", schema: "public", table: "academic_transfer_request_signatures" }, async () => { if(state.currentView==="module:academic_registration") await renderDashboard(); })
+    .on("postgres_changes", { event: "*", schema: "public", table: "academic_certificate_requests" }, async () => { if(state.currentView==="module:academic_registration") await renderDashboard(); })
+    .on("postgres_changes", { event: "*", schema: "public", table: "academic_certificate_request_signatures" }, async () => { if(state.currentView==="module:academic_registration") await renderDashboard(); })
     .on("postgres_changes", { event: "*", schema: "public", table: "student_cards" }, async () => { if(state.currentView==="module:student_cards") await renderDashboard(); })
     .on("postgres_changes", { event: "*", schema: "public", table: "home_visit_settings" }, async () => { if(state.currentView==="module:home_visit_management") await renderDashboard(); })
     .on("postgres_changes", { event: "*", schema: "public", table: "home_visit_household_members" }, async () => { if(state.currentView==="module:home_visit_management"&&state.selectedHomeVisitId) await renderDashboard(); })
@@ -7320,6 +8438,23 @@ function subscribeRealtime() {
 }
 
 let realtimeChannel = null;
+
+document.addEventListener("click",event=>{
+  const edit=event.target.closest?.("[data-academic-transfer-edit]");if(edit){event.preventDefault();location.hash="academic-transfer-list";return academicTransferFormModal(academicTransferRequestById(edit.dataset.academicTransferEdit));}
+  const exp=event.target.closest?.("[data-academic-transfer-export-one]");if(exp){event.preventDefault();return academicTransferExport(exp.dataset.academicTransferExportOne,false);}
+  const official=event.target.closest?.("[data-academic-transfer-export-official]");if(official){event.preventDefault();return academicTransferExportOfficial(official.dataset.academicTransferExportOfficial);}
+  const approveAll=event.target.closest?.("[data-academic-transfer-approve-all]");if(approveAll){event.preventDefault();return academicTransferApproveAll(approveAll.dataset.academicTransferApproveAll);}
+  const review=event.target.closest?.("[data-academic-transfer-review]");if(review){event.preventDefault();return academicTransferReviewModal(review.dataset.academicTransferReview,review.dataset.reviewSlot);}
+  const submit=event.target.closest?.("[data-academic-transfer-submit]");if(submit){event.preventDefault();return academicTransferSubmit(submit.dataset.academicTransferSubmit);}
+  const del=event.target.closest?.("[data-academic-transfer-delete-request]");if(del){event.preventDefault();return academicTransferDeleteRequest(del.dataset.academicTransferDeleteRequest);}
+  const certEdit=event.target.closest?.("[data-academic-certificate-edit]");if(certEdit){event.preventDefault();location.hash="academic-certificate-list";return academicCertificateFormModal(academicCertificateRequestById(certEdit.dataset.academicCertificateEdit));}
+  const certSubmit=event.target.closest?.("[data-academic-certificate-submit]");if(certSubmit){event.preventDefault();return academicCertificateSubmit(certSubmit.dataset.academicCertificateSubmit);}
+  const certApprove=event.target.closest?.("[data-academic-certificate-approve-all]");if(certApprove){event.preventDefault();return academicCertificateApproveAll(certApprove.dataset.academicCertificateApproveAll);}
+  const certDelete=event.target.closest?.("[data-academic-certificate-delete]");if(certDelete){event.preventDefault();return academicCertificateDelete(certDelete.dataset.academicCertificateDelete);}
+  const certReview=event.target.closest?.("[data-academic-certificate-review]");if(certReview){event.preventDefault();return academicCertificateReviewModal(certReview.dataset.academicCertificateReview,certReview.dataset.certificateReviewSlot);}
+  const certReq=event.target.closest?.("[data-academic-certificate-export-request]");if(certReq){event.preventDefault();return academicCertificateExport(certReq.dataset.academicCertificateExportRequest,false);}
+  const certResult=event.target.closest?.("[data-academic-certificate-export-result]");if(certResult){event.preventDefault();return academicCertificateExport(certResult.dataset.academicCertificateExportResult,true);}
+});
 
 supabase.auth.onAuthStateChange(async (event, session) => {
   state.session = session;

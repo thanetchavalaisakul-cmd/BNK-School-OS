@@ -1,0 +1,6 @@
+-- BNK School OS V10.9.9
+-- Applied to Supabase project thvusgkxhiwsilipigno
+-- Adds public.get_academic_registration_signers()
+-- Returns current registrar / assessment / director assignments with names and position titles.
+-- Used at PDF export time so responsible-person names follow current system assignments.
+-- Production migration: academic_registration_pdf_signers_v10_9_9

@@ -1,0 +1,10 @@
+-- BNK School OS V10.9.11
+-- Applied to Supabase project thvusgkxhiwsilipigno
+-- Adds finance_user_id to academic_registration_settings.
+-- Adds finance_decision / finance_reason to academic_transfer_requests.
+-- Adds finance signer slot and finance review/sign permissions.
+-- Super Admin: configures all registration roles.
+-- Registrar: can hand over registrar and configure finance officer.
+-- Academic Head: can configure finance officer.
+-- Finance officer: can view assigned transfer requests, review payment, approve/reject, and sign.
+-- Production migration: academic_registration_finance_role_v10_9_11

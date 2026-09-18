@@ -1,0 +1,12 @@
+-- BNK School OS V10.10.3
+-- Database role separation already applied in project thvusgkxhiwsilipigno:
+--   academic_certificate_settings (separate from academic_registration_settings)
+--   private.can_manage_academic_certificate()
+--   private.can_configure_academic_certificate()
+--   private.can_finalize_academic_certificate()
+--   get/set certificate role RPCs use the separate certificate settings.
+--   anon EXECUTE removed from set_academic_certificate_roles.
+-- Migrations applied:
+--   academic_certificate_separate_roles_v10_10_2
+--   academic_certificate_role_candidates_v10_10_2
+--   academic_certificate_roles_acl_v10_10_2
