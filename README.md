@@ -1,4 +1,14 @@
-# BNK School OS — Procurement v5.0.15
+# v5.0.16 — Responsive Adaptive UI
+
+- เพิ่มมาตรฐาน Responsive กลางทั้งระบบสำหรับ Desktop / Notebook / iPad / Tablet / Mobile
+- Tablet ใช้ Sidebar แบบ off-canvas พร้อมฉากหลังและปิดเมนูเมื่อเลือกหน้า
+- Mobile ปรับ Header, Hero เขียว→ทอง, Panel, Form, ปุ่ม และ Modal ให้เหมาะกับการสัมผัส
+- ตารางอ่านอย่างเดียวแปลงเป็น Card อัตโนมัติบนมือถือ; ตารางที่แก้ไขได้ยังเลื่อนแนวนอนเพื่อไม่ให้โครงสร้างข้อมูลเสีย
+- Procurement Master Form บนมือถือเป็น 1 คอลัมน์ พร้อม Section navigation แบบเลื่อนแนวนอนและ Modal เต็มจอ
+- PDF/A4 ไม่ถูกทำ Responsive และยังใช้ Layout เอกสารเดิม
+- ไม่มี SQL เพิ่มใน v5.0.16
+
+# BNK School OS — v5.0.16 Responsive Adaptive UI
 
 ฐานต่อจาก v5.0.14 โดยแก้ Procurement ให้เป็น **Shared Workspace ของโรงเรียน** อย่างสมบูรณ์
 

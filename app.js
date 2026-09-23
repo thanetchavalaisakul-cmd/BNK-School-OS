@@ -3,7 +3,7 @@ import html2canvas from "https://esm.sh/html2canvas@1.4.1";
 import { jsPDF } from "https://esm.sh/jspdf@2.5.2";
 import { PDFDocument } from "https://esm.sh/pdf-lib@1.17.1";
 import * as XLSX from "https://esm.sh/xlsx@0.18.5";
-import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, APP_NAME } from "./config.js?v=5.0.15";
+import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, APP_NAME } from "./config.js?v=5.0.16";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: {
@@ -15,7 +15,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
 
 const app = document.querySelector("#app");
 const toastRoot = document.querySelector("#toast-root");
-const APP_BUILD = "5.0.15";
+const APP_BUILD = "5.0.16";
 const OFFICIAL_PDF_FONT = "TH SarabunIT๙";
 const OFFICIAL_PDF_FONT_ALIAS = "THSarabunIT๙";
 // BNK School OS global PDF font policy: every current/future official document must
@@ -55,6 +55,63 @@ async function ensureOfficialPdfFont(size="16pt", targetDocument=document) {
   return true;
 }
 installOfficialPdfFontCss(document);
+
+// BNK v5.0.16 — adaptive responsive UI layer.
+// Read-only data tables become mobile cards automatically. Editable/complex tables keep
+// horizontal scrolling so inputs and official data structures are never distorted.
+const BNK_RESPONSIVE_TABLE_EXCLUDES = [
+  ".procurement-items-table", ".procurement-quotation-table", ".post-score-table",
+  ".lesson-unit-table", ".lesson-sat-table", ".student-followup-pick-table"
+];
+function bnkTableIsOfficialPreview(table){
+  let node=table;
+  while(node && node!==document.body){
+    const classes=String(node.className||"");
+    if(/(?:^|\s)(?:a4-|.*-pdf-|pdf-|procurement-pack|procurement-control-register)/i.test(classes)) return true;
+    node=node.parentElement;
+  }
+  return false;
+}
+function enhanceResponsiveTables(root=document){
+  const scope=root?.querySelectorAll ? root : document;
+  scope.querySelectorAll(".table-wrap > table.table").forEach(table=>{
+    if(table.dataset.bnkResponsiveReady==="1" || bnkTableIsOfficialPreview(table)) return;
+    table.dataset.bnkResponsiveReady="1";
+    const wrap=table.closest(".table-wrap");
+    const headings=[...table.querySelectorAll("thead th")].map(th=>th.textContent.trim());
+    const rows=[...table.querySelectorAll("tbody tr")];
+    const excluded=BNK_RESPONSIVE_TABLE_EXCLUDES.some(sel=>table.matches(sel));
+    const interactive=!!table.querySelector("input,select,textarea,[contenteditable='true']");
+    const complex=!headings.length || rows.some(row=>row.querySelector("[rowspan],[colspan]") || row.children.length!==headings.length);
+    if(excluded || interactive || complex){
+      table.classList.add("responsive-scroll-table");
+      wrap?.classList.add("mobile-horizontal-table");
+      return;
+    }
+    table.classList.add("responsive-card-table");
+    wrap?.classList.add("mobile-card-table-wrap");
+    rows.forEach(row=>[...row.children].forEach((cell,index)=>{
+      cell.dataset.label=headings[index]||"";
+    }));
+  });
+}
+function setMobileSidebar(open){
+  state.sidebarOpen=!!open;
+  document.querySelector(".dashboard")?.classList.toggle("sidebar-open",state.sidebarOpen);
+  document.body.classList.toggle("bnk-nav-open",state.sidebarOpen && window.matchMedia("(max-width: 1000px)").matches);
+}
+const responsiveUiObserver=new MutationObserver(mutations=>{
+  if(!mutations.some(m=>m.addedNodes?.length)) return;
+  requestAnimationFrame(()=>enhanceResponsiveTables(document));
+});
+responsiveUiObserver.observe(document.body,{childList:true,subtree:true});
+window.addEventListener("resize",()=>{
+  if(window.innerWidth>1000) document.body.classList.remove("bnk-nav-open");
+  else if(state?.sidebarOpen) document.body.classList.add("bnk-nav-open");
+});
+document.addEventListener("keydown",event=>{
+  if(event.key==="Escape" && state?.sidebarOpen) setMobileSidebar(false);
+});
 
 const state = {
   session: null,
@@ -1087,6 +1144,7 @@ async function renderDashboard() {
   app.innerHTML = `
     <div class="dashboard ${state.sidebarOpen ? "sidebar-open" : ""}">
       ${sidebarHtml()}
+      <button type="button" class="sidebar-scrim" id="sidebar-scrim" aria-label="ปิดเมนูด้านข้าง"></button>
       <main class="main">
         <header class="topbar">
           <div class="topbar-actions">
@@ -1105,6 +1163,8 @@ async function renderDashboard() {
       </main>
     </div>`;
 
+  document.body.classList.toggle("bnk-nav-open", !!state.sidebarOpen && window.matchMedia("(max-width: 1000px)").matches);
+  enhanceResponsiveTables(document);
   bindDashboardEvents();
 }
 
@@ -9978,7 +10038,7 @@ function procurementWorkspaceHtml(module){
   const total=liveCases.reduce((sum,c)=>sum+Number(c.total_amount||0),0),ready=liveCases.filter(c=>["ready","completed"].includes(c.status)).length;
   const masterNote=state.procurementMasterDataError?`<div class="project-paper-note warn"><strong>Master Data บางส่วนโหลดไม่ครบ</strong><span>${escapeHtml(state.procurementMasterDataError)}</span></div>`:"";
   return `<section class="procurement-workspace">
-    <section class="procurement-hero"><div><span class="eyebrow dark">กลุ่มงานบริหารแผนงานและงบประมาณ · Procurement v5.0.15</span><h2>ระบบจัดทำเอกสารจัดซื้อจัดจ้างและพัสดุ</h2><p>ข้อมูลกลาง 1 รายการ → Master Data + ระบบใหญ่ → PDF ตาม Excel ต้นฉบับ ${PROCUREMENT_DOCUMENTS.length} แบบ → พิมพ์และเซ็นสด</p></div><div class="procurement-hero-actions">${procurementCanManage()?`<button class="btn btn-secondary" id="procurement-settings">⚙ ตั้งค่าระบบ</button>`:""}<button class="btn btn-primary" id="procurement-create">＋ สร้างรายการใหม่</button></div></section>
+    <section class="procurement-hero"><div><span class="eyebrow dark">กลุ่มงานบริหารแผนงานและงบประมาณ · Procurement v5.0.16</span><h2>ระบบจัดทำเอกสารจัดซื้อจัดจ้างและพัสดุ</h2><p>ข้อมูลกลาง 1 รายการ → Master Data + ระบบใหญ่ → PDF ตาม Excel ต้นฉบับ ${PROCUREMENT_DOCUMENTS.length} แบบ → พิมพ์และเซ็นสด</p></div><div class="procurement-hero-actions">${procurementCanManage()?`<button class="btn btn-secondary" id="procurement-settings">⚙ ตั้งค่าระบบ</button>`:""}<button class="btn btn-primary" id="procurement-create">＋ สร้างรายการใหม่</button></div></section>
     ${masterNote}
     <div class="procurement-kpis"><article><span>รายการปี ${escapeHtml(String(state.procurementAcademicYear))}</span><strong>${academicRegThaiDigits(liveCases.length)}</strong></article><article><span>ข้อมูลพร้อม/เสร็จ</span><strong>${academicRegThaiDigits(ready)}</strong></article><article><span>ร้านค้าในทะเบียน</span><strong>${academicRegThaiDigits((state.procurementVendors||[]).filter(x=>x.is_active!==false).length)}</strong></article><article><span>วัสดุ/งานใน MyData</span><strong>${academicRegThaiDigits((state.procurementItemCatalog||[]).filter(x=>x.is_active!==false).length)}</strong></article></div>
     <section class="panel"><div class="panel-head"><div class="panel-title-wrap"><h3>รายการจัดซื้อจัดจ้าง</h3><p>ข้อมูลรายการเดียวเป็นต้นทางของเอกสารทุกใบ และ snapshot ค่าไว้ไม่ให้เอกสารเก่าเปลี่ยนย้อนหลัง</p></div><div class="procurement-toolbar"><select class="select" id="procurement-year">${procurementAcademicYearOptions(state.procurementAcademicYear)}</select><select class="select" id="procurement-status"><option value="all">ทุกสถานะ</option>${["draft","ready","processing","completed","cancelled","deleted"].map(x=>`<option value="${x}" ${status===x?"selected":""}>${procurementStatusLabel(x)}</option>`).join("")}</select><input class="input" id="procurement-search" placeholder="ค้นหาเลขที่ / เรื่อง / โครงการ / ร้านค้า" value="${escapeHtml(state.procurementSearch||"")}"></div></div>${rows.length?`<div class="procurement-case-grid">${rows.map(procurementCaseCardHtml).join("")}</div>`:`<div class="empty"><strong>ยังไม่มีรายการในปีนี้</strong><span>กด “สร้างรายการใหม่” แล้วเลือกข้อมูลจากระบบใหญ่ / shop / MyData</span></div>`}</section>
@@ -10137,12 +10197,12 @@ function procurementFormModal(c=null){
   if(!f.vat_mode)f.vat_mode="อัตโนมัติ";
   if(!f.withholding_tax_mode)f.withholding_tax_mode=f.withholding_tax==="ต้องการ"?"ต้องการ":f.withholding_tax==="ไม่ต้องการ"?"ไม่ต้องการ":"อัตโนมัติตาม Excel";
   if(!f.signer_override_mode)f.signer_override_mode="default";
-  if(!f.master_schema_version)f.master_schema_version="5.0.15";
+  if(!f.master_schema_version)f.master_schema_version="5.0.16";
   if(f.cash_advance_address&&!f.cash_advance_address_no&&!f.cash_advance_subdistrict&&!f.cash_advance_address_extra)f.cash_advance_address_extra=f.cash_advance_address;
   if(!items.length)items.push({catalog_id:"",name:"",detail:"",qty:1,unit:"",unit_price:0});
   const sectionNav=PROCUREMENT_FIELD_GROUPS.map((g,i)=>`<button type="button" class="procurement-section-tab" data-procurement-section-jump="${i+1}">${i+1}. ${escapeHtml(g.title.replace(/^\d+\.\s*/,""))}</button>`).join("");
   const m=document.createElement("div");m.className="modal-backdrop";
-  m.innerHTML=`<div class="modal modal-extra-wide procurement-modal"><div class="modal-head"><div><span class="eyebrow dark">Procurement Master Form · v5.0.15</span><h3>${editing?"แก้ไขข้อมูลกลาง":"สร้างรายการจัดซื้อจัดจ้างใหม่"}</h3><p>เลือกข้อมูลที่ระบบมีอยู่แล้วจากโครงการ บุคลากร shop และ MyData แล้วกรอกเฉพาะข้อมูลของงานนี้</p><div class="procurement-excel-map-note">Master Form v5.0.15 · ใช้ข้อมูลกลางชุดเดียวกับเอกสาร 29 แบบจาก Excel และเอกสารหลังส่งมอบเพิ่มเติม 4 แบบจาก PDF ตัวอย่าง · ระบบจะเปิด Export เฉพาะเอกสารที่ข้อมูลครบ</div></div><button class="modal-close">×</button></div>
+  m.innerHTML=`<div class="modal modal-extra-wide procurement-modal"><div class="modal-head"><div><span class="eyebrow dark">Procurement Master Form · v5.0.16</span><h3>${editing?"แก้ไขข้อมูลกลาง":"สร้างรายการจัดซื้อจัดจ้างใหม่"}</h3><p>เลือกข้อมูลที่ระบบมีอยู่แล้วจากโครงการ บุคลากร shop และ MyData แล้วกรอกเฉพาะข้อมูลของงานนี้</p><div class="procurement-excel-map-note">Master Form v5.0.16 · ใช้ข้อมูลกลางชุดเดียวกับเอกสาร 29 แบบจาก Excel และเอกสารหลังส่งมอบเพิ่มเติม 4 แบบจาก PDF ตัวอย่าง · ระบบจะเปิด Export เฉพาะเอกสารที่ข้อมูลครบ</div></div><button class="modal-close">×</button></div>
   <form id="procurement-form">${procurementPersonnelDatalistHtml()}${procurementCatalogDatalistHtml()}<div class="procurement-form-livebar"><div><span>ความพร้อมข้อมูลหลัก</span><strong id="procurement-core-progress">0/${PROCUREMENT_REQUIRED_MASTER_FIELDS.length}</strong></div><div><span>เอกสารที่พร้อม</span><strong id="procurement-live-ready">0/${procurementApplicableDocumentCount({form_data:f})}</strong></div><div><span>ยอดจากรายการ</span><strong><span id="procurement-live-total">0.00</span> บาท</strong></div></div>
   <div class="procurement-section-nav">${sectionNav}<button type="button" class="procurement-section-tab" data-procurement-section-jump="10">10. ชื่อผู้ลงนาม / เซ็นสด</button><button type="button" class="procurement-section-tab" data-procurement-section-jump="11">11. รายการวัสดุ/งาน</button><button type="button" class="procurement-section-tab" data-procurement-section-jump="12">12. TOR/ตรวจรับ</button><button type="button" class="procurement-section-tab" data-procurement-section-jump="13">13. ใบเสนอราคา</button></div>
   <div class="procurement-master-form">${PROCUREMENT_FIELD_GROUPS.map((g,i)=>`<section class="procurement-form-section" id="procurement-section-${i+1}"><div class="procurement-form-section-head"><div><span class="procurement-section-no">${academicRegThaiDigits(i+1)}</span><div><h4>${escapeHtml(g.title.replace(/^\d+\.\s*/,""))}</h4><span>${escapeHtml(g.hint)}</span></div></div></div><div class="form-grid procurement-form-grid">${g.fields.map(x=>procurementFieldHtml(x,f)).join("")}</div></section>`).join("")}
@@ -10156,7 +10216,7 @@ function procurementFormModal(c=null){
   const currentForm=()=>{const fd=new FormData(formEl),out={};for(const [k,v] of fd.entries())out[k]=typeof v==="string"?v.trim():v;for(const g of PROCUREMENT_FIELD_GROUPS)for(const d of g.fields)if(d[2]==="number")out[d[0]]=out[d[0]]===""?null:Number(out[d[0]]);return out;};
   const cleanCurrentItems=()=>items.map((x,i)=>({catalog_id:x.catalog_id||null,name:String(x.name||"").trim(),detail:String(x.detail||"").trim(),qty:Number(x.qty||0),unit:String(x.unit||"").trim(),unit_price:Number(x.unit_price||0),sort_order:i+1})).filter(x=>x.name);
   const cleanQuotations=()=>quotations.map((q,i)=>({vendor_id:q.vendor_id||null,vendor_name:String(q.vendor_name||"").trim(),quote_no:String(q.quote_no||"").trim(),quote_date:q.quote_date||null,amount:Number(q.amount||0),selected:!!q.selected,sort_order:i+1})).filter(x=>x.vendor_name||x.vendor_id);
-  const refreshLive=()=>{const form=currentForm(),cleanItems=cleanCurrentItems(),sum=procurementCalcSummary(cleanItems,form),tax=procurementWithholdingDecision(form,sum.total),taxHidden=formEl.querySelector('[name="withholding_tax"]'),taxStatus=m.querySelector("#procurement-withholding-status");if(taxHidden)taxHidden.value=tax.value;if(taxStatus)taxStatus.textContent=tax.note;if(!form.withholding_tax_type&&tax.taxType){const taxType=formEl.querySelector('[name="withholding_tax_type"]');if(taxType&&!taxType.value)taxType.value=tax.taxType;}form.withholding_tax=tax.value;form.cash_advance_address=procurementCashAdvanceAddress(form);form.master_schema_version="5.0.15";form.financial_summary=procurementMasterFinancialSnapshot(cleanItems,form);const draft={title:form.title||"",total_amount:sum.total,form_data:form,items:cleanItems};subtotalEl.textContent=procurementMoney(sum.subtotal);discountEl.textContent=procurementMoney(sum.discount);vatEl.textContent=procurementMoney(sum.vat);totalEl.textContent=procurementMoney(sum.calculatedTotal);liveTotal.textContent=procurementMoney(sum.total);const coreDone=PROCUREMENT_REQUIRED_MASTER_FIELDS.filter(k=>String(form[k]??"").trim()).length;coreEl.textContent=`${academicRegThaiDigits(coreDone)}/${academicRegThaiDigits(PROCUREMENT_REQUIRED_MASTER_FIELDS.length)}`;const ready=procurementDocumentsReadyCount(draft);readyEl.textContent=`${academicRegThaiDigits(ready)}/${academicRegThaiDigits(procurementApplicableDocumentCount(draft))}`;const missing=PROCUREMENT_REQUIRED_MASTER_FIELDS.filter(k=>!String(form[k]??"").trim()),linkedWarnings=[];if(form.payment_method==="โอนเข้าบัญชี"&&!form.vendor_bank_account)linkedWarnings.push("เลือกโอนเข้าบัญชีแต่ทะเบียนผู้ขายยังไม่มีเลขบัญชี");if(form.inspection_appointment_date&&!form.inspection_location)linkedWarnings.push("มีวันนัดตรวจรับแต่ยังไม่ได้ระบุสถานที่ตรวจรับ");if(form.delivery_document_number&&!form.delivery_date)linkedWarnings.push("มีเลขเอกสารส่งมอบแต่ยังไม่ได้ระบุวันที่ส่งมอบ");const baseNote=missing.length?`ยังขาดข้อมูลหลัก: ${missing.map(procurementFieldLabel).join(" · ")} · บันทึกเป็นฉบับร่างได้`:`ข้อมูลหลักครบแล้ว`;saveNote.textContent=linkedWarnings.length?`${baseNote} · ตรวจเพิ่ม: ${linkedWarnings.join(" · ")}`:baseNote;};
+  const refreshLive=()=>{const form=currentForm(),cleanItems=cleanCurrentItems(),sum=procurementCalcSummary(cleanItems,form),tax=procurementWithholdingDecision(form,sum.total),taxHidden=formEl.querySelector('[name="withholding_tax"]'),taxStatus=m.querySelector("#procurement-withholding-status");if(taxHidden)taxHidden.value=tax.value;if(taxStatus)taxStatus.textContent=tax.note;if(!form.withholding_tax_type&&tax.taxType){const taxType=formEl.querySelector('[name="withholding_tax_type"]');if(taxType&&!taxType.value)taxType.value=tax.taxType;}form.withholding_tax=tax.value;form.cash_advance_address=procurementCashAdvanceAddress(form);form.master_schema_version="5.0.16";form.financial_summary=procurementMasterFinancialSnapshot(cleanItems,form);const draft={title:form.title||"",total_amount:sum.total,form_data:form,items:cleanItems};subtotalEl.textContent=procurementMoney(sum.subtotal);discountEl.textContent=procurementMoney(sum.discount);vatEl.textContent=procurementMoney(sum.vat);totalEl.textContent=procurementMoney(sum.calculatedTotal);liveTotal.textContent=procurementMoney(sum.total);const coreDone=PROCUREMENT_REQUIRED_MASTER_FIELDS.filter(k=>String(form[k]??"").trim()).length;coreEl.textContent=`${academicRegThaiDigits(coreDone)}/${academicRegThaiDigits(PROCUREMENT_REQUIRED_MASTER_FIELDS.length)}`;const ready=procurementDocumentsReadyCount(draft);readyEl.textContent=`${academicRegThaiDigits(ready)}/${academicRegThaiDigits(procurementApplicableDocumentCount(draft))}`;const missing=PROCUREMENT_REQUIRED_MASTER_FIELDS.filter(k=>!String(form[k]??"").trim()),linkedWarnings=[];if(form.payment_method==="โอนเข้าบัญชี"&&!form.vendor_bank_account)linkedWarnings.push("เลือกโอนเข้าบัญชีแต่ทะเบียนผู้ขายยังไม่มีเลขบัญชี");if(form.inspection_appointment_date&&!form.inspection_location)linkedWarnings.push("มีวันนัดตรวจรับแต่ยังไม่ได้ระบุสถานที่ตรวจรับ");if(form.delivery_document_number&&!form.delivery_date)linkedWarnings.push("มีเลขเอกสารส่งมอบแต่ยังไม่ได้ระบุวันที่ส่งมอบ");const baseNote=missing.length?`ยังขาดข้อมูลหลัก: ${missing.map(procurementFieldLabel).join(" · ")} · บันทึกเป็นฉบับร่างได้`:`ข้อมูลหลักครบแล้ว`;saveNote.textContent=linkedWarnings.length?`${baseNote} · ตรวจเพิ่ม: ${linkedWarnings.join(" · ")}`:baseNote;};
   const renderItems=()=>{body.innerHTML=items.map((x,i)=>`<tr data-procurement-item-row="${i}"><td>${academicRegThaiDigits(i+1)}</td><td><input class="input procurement-catalog-search" list="procurement-catalog-datalist" data-pi-catalog-search value="${escapeHtml(procurementCatalogById(x.catalog_id)?procurementCatalogSearchLabel(procurementCatalogById(x.catalog_id)):String(x.name||""))}" placeholder="พิมพ์ค้นหา MyData"></td><td><input class="input" data-pi="name" value="${escapeHtml(String(x.name||""))}"></td><td><input class="input" data-pi="detail" value="${escapeHtml(String(x.detail||""))}"></td><td><input class="input" data-pi="qty" type="number" min="0" step="0.01" value="${Number(x.qty||0)}"></td><td><input class="input" data-pi="unit" value="${escapeHtml(String(x.unit||""))}"></td><td><input class="input" data-pi="unit_price" type="number" min="0" step="0.01" value="${Number(x.unit_price||0)}"></td><td class="procurement-line-total">${procurementMoney((Number(x.qty)||0)*(Number(x.unit_price)||0))}</td><td><button type="button" class="btn btn-danger btn-small" data-pi-remove="${i}">ลบ</button></td></tr>`).join("");body.querySelectorAll("[data-pi-catalog-search]").forEach((inp,i)=>inp.onchange=()=>{const cat=procurementFindCatalogBySearch(inp.value);items[i].catalog_id=cat?.id||null;if(cat){items[i].name=cat.item_name||"";items[i].unit=cat.unit||"";if(!Number(items[i].unit_price||0))items[i].unit_price=Number(cat.reference_price||0);items[i].detail=items[i].detail||cat.description||"";renderItems();}else refreshLive();});body.querySelectorAll("input[data-pi]").forEach(inp=>inp.oninput=()=>{const row=Number(inp.closest("tr").dataset.procurementItemRow),key=inp.dataset.pi;items[row][key]=["qty","unit_price"].includes(key)?Number(inp.value||0):inp.value;inp.closest("tr").querySelector(".procurement-line-total").textContent=procurementMoney((Number(items[row].qty)||0)*(Number(items[row].unit_price)||0));refreshLive();});body.querySelectorAll("[data-pi-remove]").forEach(btn=>btn.onclick=()=>{items.splice(Number(btn.dataset.piRemove),1);if(!items.length)items.push({catalog_id:"",name:"",detail:"",qty:1,unit:"",unit_price:0});renderItems();refreshLive();});procurementBindSmartAutocomplete(body);refreshLive();};
   const renderQuotations=()=>{qbody.innerHTML=procurementQuotationRowsHtml(quotations);qbody.querySelectorAll("[data-pq]").forEach(inp=>{const row=Number(inp.closest("tr").dataset.pqRow),key=inp.dataset.pq;const apply=()=>{if(key==="amount")quotations[row][key]=Number(inp.value||0);else if(key==="selected"){quotations.forEach((q,i)=>q.selected=i===row);}else quotations[row][key]=inp.value;if(key==="vendor_id"){const v=procurementVendorById(inp.value);if(v)quotations[row].vendor_name=v.vendor_name||"";}renderQuotations();refreshLive();};inp.onchange=apply;if(!["selected","vendor_id"].includes(key))inp.oninput=()=>{if(key==="amount")quotations[row][key]=Number(inp.value||0);else quotations[row][key]=inp.value;};});qbody.querySelectorAll("[data-pq-remove]").forEach(btn=>btn.onclick=()=>{quotations.splice(Number(btn.dataset.pqRemove),1);renderQuotations();});};
   renderItems();renderQuotations();
@@ -10174,7 +10234,7 @@ function procurementFormModal(c=null){
   const signerMode=formEl.querySelector("#procurement-signer-override-mode"),signerGrid=m.querySelector("#procurement-case-signer-grid");const syncSignerMode=()=>{if(signerGrid)signerGrid.classList.toggle("is-disabled",signerMode?.value!=="override");};signerMode?.addEventListener("change",syncSignerMode);syncSignerMode();
   procurementSyncControlSelectors(formEl,refreshLive,c?.id||"");
   formEl.addEventListener("input",refreshLive);formEl.addEventListener("change",refreshLive);m.querySelectorAll("[data-procurement-section-jump]").forEach(btn=>btn.onclick=()=>m.querySelector(`#procurement-section-${btn.dataset.procurementSectionJump}`)?.scrollIntoView({behavior:"smooth",block:"start"}));refreshLive();
-  formEl.onsubmit=async e=>{e.preventDefault();const btn=e.submitter,form=currentForm(),controlError=procurementValidateControlForm(form);if(controlError)return toast("เลขคุมเอกสารไม่สัมพันธ์กัน",controlError,"error");const cleanItems=cleanCurrentItems(),cleanQuotes=cleanQuotations();form.quotations=cleanQuotes;form.inventory_issue_enabled=procurementInventoryIssueEnabled(form);if(!form.inventory_issue_enabled){form.control_inventory_issue_id="";form.issue_no="";}const winner=cleanQuotes.find(x=>x.selected);if(winner){const vw=procurementVendorById(winner.vendor_id);form.vendor_id=winner.vendor_id||form.vendor_id||null;form.vendor_name=winner.vendor_name||vw?.vendor_name||form.vendor_name||"";form.vendor_type=vw?.vendor_type||form.vendor_type||"";form.quote_total=winner.amount||form.quote_total||0;form.quote_date=winner.quote_date||form.quote_date||null;form.quote_number=winner.quote_no||form.quote_number||"";}const sum=procurementCalcSummary(cleanItems,form),project=procurementProjectById(form.project_id),activity=procurementActivityById(form.activity_id),vendor=procurementVendorById(form.vendor_id);if(vendor&&!form.vendor_type)form.vendor_type=vendor.vendor_type||"";const taxDecision=procurementWithholdingDecision(form,sum.total);form.withholding_tax=taxDecision.value;if(!form.withholding_tax_type&&taxDecision.taxType)form.withholding_tax_type=taxDecision.taxType;form.cash_advance_address=procurementCashAdvanceAddress(form);form.master_schema_version="5.0.15";form.financial_summary=procurementMasterFinancialSnapshot(cleanItems,form);if(vendor?.vendor_code&&!form.vendor_code)form.vendor_code=vendor.vendor_code;const signerSnapshot={requester:procurementPersonnelById(form.requester_user_id),receiver:procurementPersonnelById(form.receiver_user_id),issuer:procurementPersonnelById(form.issuer_user_id),goods_requester:procurementPersonnelById(form.goods_requester_user_id),cash_advance:procurementPersonnelById(form.cash_advance_user_id),tor:[1,2,3].map(i=>procurementPersonnelById(form[`tor_member_${i}_user_id`])).filter(Boolean),inspection:[1,2,3].map(i=>procurementPersonnelById(form[`inspection_member_${i}_user_id`])).filter(Boolean),case_override:form.signer_override_mode==="override"?{director:procurementPersonnelById(form.case_director_user_id),head:procurementPersonnelById(form.case_head_user_id),deputy:procurementPersonnelById(form.case_deputy_user_id),officer:procurementPersonnelById(form.case_officer_user_id),finance:procurementPersonnelById(form.case_finance_user_id),financeHead:procurementPersonnelById(form.case_finance_head_user_id)}:null};const payload={academic_year:String(state.procurementAcademicYear||currentAcademicPeriod().academicYear),title:form.title||"รายการจัดซื้อจัดจ้าง",procurement_kind:String(form.signing_document||"").includes("จ้าง")?"hire":"purchase",total_amount:sum.total,project_id:form.project_id||null,activity_id:form.activity_id||null,vendor_id:form.vendor_id||null,control_request_approval_id:form.control_request_approval_id||null,control_order_id:form.control_order_id||null,control_purchase_order_id:form.control_purchase_order_id||null,control_disbursement_id:form.control_disbursement_id||null,control_inventory_issue_id:form.control_inventory_issue_id||null,form_data:form,items:cleanItems,master_snapshot:{project:project?{id:project.id,project_no:project.project_no,project_name:project.project_name,budget_amount:project.budget_amount,department_code:project.department_code,department_custom:project.department_custom}:null,activity:activity?{id:activity.id,activity_no:activity.activity_no,activity_name:activity.activity_name,budget_amount:activity.budget_amount}:null,vendor:vendor?{id:vendor.id,vendor_code:vendor.vendor_code,vendor_name:vendor.vendor_name,contact_name:vendor.contact_name,address:vendor.address,phone:vendor.phone,tax_id:vendor.tax_id,bank_account:vendor.bank_account,account_name:vendor.account_name,bank_name:vendor.bank_name,bank_branch:vendor.bank_branch}:null,items:cleanItems},signer_snapshot:signerSnapshot,updated_by:state.user.id};buttonLoading(btn,true,"กำลังบันทึก...");const res=editing?await supabase.from("procurement_document_cases").update(payload).eq("id",c.id).select().single():await supabase.from("procurement_document_cases").insert({...payload,created_by:state.user.id,status:"draft"}).select().single();buttonLoading(btn,false);if(res.error)return toast("บันทึกไม่สำเร็จ",res.error.message,"error");close();state.selectedProcurementCaseId=res.data.id;toast(editing?"บันทึกข้อมูลกลางแล้ว":"สร้างรายการแล้ว",`เอกสาร ${procurementDocumentsReadyCount(res.data)}/${procurementApplicableDocumentCount(res.data)} แบบพร้อมจากข้อมูลปัจจุบัน`,'success');await loadProcurementWorkspace();await renderDashboard();};
+  formEl.onsubmit=async e=>{e.preventDefault();const btn=e.submitter,form=currentForm(),controlError=procurementValidateControlForm(form);if(controlError)return toast("เลขคุมเอกสารไม่สัมพันธ์กัน",controlError,"error");const cleanItems=cleanCurrentItems(),cleanQuotes=cleanQuotations();form.quotations=cleanQuotes;form.inventory_issue_enabled=procurementInventoryIssueEnabled(form);if(!form.inventory_issue_enabled){form.control_inventory_issue_id="";form.issue_no="";}const winner=cleanQuotes.find(x=>x.selected);if(winner){const vw=procurementVendorById(winner.vendor_id);form.vendor_id=winner.vendor_id||form.vendor_id||null;form.vendor_name=winner.vendor_name||vw?.vendor_name||form.vendor_name||"";form.vendor_type=vw?.vendor_type||form.vendor_type||"";form.quote_total=winner.amount||form.quote_total||0;form.quote_date=winner.quote_date||form.quote_date||null;form.quote_number=winner.quote_no||form.quote_number||"";}const sum=procurementCalcSummary(cleanItems,form),project=procurementProjectById(form.project_id),activity=procurementActivityById(form.activity_id),vendor=procurementVendorById(form.vendor_id);if(vendor&&!form.vendor_type)form.vendor_type=vendor.vendor_type||"";const taxDecision=procurementWithholdingDecision(form,sum.total);form.withholding_tax=taxDecision.value;if(!form.withholding_tax_type&&taxDecision.taxType)form.withholding_tax_type=taxDecision.taxType;form.cash_advance_address=procurementCashAdvanceAddress(form);form.master_schema_version="5.0.16";form.financial_summary=procurementMasterFinancialSnapshot(cleanItems,form);if(vendor?.vendor_code&&!form.vendor_code)form.vendor_code=vendor.vendor_code;const signerSnapshot={requester:procurementPersonnelById(form.requester_user_id),receiver:procurementPersonnelById(form.receiver_user_id),issuer:procurementPersonnelById(form.issuer_user_id),goods_requester:procurementPersonnelById(form.goods_requester_user_id),cash_advance:procurementPersonnelById(form.cash_advance_user_id),tor:[1,2,3].map(i=>procurementPersonnelById(form[`tor_member_${i}_user_id`])).filter(Boolean),inspection:[1,2,3].map(i=>procurementPersonnelById(form[`inspection_member_${i}_user_id`])).filter(Boolean),case_override:form.signer_override_mode==="override"?{director:procurementPersonnelById(form.case_director_user_id),head:procurementPersonnelById(form.case_head_user_id),deputy:procurementPersonnelById(form.case_deputy_user_id),officer:procurementPersonnelById(form.case_officer_user_id),finance:procurementPersonnelById(form.case_finance_user_id),financeHead:procurementPersonnelById(form.case_finance_head_user_id)}:null};const payload={academic_year:String(state.procurementAcademicYear||currentAcademicPeriod().academicYear),title:form.title||"รายการจัดซื้อจัดจ้าง",procurement_kind:String(form.signing_document||"").includes("จ้าง")?"hire":"purchase",total_amount:sum.total,project_id:form.project_id||null,activity_id:form.activity_id||null,vendor_id:form.vendor_id||null,control_request_approval_id:form.control_request_approval_id||null,control_order_id:form.control_order_id||null,control_purchase_order_id:form.control_purchase_order_id||null,control_disbursement_id:form.control_disbursement_id||null,control_inventory_issue_id:form.control_inventory_issue_id||null,form_data:form,items:cleanItems,master_snapshot:{project:project?{id:project.id,project_no:project.project_no,project_name:project.project_name,budget_amount:project.budget_amount,department_code:project.department_code,department_custom:project.department_custom}:null,activity:activity?{id:activity.id,activity_no:activity.activity_no,activity_name:activity.activity_name,budget_amount:activity.budget_amount}:null,vendor:vendor?{id:vendor.id,vendor_code:vendor.vendor_code,vendor_name:vendor.vendor_name,contact_name:vendor.contact_name,address:vendor.address,phone:vendor.phone,tax_id:vendor.tax_id,bank_account:vendor.bank_account,account_name:vendor.account_name,bank_name:vendor.bank_name,bank_branch:vendor.bank_branch}:null,items:cleanItems},signer_snapshot:signerSnapshot,updated_by:state.user.id};buttonLoading(btn,true,"กำลังบันทึก...");const res=editing?await supabase.from("procurement_document_cases").update(payload).eq("id",c.id).select().single():await supabase.from("procurement_document_cases").insert({...payload,created_by:state.user.id,status:"draft"}).select().single();buttonLoading(btn,false);if(res.error)return toast("บันทึกไม่สำเร็จ",res.error.message,"error");close();state.selectedProcurementCaseId=res.data.id;toast(editing?"บันทึกข้อมูลกลางแล้ว":"สร้างรายการแล้ว",`เอกสาร ${procurementDocumentsReadyCount(res.data)}/${procurementApplicableDocumentCount(res.data)} แบบพร้อมจากข้อมูลปัจจุบัน`,'success');await loadProcurementWorkspace();await renderDashboard();};
 }
 
 function procurementSettingsModal(){
@@ -11527,7 +11587,7 @@ function bindDashboardEvents() {
         state.studentCardStageCode="all"; state.studentCardLevelName="all"; state.studentCardRoomName="all"; state.studentCardSearch=""; state.studentCardOwnClassId=null; state.studentCardScopeInitialized=false;
       }
       state.currentView = nextView;
-      state.sidebarOpen = false;
+      setMobileSidebar(false);
       renderDashboard();
     });
   });
@@ -11638,10 +11698,8 @@ function bindDashboardEvents() {
     });
   });
 
-  document.querySelector("#mobile-menu")?.addEventListener("click", () => {
-    state.sidebarOpen = !state.sidebarOpen;
-    document.querySelector(".dashboard")?.classList.toggle("sidebar-open", state.sidebarOpen);
-  });
+  document.querySelector("#mobile-menu")?.addEventListener("click", () => setMobileSidebar(!state.sidebarOpen));
+  document.querySelector("#sidebar-scrim")?.addEventListener("click", () => setMobileSidebar(false));
 
   document.querySelector("#signout-btn")?.addEventListener("click", async () => {
     await supabase.auth.signOut();
