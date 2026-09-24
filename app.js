@@ -3,7 +3,8 @@ import html2canvas from "https://esm.sh/html2canvas@1.4.1";
 import { jsPDF } from "https://esm.sh/jspdf@2.5.2";
 import { PDFDocument } from "https://esm.sh/pdf-lib@1.17.1";
 import * as XLSX from "https://esm.sh/xlsx@0.18.5";
-import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, APP_NAME } from "./config.js?v=5.0.16";
+import { PROCUREMENT_EXCEL_MASTER_TEXT } from "./procurement-excel-master-text.js?v=5.9.0";
+import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, APP_NAME } from "./config.js?v=5.9.0";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: {
@@ -15,7 +16,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
 
 const app = document.querySelector("#app");
 const toastRoot = document.querySelector("#toast-root");
-const APP_BUILD = "5.0.16";
+const APP_BUILD = "5.9.0";
 const OFFICIAL_PDF_FONT = "TH SarabunIT๙";
 const OFFICIAL_PDF_FONT_ALIAS = "THSarabunIT๙";
 // BNK School OS global PDF font policy: every current/future official document must
@@ -147,6 +148,25 @@ const state = {
   personnelView: "own",
   selectedPersonnelUserId: null,
   selectedPersonnelPublicUserId: null,
+  personnelPaPeriods: [],
+  personnelPaSelectedPeriodId: null,
+  personnelPaSubmission: null,
+  personnelPaDashboard: [],
+  personnelPaReport: null,
+  personnelPaReportDashboard: [],
+  personnelPaAssessmentTasks: [],
+  personnelPaAssessmentSummary: null,
+  personnelPaAssessmentDashboard: [],
+  personnelPaCommitteeDirectory: [],
+  personnelPaEvaluatorAccounts: [],
+  personnelPaEvaluatorProfile: null,
+  personnelPaEvaluatorSignatureUrl: null,
+  personnelPaPeriodCommittee: [],
+  personnelPaSelectedTeacherId: null,
+  personnelPaTeacherSearch: "",
+  personnelPaPhase: "agreement",
+  personnelPaView: "mine",
+  personnelPaLoadError: "",
   leaveTypes: [],
   leaveRequests: [],
   leaveActions: [],
@@ -193,6 +213,22 @@ const state = {
   timetableSemester: null,
   timetableExportClassId: null,
   timetableExportTeacherId: null,
+  examSets: [],
+  examItems: [],
+  examTeachingAssignments: [],
+  examClasses: [],
+  examSubjects: [],
+  examAcademicYear: null,
+  examSemester: null,
+  examSection: "sets",
+  examEditorOpen: false,
+  selectedExamSetId: null,
+  examSearch: "",
+  examLoadError: "",
+  examAttempts: [],
+  examResponses: [],
+  examAnalysisView: "entry",
+  examAnalysisLoadError: "",
   substituteLessons: [],
   substituteActions: [],
   substituteView: "manage",
@@ -405,6 +441,7 @@ const ROLE_LABEL = {
   director: "ผู้บริหาร",
   department_head: "หัวหน้ากลุ่มงาน",
   teacher: "ครูผู้สอน",
+  pa_evaluator: "กรรมการประเมิน PA",
 };
 
 const STATUS_LABEL = {
@@ -599,6 +636,7 @@ function roleDescription(role) {
     director: "ดูภาพรวมและอนุมัติงานขั้นสุดท้าย",
     department_head: "ตรวจสอบและอนุมัติงานของกลุ่มงานที่รับผิดชอบ",
     teacher: "ใช้งานระบบย่อย ส่งงาน และติดตามสถานะของตนเอง",
+    pa_evaluator: "ประเมินผลการพัฒนางานตามข้อตกลง (PA) ตามรอบที่ได้รับแต่งตั้ง",
   }[role] || "";
 }
 
@@ -951,8 +989,44 @@ async function loadActiveUserData() {
     });
     state.modules.sort((a,b) => Number(a.sort_order||0) - Number(b.sort_order||0));
   }
+  const academicDepartment = state.departments.find(d => d.code === "academic");
+  if (academicDepartment && !state.modules.some(m => m.code === EXAM_MODULE_CODE)) {
+    state.modules.push({
+      id: "local-academic-exam-management",
+      department_id: academicDepartment.id,
+      code: EXAM_MODULE_CODE,
+      name_th: "ระบบบริหารจัดการข้อสอบและวิเคราะห์คุณภาพข้อสอบ",
+      name_en: "Examination Management & Item Analysis",
+      route: "/academic/exam-management",
+      sort_order: 11,
+      is_active: true,
+      departments: {code: academicDepartment.code,name_th: academicDepartment.name_th,name_en: academicDepartment.name_en},
+      _local_fallback: true,
+    });
+  }
+  const personnelDepartment = state.departments.find(d => d.code === "personnel");
+  if (personnelDepartment && !state.modules.some(m => m.code === "personnel_pa")) {
+    state.modules.push({
+      id: "local-personnel-pa",
+      department_id: personnelDepartment.id,
+      code: "personnel_pa",
+      name_th: "ระบบข้อตกลงในการพัฒนางาน (PA)",
+      name_en: "Performance Agreement (PA)",
+      route: "/personnel/performance-agreement",
+      sort_order: 4,
+      is_active: true,
+      departments: {code: personnelDepartment.code,name_th: personnelDepartment.name_th,name_en: personnelDepartment.name_en},
+      _local_fallback: true,
+    });
+  }
   state.modules = state.modules.filter(m=>!['procurement_document_control','procurement_documents'].includes(m.code)||procurementHasModuleAccess(m.code));
   state.modules.sort((a,b) => Number(a.sort_order||0) - Number(b.sort_order||0));
+  if(state.profile?.role === "pa_evaluator") {
+    state.modules = state.modules.filter(m=>m.code === "personnel_pa");
+    state.currentView = "module:personnel_pa";
+    state.personnelPaPhase = "assessment";
+    state.personnelPaView = "mine";
+  }
 
   state.notifications = notificationsRes.data || [];
   state.academicTerms = academicTermsRes.error ? [] : (academicTermsRes.data || []);
@@ -963,8 +1037,9 @@ async function loadActiveUserData() {
   state.academicDocumentServiceSettings = academicDocumentServiceSettingsRes.error ? null : (academicDocumentServiceSettingsRes.data || null);
   state.personnelOwnRecord = personnelOwnRes.error ? null : (personnelOwnRes.data || null);
 
-  await refreshMySignatureProfile();
-  if(state.signaturePreferences?.auto_sign_enabled){
+  if(state.profile?.role !== "pa_evaluator") await refreshMySignatureProfile();
+  else { state.signatureProfile=null; state.signaturePreferences=null; state.signatureAutomationLast=null; }
+  if(state.profile?.role !== "pa_evaluator" && state.signaturePreferences?.auto_sign_enabled){
     const autoRes=await supabase.rpc("run_my_academic_auto_actions");
     state.signatureAutomationLast=autoRes.error?null:(autoRes.data||null);
   }else state.signatureAutomationLast=null;
@@ -1021,6 +1096,25 @@ async function dashboardMetrics() {
 }
 
 function sidebarHtml() {
+  if(state.profile?.role === "pa_evaluator") {
+    return `
+      <aside class="sidebar pa-evaluator-sidebar">
+        <div class="brand">
+          <div class="brand-mark sidebar-school-logo-wrap"><img class="sidebar-school-logo" src="./school-logo.png" alt="โลโก้โรงเรียน"></div>
+          <div class="brand-copy"><strong>${escapeHtml(appName())}</strong><span>PA Evaluation</span></div>
+        </div>
+        <div class="nav-section-title">การประเมิน PA</div>
+        <button class="nav-item active" data-view="module:personnel_pa"><span class="nav-icon">✓</span><span class="nav-label">แบบประเมิน PA</span></button>
+        <div class="pa-evaluator-sidebar-note">บัญชีนี้ใช้สำหรับการประเมิน PA เท่านั้น</div>
+        <div class="sidebar-user">
+          <div class="user-line">
+            <div class="avatar">${escapeHtml(initials(state.profile.full_name || state.profile.email))}</div>
+            <div class="user-text"><strong>${escapeHtml(state.profile.full_name || state.profile.email)}</strong><span>${escapeHtml(ROLE_LABEL[state.profile.role] || state.profile.role)}</span></div>
+          </div>
+          <button class="btn btn-ghost" id="signout-btn">ออกจากระบบ</button>
+        </div>
+      </aside>`;
+  }
   const grouped = state.departments.map(dep => {
     const modules = state.modules.filter(m => m.department_id === dep.id);
     if (!modules.length) return "";
@@ -1078,6 +1172,9 @@ async function renderDashboard() {
   if (state.currentView === "module:academic_submissions") {
     await loadAcademicSubmissionWorkspace();
   }
+  if (state.currentView === "module:exam_management") {
+    await loadExamWorkspace();
+  }
   if (state.currentView === "module:learning_sources") {
     await loadLearningSourceWorkspace();
   }
@@ -1095,6 +1192,9 @@ async function renderDashboard() {
   }
   if (state.currentView === "module:personnel_records") {
     await loadPersonnelWorkspace();
+  }
+  if (state.currentView === "module:personnel_pa") {
+    await loadPersonnelPaWorkspace();
   }
   if (state.currentView === "module:leave_management") {
     await loadLeaveWorkspace();
@@ -1608,7 +1708,7 @@ function usersView() {
               <td>${escapeHtml(subjectMap[u.subject_group_id] || "—")}</td>
               <td>${formatDate(u.created_at)}</td>
               <td>
-                ${u.role === "super_admin" ? `<span class="pill neutral">บัญชีหลัก</span>` : `
+                ${u.role === "super_admin" ? `<span class="pill neutral">บัญชีหลัก</span>` : u.role === "pa_evaluator" ? `<div class="admin-actions"><span class="pill neutral">บัญชีกรรมการ PA เฉพาะระบบ</span><small class="table-muted">จัดการรหัสผ่าน / รีเซตข้อมูลตัวบุคคลจาก ระบบ PA → PA2 เท่านั้น</small></div>` : `
                 <div class="admin-actions">
                   ${u.account_status === "pending" ? `<button class="btn btn-success" data-user-action="approve" data-user-id="${u.id}">อนุมัติ</button><button class="btn btn-danger" data-user-action="reject" data-user-id="${u.id}">ปฏิเสธ</button>` : ""}
                   ${u.account_status === "active" ? `<button class="btn btn-warning" data-user-action="suspend" data-user-id="${u.id}">ระงับ</button>` : ""}
@@ -2614,6 +2714,812 @@ function printPersonnelA4(profile,record,assets) {
   try { w.opener=null; } catch {}
   w.document.open(); w.document.write(html); w.document.close();
 }
+
+
+// ===== Performance Agreement (PA) / ระบบข้อตกลงในการพัฒนางาน (Build v5.9.0 · PA2 Batch PDF Export + PA3 Summary) =====
+const PERSONNEL_PA_MODE_LABEL={one_page:"PA 1 หน้า",full_file:"PA ฉบับเต็ม (แนบ PDF)"};
+const PERSONNEL_PA_STATUS_LABEL={draft:"ฉบับร่าง",submitted:"ส่งแล้ว",not_started:"ยังไม่ส่ง"};
+const PERSONNEL_PA2_LEVEL_LABEL=Object.freeze({1:"ต่ำกว่าระดับที่คาดหวังมาก",2:"ต่ำกว่าระดับที่คาดหวัง",3:"ตามระดับที่คาดหวัง",4:"สูงกว่าระดับที่คาดหวัง"});
+const PERSONNEL_PA2_EXPECTED_LEVEL=Object.freeze({
+  assistant_teacher:"ปฏิบัติและเรียนรู้ (Execute & Learn)",
+  teacher_k1:"ปรับประยุกต์ (Apply & Adapt)",
+  teacher_k2:"แก้ไขปัญหา (Solve the Problem)",
+  teacher_k3:"ริเริ่ม พัฒนา (Originate & Improve)",
+  teacher_k4:"คิดค้น ปรับเปลี่ยน (Invent & Transform)",
+  teacher_k5:"สร้างการเปลี่ยนแปลง (Create an Impact)"
+});
+const PERSONNEL_PA2_SECTION1=Object.freeze([
+  {group:"1. ด้านการจัดการเรียนรู้",key:"1.1",title:"สร้างและหรือพัฒนาหลักสูตร",guide:"พิจารณาการพัฒนารายวิชาและหน่วยการเรียนรู้ให้สอดคล้องหลักสูตร บริบท และผู้เรียน จนเกิดผลต่อคุณภาพการเรียนรู้"},
+  {group:"1. ด้านการจัดการเรียนรู้",key:"1.2",title:"ออกแบบการจัดการเรียนรู้",guide:"พิจารณาการออกแบบกิจกรรมที่เน้นผู้เรียนเป็นสำคัญ เหมาะกับความแตกต่างของผู้เรียน และเชื่อมโยงสู่ผลลัพธ์การเรียนรู้"},
+  {group:"1. ด้านการจัดการเรียนรู้",key:"1.3",title:"จัดกิจกรรมการเรียนรู้",guide:"พิจารณาการจัดกิจกรรมที่ส่งเสริมการมีส่วนร่วม การคิด การลงมือปฏิบัติ และการเรียนรู้ด้วยตนเองของผู้เรียน"},
+  {group:"1. ด้านการจัดการเรียนรู้",key:"1.4",title:"สร้างและหรือพัฒนาสื่อ นวัตกรรม เทคโนโลยี และแหล่งเรียนรู้",guide:"พิจารณาการเลือก สร้าง หรือพัฒนาสื่อและแหล่งเรียนรู้ที่เหมาะสม ช่วยแก้ปัญหาและยกระดับการเรียนรู้"},
+  {group:"1. ด้านการจัดการเรียนรู้",key:"1.5",title:"วัดและประเมินผลการเรียนรู้",guide:"พิจารณาวิธีวัดและประเมินที่หลากหลาย ตรงตามผลลัพธ์ที่ต้องการ และนำข้อมูลย้อนกลับไปพัฒนาผู้เรียน"},
+  {group:"1. ด้านการจัดการเรียนรู้",key:"1.6",title:"ศึกษา วิเคราะห์ และสังเคราะห์เพื่อแก้ปัญหาหรือพัฒนาการเรียนรู้",guide:"พิจารณาการใช้ข้อมูลหรือกระบวนการศึกษาวิเคราะห์เพื่อค้นหาสาเหตุ แก้ปัญหา และพัฒนาผลลัพธ์ของผู้เรียน"},
+  {group:"1. ด้านการจัดการเรียนรู้",key:"1.7",title:"จัดบรรยากาศที่ส่งเสริมและพัฒนาผู้เรียน",guide:"พิจารณาบรรยากาศการเรียนรู้ที่ปลอดภัย เอื้อต่อการคิด การสื่อสาร ความมั่นใจ และการมีส่วนร่วมของผู้เรียน"},
+  {group:"1. ด้านการจัดการเรียนรู้",key:"1.8",title:"อบรมและพัฒนาคุณลักษณะที่ดีของผู้เรียน",guide:"พิจารณาการสอดแทรกและพัฒนาคุณลักษณะอันพึงประสงค์ คุณธรรม วินัย และความรับผิดชอบอย่างต่อเนื่อง"},
+  {group:"2. ด้านการส่งเสริมและสนับสนุนการจัดการเรียนรู้",key:"2.1",title:"จัดทำข้อมูลสารสนเทศของผู้เรียนและรายวิชา",guide:"พิจารณาการจัดเก็บและใช้ข้อมูลผู้เรียนหรือรายวิชาอย่างเป็นระบบ เพื่อวางแผน ติดตาม และช่วยเหลือได้ตรงจุด"},
+  {group:"2. ด้านการส่งเสริมและสนับสนุนการจัดการเรียนรู้",key:"2.2",title:"ดำเนินการตามระบบดูแลช่วยเหลือผู้เรียน",guide:"พิจารณาการรู้จักผู้เรียนเป็นรายบุคคล การคัดกรอง ช่วยเหลือ ส่งต่อ และติดตามอย่างเหมาะสม"},
+  {group:"2. ด้านการส่งเสริมและสนับสนุนการจัดการเรียนรู้",key:"2.3",title:"ปฏิบัติงานวิชาการ และงานอื่น ๆ ของสถานศึกษา",guide:"พิจารณาการมีส่วนร่วมในงานวิชาการและภารกิจของสถานศึกษาที่ส่งผลต่อคุณภาพผู้เรียนและการจัดการศึกษา"},
+  {group:"2. ด้านการส่งเสริมและสนับสนุนการจัดการเรียนรู้",key:"2.4",title:"ประสานความร่วมมือกับผู้ปกครอง ภาคีเครือข่าย และ/หรือสถานประกอบการ",guide:"พิจารณาการสร้างความร่วมมือเพื่อแลกเปลี่ยนข้อมูล สนับสนุน และร่วมพัฒนาผู้เรียน"},
+  {group:"3. ด้านการพัฒนาตนเองและวิชาชีพ",key:"3.1",title:"พัฒนาตนเองอย่างเป็นระบบและต่อเนื่อง",guide:"พิจารณาการกำหนดเป้าหมายและพัฒนาความรู้ ทักษะ และสมรรถนะที่สัมพันธ์กับงานและความต้องการของผู้เรียน"},
+  {group:"3. ด้านการพัฒนาตนเองและวิชาชีพ",key:"3.2",title:"มีส่วนร่วมในการแลกเปลี่ยนเรียนรู้ทางวิชาชีพ",guide:"พิจารณาการแลกเปลี่ยนเรียนรู้หรือชุมชนวิชาชีพที่นำไปสู่การแก้ปัญหาและพัฒนาการจัดการเรียนรู้"},
+  {group:"3. ด้านการพัฒนาตนเองและวิชาชีพ",key:"3.3",title:"นำความรู้ ความสามารถ และทักษะจากการพัฒนาตนเองและวิชาชีพมาใช้",guide:"พิจารณาการนำผลจากการพัฒนามาปรับใช้จนเห็นการเปลี่ยนแปลงต่อการจัดการเรียนรู้ คุณภาพผู้เรียน หรือนวัตกรรม"}
+]);
+const PERSONNEL_PA2_SECTION2=Object.freeze([
+  {key:"method",title:"วิธีดำเนินการให้บรรลุผล",max:20,weight:5,guide:"พิจารณาความถูกต้อง ครบถ้วน เป็นระบบ สอดคล้องประเด็นท้าทาย และการดำเนินงานตามระดับการปฏิบัติที่คาดหวัง"},
+  {key:"quantitative",title:"ผลลัพธ์การเรียนรู้ของผู้เรียนเชิงปริมาณ",max:10,weight:2.5,guide:"พิจารณาผลที่วัดได้จริงเทียบกับเป้าหมายเชิงปริมาณในข้อตกลง และความน่าเชื่อถือของหลักฐาน"},
+  {key:"qualitative",title:"ผลลัพธ์การเรียนรู้ของผู้เรียนเชิงคุณภาพ",max:10,weight:2.5,guide:"พิจารณาคุณภาพหรือการเปลี่ยนแปลงของผู้เรียนเทียบกับเป้าหมายเชิงคุณภาพ และความน่าเชื่อถือของหลักฐาน"}
+]);
+const PERSONNEL_PA_ONE_PAGE_WORD_LIMITS=Object.freeze({
+  pa_title:15,
+  workload_summary:35,
+  challenge_title:20,
+  challenge_context:50,
+  quantitative_target:25,
+  qualitative_target:30,
+  development_methods:55,
+  success_indicators:35,
+  evidence_plan:25
+});
+const PERSONNEL_PA_ONE_PAGE_WORD_LABELS=Object.freeze({
+  pa_title:"ชื่อ/หัวข้อ PA",
+  workload_summary:"ภาระงานสำคัญ",
+  challenge_title:"ชื่อประเด็นท้าทาย",
+  challenge_context:"สภาพปัญหา / เหตุผล",
+  quantitative_target:"เป้าหมายเชิงปริมาณ",
+  qualitative_target:"เป้าหมายเชิงคุณภาพ",
+  development_methods:"วิธีดำเนินการ / แนวทางพัฒนา",
+  success_indicators:"ตัวชี้วัดความสำเร็จ",
+  evidence_plan:"หลักฐาน / เครื่องมือ"
+});
+const PERSONNEL_PA_ONE_PAGE_TOTAL_WORDS=Object.values(PERSONNEL_PA_ONE_PAGE_WORD_LIMITS).reduce((sum,n)=>sum+n,0);
+
+function personnelPaWordCount(value){
+  const raw=String(value||"").trim();
+  if(!raw)return 0;
+  try{
+    if(typeof Intl!=="undefined"&&typeof Intl.Segmenter==="function"){
+      const segmenter=new Intl.Segmenter("th",{granularity:"word"});
+      let count=0;
+      for(const part of segmenter.segment(raw))if(part.isWordLike)count+=1;
+      return count;
+    }
+  }catch(err){console.warn("PA Thai word segmenter fallback",err);}
+  return (raw.match(/[\p{L}\p{N}]+/gu)||[]).length;
+}
+function personnelPaOnePageWordStats(data={}){
+  const items=Object.entries(PERSONNEL_PA_ONE_PAGE_WORD_LIMITS).map(([field,limit])=>{
+    const count=personnelPaWordCount(data[field]);
+    return {field,label:PERSONNEL_PA_ONE_PAGE_WORD_LABELS[field]||field,limit,count,over:count>limit};
+  });
+  return {items,total:items.reduce((sum,x)=>sum+x.count,0),limit:PERSONNEL_PA_ONE_PAGE_TOTAL_WORDS,issues:items.filter(x=>x.over)};
+}
+function personnelPaOnePageWordError(data={}){
+  const stats=personnelPaOnePageWordStats(data);
+  if(!stats.issues.length)return "";
+  return stats.issues.map(x=>`${x.label} ${x.count}/${x.limit} คำ (เกิน ${x.count-x.limit})`).join(" · ");
+}
+
+function personnelPaIsRequiredUi(){return ["teacher","department_head"].includes(state.profile?.role);}
+function personnelPaIsEvaluatorUi(){return state.profile?.role==="pa_evaluator";}
+function personnelPaCanReviewUi(){return isPersonnelHeadUser()||["director","super_admin"].includes(state.profile?.role);}
+function personnelPaCanManageUi(){return isPersonnelHeadUser()||state.profile?.role==="super_admin";}
+function personnelPaCurrentFiscalYear(d=new Date()){const be=d.getFullYear()+543;return d.getMonth()>=9?be+1:be;}
+function personnelPaSuggestedFiscalYear(){const d=new Date(),fy=personnelPaCurrentFiscalYear(d);return [7,8].includes(d.getMonth())?fy+1:fy;}
+function personnelPaTodayValue(){const d=new Date(),pad=n=>String(n).padStart(2,"0");return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;}
+function personnelPaSelectedPeriod(){return state.personnelPaPeriods.find(x=>x.id===state.personnelPaSelectedPeriodId)||null;}
+function personnelPaWindowInfo(period){
+  if(!period)return {code:"none",label:"ยังไม่ตั้งค่ารอบ PA",detail:"หัวหน้าบุคคลต้องกำหนดรอบปีงบประมาณและช่วงเวลารับส่งก่อน",open:false};
+  if(!period.submission_open_date||!period.submission_close_date)return {code:"unconfigured",label:"ยังไม่กำหนดช่วงส่ง",detail:"หัวหน้าบุคคลยังไม่ได้กำหนดวันเปิด–ปิดรับ PA",open:false};
+  const today=personnelPaTodayValue();
+  if(today<period.submission_open_date)return {code:"upcoming",label:"ยังไม่เปิดรับ",detail:`เปิดรับ ${thaiDateOnly(period.submission_open_date)} ถึง ${thaiDateOnly(period.submission_close_date)}`,open:false};
+  if(today>period.submission_close_date)return {code:"closed",label:"ปิดรับแล้ว",detail:`กำหนดส่งสิ้นสุดวันที่ ${thaiDateOnly(period.submission_close_date)}`,open:false};
+  return {code:"open",label:"เปิดรับ PA",detail:`ส่งได้ถึง ${thaiDateOnly(period.submission_close_date)}`,open:true};
+}
+function personnelPaReportWindowInfo(period){
+  if(!period)return {code:"none",label:"ยังไม่ตั้งค่ารอบ PA",detail:"หัวหน้าบุคคลต้องกำหนดรอบปีงบประมาณก่อน",open:false};
+  if(!period.report_open_date||!period.report_close_date)return {code:"unconfigured",label:"ยังไม่กำหนดช่วงรายงาน",detail:"หัวหน้าบุคคลยังไม่ได้กำหนดวันเปิด–ปิดส่งรายงานผล PA ปลายปี",open:false};
+  const today=personnelPaTodayValue();
+  if(today<period.report_open_date)return {code:"upcoming",label:"ยังไม่เปิดรายงานผล",detail:`เปิดรับ ${thaiDateOnly(period.report_open_date)} ถึง ${thaiDateOnly(period.report_close_date)}`,open:false};
+  if(today>period.report_close_date)return {code:"closed",label:"ปิดรับรายงานผลแล้ว",detail:`กำหนดส่งสิ้นสุดวันที่ ${thaiDateOnly(period.report_close_date)}`,open:false};
+  return {code:"open",label:"เปิดรับรายงานผล PA",detail:`ส่งได้ถึง ${thaiDateOnly(period.report_close_date)}`,open:true};
+}
+function personnelPaAssessmentWindowInfo(period){
+  if(!period)return {code:"none",label:"ยังไม่ตั้งค่ารอบ PA",detail:"หัวหน้าบุคคลต้องกำหนดรอบปีงบประมาณก่อน",open:false};
+  if(!period.assessment_open_date||!period.assessment_close_date)return {code:"unconfigured",label:"ยังไม่กำหนดช่วงประเมิน PA2",detail:"หัวหน้าบุคคลยังไม่ได้กำหนดวันเปิด–ปิดการประเมิน PA2",open:false};
+  const today=personnelPaTodayValue();
+  if(today<period.assessment_open_date)return {code:"upcoming",label:"ยังไม่เปิดประเมิน PA2",detail:`เปิดประเมิน ${thaiDateOnly(period.assessment_open_date)} ถึง ${thaiDateOnly(period.assessment_close_date)}`,open:false};
+  if(today>period.assessment_close_date)return {code:"closed",label:"ปิดการประเมิน PA2 แล้ว",detail:`กำหนดประเมินสิ้นสุดวันที่ ${thaiDateOnly(period.assessment_close_date)}`,open:false};
+  return {code:"open",label:"เปิดการประเมิน PA2",detail:`ประเมินได้ถึง ${thaiDateOnly(period.assessment_close_date)}`,open:true};
+}
+function personnelPa2ExpectedLevel(rank){return PERSONNEL_PA2_EXPECTED_LEVEL[rank]||"ตามระดับที่ ก.ค.ศ. กำหนด";}
+function personnelPa2ScoreForSection2(key,level){const item=PERSONNEL_PA2_SECTION2.find(x=>x.key===key);return item&&level?Number(level)*item.weight:0;}
+function personnelPa2Number(value,decimals=1){return Number(value||0).toLocaleString("th-TH",{maximumFractionDigits:decimals});}
+function personnelPa2LiveScore(section1={},section2={}){const s1=PERSONNEL_PA2_SECTION1.reduce((sum,x)=>sum+(Number(section1[x.key])||0),0);const s2=PERSONNEL_PA2_SECTION2.reduce((sum,x)=>sum+personnelPa2ScoreForSection2(x.key,Number(section2[x.key])||0),0);return {section1:s1,section2:s2,total:s1+s2};}
+function personnelPa2LevelText(level,expected){
+  if(level===4)return `สูงกว่าระดับที่คาดหวัง · แสดงการปฏิบัติและผลลัพธ์ในหัวข้อนี้สูงกว่าระดับ ${expected} อย่างชัดเจน`;
+  if(level===3)return `ตามระดับที่คาดหวัง · แสดงการปฏิบัติได้ครบถ้วนตามระดับ ${expected} และมีหลักฐานรองรับ`;
+  if(level===2)return `ต่ำกว่าระดับที่คาดหวัง · แสดงการปฏิบัติได้บางส่วน แต่ยังไม่ครบถ้วนตามระดับ ${expected}`;
+  return `ต่ำกว่าระดับที่คาดหวังมาก · การปฏิบัติหรือหลักฐานยังไม่เพียงพอต่อระดับ ${expected}`;
+}
+function personnelPaTextHtml(value){return escapeHtml(value||"—").replace(/\n/g,"<br>");}
+function personnelPaModeLabel(mode){return PERSONNEL_PA_MODE_LABEL[mode]||"—";}
+function personnelPaStatusLabel(status){return PERSONNEL_PA_STATUS_LABEL[status]||status||"ยังไม่ส่ง";}
+function personnelPaStatusClass(status){return status==="submitted"?"active":status==="draft"?"pending":"neutral";}
+
+async function loadPersonnelPaWorkspace(){
+  state.personnelPaLoadError="";
+  const directoryPromise=personnelPaIsEvaluatorUi()
+    ? Promise.resolve({data:[],error:null})
+    : supabase.from("personnel_public_directory").select("user_id,full_name,role,position_title,academic_rank,department_code").order("full_name");
+  const [periodsRes,directoryRes]=await Promise.all([
+    supabase.from("personnel_pa_periods").select("*").order("fiscal_year",{ascending:false}),
+    directoryPromise
+  ]);
+  state.personnelPaCommitteeDirectory=directoryRes.error?[]:(directoryRes.data||[]);
+  state.personnelPaDirector=state.personnelPaCommitteeDirectory.find(x=>x.role==="director")||null;
+  if(periodsRes.error){
+    state.personnelPaPeriods=[];state.personnelPaSubmission=null;state.personnelPaDashboard=[];state.personnelPaReport=null;state.personnelPaReportDashboard=[];state.personnelPaAssessmentTasks=[];state.personnelPaAssessmentSummary=null;state.personnelPaAssessmentDashboard=[];state.personnelPaEvaluatorAccounts=[];state.personnelPaEvaluatorProfile=null;state.personnelPaEvaluatorSignatureUrl=null;state.personnelPaPeriodCommittee=[];
+    state.personnelPaLoadError=periodsRes.error.message||String(periodsRes.error);return;
+  }
+  state.personnelPaPeriods=periodsRes.data||[];
+  if(!state.personnelPaSelectedPeriodId||!state.personnelPaPeriods.some(x=>x.id===state.personnelPaSelectedPeriodId)){
+    const active=state.personnelPaPeriods.find(x=>x.is_active)||state.personnelPaPeriods[0]||null;
+    state.personnelPaSelectedPeriodId=active?.id||null;
+  }
+  const period=personnelPaSelectedPeriod();
+  if(!period){
+    state.personnelPaSubmission=null;state.personnelPaDashboard=[];state.personnelPaReport=null;state.personnelPaReportDashboard=[];state.personnelPaAssessmentTasks=[];state.personnelPaAssessmentSummary=null;state.personnelPaAssessmentDashboard=[];state.personnelPaEvaluatorAccounts=[];state.personnelPaEvaluatorProfile=null;state.personnelPaEvaluatorSignatureUrl=null;state.personnelPaPeriodCommittee=[];return;
+  }
+
+  const accountReadable=personnelPaIsEvaluatorUi()||personnelPaCanReviewUi()||personnelPaCanManageUi();
+  const baseCalls=[];
+  baseCalls.push(accountReadable?supabase.from("personnel_pa_evaluator_accounts").select("*").order("slot_no"):Promise.resolve({data:[],error:null}));
+  baseCalls.push(supabase.from("personnel_pa_period_committee_members").select("*").eq("period_id",period.id).order("slot_no"));
+  const [accountsRes,committeeRes]=await Promise.all(baseCalls);
+  if(accountsRes.error){state.personnelPaLoadError=state.personnelPaLoadError||accountsRes.error.message||String(accountsRes.error);state.personnelPaEvaluatorAccounts=[];}else state.personnelPaEvaluatorAccounts=accountsRes.data||[];
+  if(committeeRes.error){state.personnelPaLoadError=state.personnelPaLoadError||committeeRes.error.message||String(committeeRes.error);state.personnelPaPeriodCommittee=[];}else state.personnelPaPeriodCommittee=committeeRes.data||[];
+  state.personnelPaEvaluatorProfile=personnelPaIsEvaluatorUi()?(state.personnelPaEvaluatorAccounts.find(x=>x.auth_user_id===state.user?.id)||null):null;
+  state.personnelPaEvaluatorSignatureUrl=null;
+  if(state.personnelPaEvaluatorProfile?.signature_path){
+    const dl=await supabase.storage.from(state.personnelPaEvaluatorProfile.signature_bucket||"personnel-pa-signatures").download(state.personnelPaEvaluatorProfile.signature_path);
+    if(!dl.error&&dl.data){try{state.personnelPaEvaluatorSignatureUrl=await blobToDataUrl(dl.data);}catch{state.personnelPaEvaluatorSignatureUrl=null;}}
+  }
+
+  if(personnelPaIsRequiredUi()){
+    const [mine,report]=await Promise.all([
+      supabase.from("personnel_pa_submissions").select("*").eq("period_id",period.id).eq("user_id",state.user.id).maybeSingle(),
+      supabase.from("personnel_pa_reports").select("*").eq("period_id",period.id).eq("user_id",state.user.id).maybeSingle()
+    ]);
+    if(mine.error){state.personnelPaLoadError=state.personnelPaLoadError||mine.error.message||String(mine.error);state.personnelPaSubmission=null;}else state.personnelPaSubmission=mine.data||null;
+    if(report.error){state.personnelPaLoadError=state.personnelPaLoadError||report.error.message||String(report.error);state.personnelPaReport=null;}else state.personnelPaReport=report.data||null;
+  }else{state.personnelPaSubmission=null;state.personnelPaReport=null;}
+
+  if(personnelPaCanReviewUi()){
+    const [dash,reportDash,pa2Dash]=await Promise.all([
+      supabase.rpc("get_personnel_pa_dashboard",{p_period_id:period.id}),
+      supabase.rpc("get_personnel_pa_report_dashboard",{p_period_id:period.id}),
+      supabase.rpc("get_personnel_pa_assessment_dashboard",{p_period_id:period.id})
+    ]);
+    if(dash.error){state.personnelPaLoadError=state.personnelPaLoadError||dash.error.message||String(dash.error);state.personnelPaDashboard=[];}else state.personnelPaDashboard=dash.data||[];
+    if(reportDash.error){state.personnelPaLoadError=state.personnelPaLoadError||reportDash.error.message||String(reportDash.error);state.personnelPaReportDashboard=[];}else state.personnelPaReportDashboard=reportDash.data||[];
+    if(pa2Dash.error){state.personnelPaLoadError=state.personnelPaLoadError||pa2Dash.error.message||String(pa2Dash.error);state.personnelPaAssessmentDashboard=[];}else state.personnelPaAssessmentDashboard=pa2Dash.data||[];
+  }else{state.personnelPaDashboard=[];state.personnelPaReportDashboard=[];state.personnelPaAssessmentDashboard=[];}
+
+  if(personnelPaIsEvaluatorUi()){
+    const tasksRes=await supabase.rpc("get_my_personnel_pa_assessment_tasks",{p_period_id:period.id});
+    if(tasksRes.error){state.personnelPaLoadError=state.personnelPaLoadError||tasksRes.error.message||String(tasksRes.error);state.personnelPaAssessmentTasks=[];}else state.personnelPaAssessmentTasks=tasksRes.data||[];
+  }else state.personnelPaAssessmentTasks=[];
+
+  if(personnelPaIsRequiredUi()){
+    const summaryRes=await supabase.rpc("get_my_personnel_pa_assessment_summary",{p_period_id:period.id}).maybeSingle();
+    if(summaryRes.error){state.personnelPaLoadError=state.personnelPaLoadError||summaryRes.error.message||String(summaryRes.error);state.personnelPaAssessmentSummary=null;}else state.personnelPaAssessmentSummary=summaryRes.data||null;
+  }else state.personnelPaAssessmentSummary=null;
+
+  const selectable=[...(state.personnelPaDashboard||[]),...(state.personnelPaReportDashboard||[]),...(state.personnelPaAssessmentDashboard||[]),...(state.personnelPaAssessmentTasks||[]).map(x=>({user_id:x.evaluatee_user_id}))];
+  if(state.personnelPaSelectedTeacherId&&!selectable.some(x=>String(x.user_id)===String(state.personnelPaSelectedTeacherId)))state.personnelPaSelectedTeacherId=null;
+}
+
+function personnelPaPeriodSelectorHtml(){
+  if(!state.personnelPaPeriods.length)return "";
+  return `<label class="pa-period-picker"><span>ปีงบประมาณ</span><select class="select" id="personnel-pa-period">${state.personnelPaPeriods.map(p=>`<option value="${p.id}" ${p.id===state.personnelPaSelectedPeriodId?"selected":""}>พ.ศ. ${p.fiscal_year}${p.is_active?" · รอบปัจจุบัน":""}</option>`).join("")}</select></label>`;
+}
+
+function personnelPaMyWorkspaceHtml(period){
+  if(!personnelPaIsRequiredUi())return `<section class="panel"><div class="empty"><strong>บัญชีนี้ไม่อยู่ในกลุ่มผู้ส่ง PA</strong><span>ผู้บริหารและ Super Admin ใช้หน้านี้เพื่อติดตามสถานะการส่งของครูและหัวหน้ากลุ่มงาน</span></div></section>`;
+  if(!period)return `<section class="panel"><div class="empty"><strong>ยังไม่มีรอบ PA</strong><span>กรุณารอหัวหน้าบุคคลกำหนดรอบปีงบประมาณและช่วงเวลารับส่ง</span></div></section>`;
+  const windowInfo=personnelPaWindowInfo(period),s=state.personnelPaSubmission;
+  const status=s?.status||"not_started";
+  const submitted=status==="submitted";
+  return `<section class="pa-window-banner ${windowInfo.code}"><div><strong>${escapeHtml(windowInfo.label)}</strong><span>${escapeHtml(windowInfo.detail)}</span></div><div><b>รอบข้อตกลง</b><span>${thaiDateOnly(period.agreement_start_date)} – ${thaiDateOnly(period.agreement_end_date)}</span></div></section>
+  <section class="panel pa-submit-panel">
+    <div class="panel-head"><div class="panel-title-wrap"><h3>บันทึกข้อตกลงต้นปีงบประมาณ</h3><p>เลือกส่งเพียง 1 รูปแบบ เมื่อส่งแบบใดแบบหนึ่งแล้วถือว่าส่ง PA ต้นปีครบ</p></div><span class="status ${personnelPaStatusClass(status)}">${personnelPaStatusLabel(status)}</span></div>
+    ${s?`<div class="pa-current-submission"><div><span>รูปแบบที่เลือก</span><strong>${escapeHtml(personnelPaModeLabel(s.submission_mode))}</strong></div><div><span>ประเด็นท้าทาย</span><strong>${escapeHtml(s.challenge_title||"ยังไม่ระบุ")}</strong></div><div><span>${submitted?"ส่งล่าสุด":"แก้ไขล่าสุด"}</span><strong>${submitted&&s.submitted_at?thaiDateTimeDocument(s.submitted_at):thaiDateTimeDocument(s.updated_at)}</strong></div></div>`:""}
+    <div class="pa-mode-grid">
+      <article class="pa-mode-card ${s?.submission_mode==="one_page"?"selected":""}"><div class="pa-mode-icon">1</div><div><h4>PA 1 หน้า</h4><p>กรอกข้อมูลตามเพดานคำรวม 290 คำ แล้วระบบตรวจพื้นที่และจัดเป็นเอกสาร A4 หนึ่งหน้าให้อัตโนมัติ</p></div><div class="pa-mode-actions">${s?.submission_mode==="one_page"?`<button class="btn btn-ghost" id="pa-preview-one-page">ดู PA 1 หน้า</button>`:""}<button class="btn btn-primary" id="pa-edit-one-page" ${windowInfo.open?"":"disabled"}>${s?.submission_mode==="one_page"?"แก้ไข":"เลือกแบบนี้"}</button></div></article>
+      <article class="pa-mode-card ${s?.submission_mode==="full_file"?"selected":""}"><div class="pa-mode-icon">PDF</div><div><h4>PA ฉบับเต็ม</h4><p>ระบุชื่อ PA และประเด็นท้าทายแบบย่อ จากนั้นแนบไฟล์ PDF รูปเล่มฉบับเต็ม</p></div><div class="pa-mode-actions">${s?.submission_mode==="full_file"&&s.full_file_path?`<button class="btn btn-ghost" id="pa-open-full-file">เปิดไฟล์ PDF</button>`:""}<button class="btn btn-primary" id="pa-edit-full-file" ${windowInfo.open?"":"disabled"}>${s?.submission_mode==="full_file"?"แก้ไข / เปลี่ยนไฟล์":"เลือกแบบนี้"}</button></div></article>
+    </div>
+    ${!windowInfo.open?`<div class="pa-lock-note"><strong>ขณะนี้ไม่อยู่ในช่วงรับส่ง</strong><span>${submitted?"รายการที่ส่งแล้วถูกล็อก ไม่สามารถแก้ไขหลังพ้นกำหนด":"ยังไม่สามารถส่ง PA ได้ กรุณารอช่วงเวลาที่หัวหน้าบุคคลกำหนด"}</span></div>`:""}
+  </section>`;
+}
+
+function personnelPaMasterDetailHtml(rows,{idKey="user_id",nameKey="full_name",status,meta,detail,empty="ไม่พบรายชื่อครู"}={}){
+  const list=Array.isArray(rows)?rows:[];
+  if(state.personnelPaSelectedTeacherId&&!list.some(x=>String(x[idKey])===String(state.personnelPaSelectedTeacherId)))state.personnelPaSelectedTeacherId=null;
+  const selected=state.personnelPaSelectedTeacherId?list.find(x=>String(x[idKey])===String(state.personnelPaSelectedTeacherId))||null:null;
+  const q=String(state.personnelPaTeacherSearch||"").trim().toLowerCase();
+  return `<div class="pa-master-detail-layout"><aside class="pa-master-pane"><div class="pa-master-search"><label>เลือก / ค้นหาครู</label><input class="input" id="pa-teacher-search" placeholder="พิมพ์ชื่อครู..." value="${escapeHtml(state.personnelPaTeacherSearch||"")}"></div><div class="pa-master-list">${list.length?list.map(row=>{const st=status?status(row):{label:"ดูรายละเอียด",className:"neutral"},name=row[nameKey]||"—",sub=meta?meta(row):"",hidden=q&&!String(name).toLowerCase().includes(q);return `<button type="button" class="pa-master-person ${selected&&String(selected[idKey])===String(row[idKey])?"active":""}" ${hidden?"hidden":""} data-pa-select-teacher="${escapeHtml(String(row[idKey]))}" data-pa-master-name="${escapeHtml(String(name).toLowerCase())}"><span class="pa-master-person-copy"><strong>${escapeHtml(name)}</strong>${sub?`<small>${escapeHtml(sub)}</small>`:""}</span><span class="status ${escapeHtml(st.className||"neutral")}">${escapeHtml(st.label||"")}</span></button>`;}).join(""):`<div class="empty pa-master-empty"><strong>${escapeHtml(empty)}</strong></div>`}</div></aside><section class="pa-master-detail">${selected&&detail?detail(selected):`<div class="empty"><strong>เลือกครูเพื่อดูรายละเอียด</strong><span>ข้อมูลของครูที่เลือกจะแสดงในส่วนนี้</span></div>`}</section></div>`;
+}
+
+function personnelPaDashboardHtml(period){
+  if(!personnelPaCanReviewUi())return "";
+  if(!period)return `<section class="panel"><div class="empty"><strong>ยังไม่มีรอบ PA สำหรับตรวจติดตาม</strong></div></section>`;
+  const rows=state.personnelPaDashboard||[],submitted=rows.filter(x=>x.submission_status==="submitted").length,draft=rows.filter(x=>x.submission_status==="draft").length,notStarted=rows.length-submitted-draft;
+  const master=personnelPaMasterDetailHtml(rows,{
+    status:r=>({label:personnelPaStatusLabel(r.submission_status),className:personnelPaStatusClass(r.submission_status)}),
+    meta:r=>r.position_title||r.department_name||ROLE_LABEL[r.role]||"ครู",
+    empty:"ไม่พบรายชื่อผู้ที่ต้องส่ง PA",
+    detail:r=>`<div class="pa-detail-head"><div><span class="eyebrow dark">PA ต้นปี · ${period.fiscal_year}</span><h3>${escapeHtml(r.full_name||"—")}</h3><p>${escapeHtml(r.position_title||ROLE_LABEL[r.role]||"—")}${r.department_name?` · ${escapeHtml(r.department_name)}`:""}</p></div><span class="status ${personnelPaStatusClass(r.submission_status)}">${escapeHtml(personnelPaStatusLabel(r.submission_status))}</span></div><div class="pa-detail-grid"><div><span>รูปแบบ PA</span><strong>${r.submission_mode?escapeHtml(personnelPaModeLabel(r.submission_mode)):"—"}</strong></div><div><span>วันที่ส่ง</span><strong>${r.submitted_at?thaiDateTimeDocument(r.submitted_at):"—"}</strong></div><div class="wide"><span>ประเด็นท้าทาย</span><strong>${escapeHtml(r.challenge_title||"ยังไม่ระบุ")}</strong></div></div><div class="pa-detail-actions">${r.submission_id?`<button class="btn btn-primary" data-pa-dashboard-open="${r.submission_id}">เปิดเอกสาร PA ต้นปี</button>`:`<span class="pa-detail-muted">ยังไม่มีเอกสารที่ส่ง</span>`}</div>`
+  });
+  return `<section class="pa-dashboard-metrics"><article><span>ผู้ที่ต้องส่ง</span><strong>${rows.length}</strong></article><article><span>ส่งแล้ว</span><strong>${submitted}</strong></article><article><span>ฉบับร่าง</span><strong>${draft}</strong></article><article><span>ยังไม่ส่ง</span><strong>${notStarted}</strong></article></section><section class="panel pa-master-panel"><div class="panel-head"><div class="panel-title-wrap"><h3>Dashboard ตรวจการส่ง PA</h3><p>เลือกครูก่อน แล้วระบบจะแสดงรายละเอียดเฉพาะบุคคลที่เลือก</p></div><button class="btn btn-ghost" id="pa-refresh-dashboard">↻ รีเฟรช</button></div>${master}</section>`;
+}
+
+
+function personnelPaOpenSourceAgreement(submission=state.personnelPaSubmission){
+  if(!submission)return toast("ยังไม่มี PA ต้นปี","ต้องส่งบันทึกข้อตกลงต้นปีก่อน","error");
+  if(submission.submission_mode==="one_page")return personnelPaOpenOnePagePdf(submission);
+  if(submission.submission_mode==="full_file")return personnelPaOpenFullFile(submission);
+}
+
+function personnelPaEvidenceFiles(report=state.personnelPaReport){
+  return Array.isArray(report?.evidence_files)?report.evidence_files:[];
+}
+
+function personnelPaReportMyWorkspaceHtml(period){
+  if(!personnelPaIsRequiredUi())return `<section class="panel"><div class="empty"><strong>บัญชีนี้ไม่อยู่ในกลุ่มผู้ส่ง PA</strong><span>ผู้บริหารและ Super Admin ใช้ Dashboard เพื่อติดตามรายงานผลปลายปี</span></div></section>`;
+  if(!period)return `<section class="panel"><div class="empty"><strong>ยังไม่มีรอบ PA</strong></div></section>`;
+  const win=personnelPaReportWindowInfo(period),source=state.personnelPaSubmission,report=state.personnelPaReport;
+  const sourceReady=source?.status==="submitted",status=report?.status||"not_started",files=personnelPaEvidenceFiles(report);
+  return `<section class="pa-window-banner ${win.code}"><div><strong>${escapeHtml(win.label)}</strong><span>${escapeHtml(win.detail)}</span></div><div><b>รอบข้อตกลง</b><span>${thaiDateOnly(period.agreement_start_date)} – ${thaiDateOnly(period.agreement_end_date)}</span></div></section>
+  <section class="panel pa-submit-panel">
+    <div class="panel-head"><div class="panel-title-wrap"><h3>รายงานผลการปฏิบัติงานตามข้อตกลง</h3><p>รายงานผลปลายปีโดยอ้างอิง PA ต้นปีฉบับเดิม ระบบดึงประเด็นท้าทายและเป้าหมายมาให้โดยอัตโนมัติ</p></div><span class="status ${personnelPaStatusClass(status)}">${personnelPaStatusLabel(status)}</span></div>
+    <div class="pa-report-source-card ${sourceReady?"ready":"blocked"}"><div><span>PA ต้นปี</span><strong>${sourceReady?escapeHtml(personnelPaModeLabel(source.submission_mode)):"ยังไม่ได้ส่ง"}</strong></div><div><span>ประเด็นท้าทาย</span><strong>${escapeHtml(source?.challenge_title||"—")}</strong></div><div class="pa-report-source-actions">${sourceReady?`<button class="btn btn-ghost" id="pa-report-open-source">เปิด PA ต้นปี</button>`:""}</div></div>
+    ${sourceReady?`<div class="pa-report-progress"><article><span>ผลเชิงปริมาณ</span><strong>${report?.quantitative_result?"บันทึกแล้ว":"รอรายงาน"}</strong></article><article><span>ผลเชิงคุณภาพ</span><strong>${report?.qualitative_result?"บันทึกแล้ว":"รอรายงาน"}</strong></article><article><span>หลักฐานแนบ</span><strong>${files.length} ไฟล์</strong></article><article><span>${status==="submitted"?"ส่งล่าสุด":"แก้ไขล่าสุด"}</span><strong>${report?.updated_at?thaiDateTimeDocument(status==="submitted"&&report.submitted_at?report.submitted_at:report.updated_at):"—"}</strong></article></div>
+      <div class="pa-mode-actions pa-report-main-actions">${report?`<button class="btn btn-ghost" id="pa-report-preview">ดูรายงาน PDF</button>`:""}<button class="btn btn-primary" id="pa-report-edit" ${win.open?"":"disabled"}>${report?"แก้ไขรายงานผล":"จัดทำรายงานผล"}</button></div>
+      ${files.length?`<div class="pa-report-file-list"><strong>หลักฐานที่แนบ</strong>${files.map((f,i)=>`<button class="pa-report-file-chip" data-pa-report-file="${i}">📎 ${escapeHtml(f.name||`หลักฐาน ${i+1}`)}</button>`).join("")}</div>`:""}
+      ${!win.open?`<div class="pa-lock-note"><strong>ขณะนี้ไม่อยู่ในช่วงรับรายงานผล</strong><span>${status==="submitted"?"รายงานที่ส่งแล้วถูกล็อกหลังพ้นกำหนด":"เมื่อหัวหน้าบุคคลเปิดช่วงรายงานปลายปี ปุ่มจัดทำรายงานจะเปิดใช้งาน"}</span></div>`:""}`:`<div class="pa-report-blocked"><strong>ต้องส่ง PA ต้นปีก่อน</strong><span>ระบบจะเปิดรายงานผลปลายปีเมื่อบันทึกข้อตกลงต้นปีของปีงบประมาณนี้อยู่สถานะ “ส่งแล้ว”</span></div>`}
+  </section>`;
+}
+
+function personnelPaReportDashboardHtml(period){
+  if(!personnelPaCanReviewUi())return "";
+  if(!period)return `<section class="panel"><div class="empty"><strong>ยังไม่มีรอบ PA สำหรับตรวจติดตาม</strong></div></section>`;
+  const rows=state.personnelPaReportDashboard||[],submitted=rows.filter(x=>x.report_status==="submitted").length,draft=rows.filter(x=>x.report_status==="draft").length,notStarted=rows.length-submitted-draft;
+  const statusFor=r=>r.report_status==="submitted"?{label:"ส่งรายงานแล้ว",className:"active"}:r.report_status==="draft"?{label:"ฉบับร่าง",className:"pending"}:r.start_submission_status!=="submitted"?{label:"ยังไม่ส่ง PA ต้นปี",className:"neutral"}:{label:"ยังไม่ส่งรายงานผล",className:"neutral"};
+  const master=personnelPaMasterDetailHtml(rows,{
+    status:statusFor,
+    meta:r=>r.position_title||r.department_name||ROLE_LABEL[r.role]||"ครู",
+    empty:"ไม่พบรายชื่อผู้ที่ต้องรายงาน PA",
+    detail:r=>`<div class="pa-detail-head"><div><span class="eyebrow dark">รายงานผลปลายปี · ${period.fiscal_year}</span><h3>${escapeHtml(r.full_name||"—")}</h3><p>${escapeHtml(r.position_title||r.department_name||"—")}</p></div><span class="status ${statusFor(r).className}">${escapeHtml(statusFor(r).label)}</span></div><div class="pa-detail-grid"><div><span>PA ต้นปี</span><strong>${escapeHtml(personnelPaStatusLabel(r.start_submission_status))}${r.start_submission_mode?` · ${escapeHtml(personnelPaModeLabel(r.start_submission_mode))}`:""}</strong></div><div><span>รายงานปลายปี</span><strong>${escapeHtml(personnelPaStatusLabel(r.report_status))}</strong></div><div class="wide"><span>ประเด็นท้าทาย</span><strong>${escapeHtml(r.challenge_title||"—")}</strong></div><div><span>วันที่ส่งรายงาน</span><strong>${r.report_submitted_at?thaiDateTimeDocument(r.report_submitted_at):"—"}</strong></div></div><div class="pa-detail-actions">${r.report_id?`<button class="btn btn-primary" data-pa-report-dashboard-open="${r.report_id}">เปิดรายงานผล PA</button>`:`<span class="pa-detail-muted">ยังไม่มีรายงานผลที่ส่ง</span>`}</div>`
+  });
+  return `<section class="pa-dashboard-metrics"><article><span>ผู้ที่ต้องรายงาน</span><strong>${rows.length}</strong></article><article><span>ส่งแล้ว</span><strong>${submitted}</strong></article><article><span>ฉบับร่าง</span><strong>${draft}</strong></article><article><span>ยังไม่ส่ง</span><strong>${notStarted}</strong></article></section><section class="panel pa-master-panel"><div class="panel-head"><div class="panel-title-wrap"><h3>Dashboard รายงานผล PA ปลายปี</h3><p>ค้นหาและเลือกครู แล้วดู PA ต้นปี/สถานะรายงานของคนนั้นโดยไม่ต้องแสดงข้อมูลทุกคนพร้อมกัน</p></div><button class="btn btn-ghost" id="pa-refresh-dashboard">↻ รีเฟรช</button></div>${master}</section>`;
+}
+
+
+async function personnelPaOpenEvidenceFile(file){
+  if(!file?.path)return;
+  const {data,error}=await supabase.storage.from(file.bucket||"personnel-pa").createSignedUrl(file.path,600);
+  if(error)return toast("เปิดหลักฐานไม่สำเร็จ",error.message,"error");
+  const w=window.open(data.signedUrl,"_blank","noopener,noreferrer");if(!w)toast("เปิดไฟล์ไม่ได้","กรุณาอนุญาต Pop-up สำหรับเว็บไซต์นี้","error");
+}
+
+function personnelPaReportModal(){
+  const period=personnelPaSelectedPeriod(),source=state.personnelPaSubmission,win=personnelPaReportWindowInfo(period);
+  if(!period||source?.status!=="submitted")return toast("ยังจัดทำรายงานไม่ได้","กรุณาส่ง PA ต้นปีให้เรียบร้อยก่อน","error");
+  if(!win.open)return toast("ยังส่งรายงานผลไม่ได้",win.detail,"error");
+  const report=state.personnelPaReport||{};let workingFiles=[...personnelPaEvidenceFiles(report)];
+  const modal=document.createElement("div");modal.className="modal-backdrop pa-editor-backdrop";
+  modal.innerHTML=`<div class="modal pa-editor-modal"><div class="modal-head"><div><span class="form-type-badge">รายงานผล PA · ปีงบประมาณ ${period.fiscal_year}</span><h3>รายงานผลการปฏิบัติงานตามข้อตกลง</h3><p>รายงานผลจริงเทียบกับข้อตกลงต้นปี ข้อมูลต้นทางด้านล่างเป็นแบบอ่านอย่างเดียว</p></div><button class="modal-close">×</button></div>
+    <form id="pa-report-form" class="pa-editor-body">
+      <section class="pa-report-source-detail"><h4>ข้อตกลงต้นปีที่ใช้เป็นฐาน</h4><div class="pa-source-grid"><div><span>รูปแบบ</span><strong>${escapeHtml(personnelPaModeLabel(source.submission_mode))}</strong></div><div><span>ประเด็นท้าทาย</span><strong>${escapeHtml(source.challenge_title||"—")}</strong></div>${source.submission_mode==="one_page"?`<div><span>เป้าหมายเชิงปริมาณ</span><strong>${personnelPaTextHtml(source.quantitative_target)}</strong></div><div><span>เป้าหมายเชิงคุณภาพ</span><strong>${personnelPaTextHtml(source.qualitative_target)}</strong></div>`:`<div><span>ชื่อ PA ฉบับเต็ม</span><strong>${escapeHtml(source.pa_title||"—")}</strong></div>`}</div><button class="btn btn-ghost" type="button" id="pa-report-modal-open-source">เปิดเอกสารต้นปี</button></section>
+      <section><h4>1. สรุปผลการดำเนินงาน</h4><div class="field"><label>ผลการปฏิบัติงานโดยสรุป</label><textarea class="input textarea" name="result_summary" maxlength="1800" required>${escapeHtml(report.result_summary||"")}</textarea></div></section>
+      <section><h4>2. ผลลัพธ์ตามเป้าหมาย</h4><div class="form-row"><div class="field"><label>ผลเชิงปริมาณ</label><textarea class="input textarea" name="quantitative_result" maxlength="1200" required>${escapeHtml(report.quantitative_result||"")}</textarea><small>${source.quantitative_target?`เป้าหมายเดิม: ${escapeHtml(source.quantitative_target)}`:"รายงานผลที่วัดได้จริง"}</small></div><div class="field"><label>ผลเชิงคุณภาพ</label><textarea class="input textarea" name="qualitative_result" maxlength="1200" required>${escapeHtml(report.qualitative_result||"")}</textarea><small>${source.qualitative_target?`เป้าหมายเดิม: ${escapeHtml(source.qualitative_target)}`:"รายงานคุณภาพ/การเปลี่ยนแปลงที่เกิดขึ้น"}</small></div></div></section>
+      <section><h4>3. ผลจากวิธีดำเนินการ / กระบวนการพัฒนา</h4><div class="field"><textarea class="input textarea" name="development_result" maxlength="1800" required>${escapeHtml(report.development_result||"")}</textarea></div></section>
+      <section><h4>4. ผลตามตัวชี้วัดความสำเร็จ</h4><div class="field"><textarea class="input textarea" name="indicators_result" maxlength="1400" required>${escapeHtml(report.indicators_result||"")}</textarea></div></section>
+      <section><h4>5. หลักฐาน / ร่องรอยประกอบผลการดำเนินงาน</h4><div class="field"><label>สรุปหลักฐาน</label><textarea class="input textarea" name="evidence_summary" maxlength="1400" required>${escapeHtml(report.evidence_summary||"")}</textarea></div><div class="field"><label>แนบไฟล์หลักฐาน <span class="optional">(PDF/JPG/PNG/WEBP · สูงสุด 10 ไฟล์)</span></label><input class="input" id="pa-report-files" type="file" accept="application/pdf,image/png,image/jpeg,image/webp" multiple><small>ไฟล์ละไม่เกิน 25 MB</small></div><div id="pa-report-existing-files" class="pa-report-file-editor"></div></section>
+      <section><h4>6. ปัญหา / อุปสรรค <span class="optional">(ไม่บังคับ)</span></h4><div class="field"><textarea class="input textarea" name="problems_obstacles" maxlength="1200">${escapeHtml(report.problems_obstacles||"")}</textarea></div></section>
+      <section><h4>7. แนวทางพัฒนาต่อไป <span class="optional">(ไม่บังคับ)</span></h4><div class="field"><textarea class="input textarea" name="next_development" maxlength="1200">${escapeHtml(report.next_development||"")}</textarea></div></section>
+    </form><div class="modal-actions pa-editor-actions"><button class="btn btn-ghost modal-cancel">ยกเลิก</button>${report.status!=="submitted"?`<button class="btn btn-secondary" id="pa-report-draft">บันทึกฉบับร่าง</button>`:""}<button class="btn btn-primary" id="pa-report-submit">${report.status==="submitted"?"บันทึกและส่งอีกครั้ง":"บันทึกและส่งรายงาน"}</button></div></div>`;
+  document.body.appendChild(modal);document.body.classList.add("pa-editor-open");const close=()=>{modal.remove();document.body.classList.remove("pa-editor-open");};modal.querySelector(".modal-close").onclick=close;modal.querySelector(".modal-cancel").onclick=close;modal.querySelector("#pa-report-modal-open-source").onclick=()=>personnelPaOpenSourceAgreement(source);
+  const fileBox=modal.querySelector("#pa-report-existing-files");const renderFiles=()=>{fileBox.innerHTML=workingFiles.length?workingFiles.map((f,i)=>`<div class="pa-existing-file"><strong>หลักฐาน ${i+1}</strong><span>${escapeHtml(f.name||"ไฟล์หลักฐาน")}</span><button class="mini-link" type="button" data-pa-report-open-existing="${i}">เปิด</button><button class="mini-link danger" type="button" data-pa-report-remove-existing="${i}">นำออก</button></div>`).join(""):`<div class="empty compact"><span>ยังไม่มีไฟล์หลักฐานที่บันทึกไว้</span></div>`;fileBox.querySelectorAll("[data-pa-report-open-existing]").forEach(b=>b.onclick=()=>personnelPaOpenEvidenceFile(workingFiles[Number(b.dataset.paReportOpenExisting)]));fileBox.querySelectorAll("[data-pa-report-remove-existing]").forEach(b=>b.onclick=()=>{workingFiles.splice(Number(b.dataset.paReportRemoveExisting),1);renderFiles();});};renderFiles();
+  const save=async(status,btn)=>{const form=modal.querySelector("#pa-report-form");if(status==="submitted"&&!form.reportValidity())return;const data=Object.fromEntries(new FormData(form).entries()),newFiles=[...(modal.querySelector("#pa-report-files").files||[])];if(workingFiles.length+newFiles.length>10)return toast("แนบไฟล์มากเกินไป","หลักฐานรวมได้สูงสุด 10 ไฟล์","error");buttonLoading(btn,true,status==="submitted"?"กำลังอัปโหลดและส่ง...":"กำลังบันทึก...");try{await personnelPaSaveReport(data,newFiles,workingFiles,status);close();toast(status==="submitted"?"ส่งรายงานผล PA แล้ว":"บันทึกฉบับร่างแล้ว",status==="submitted"?"ระบบบันทึกรายงานปลายปีเรียบร้อย":"ฉบับร่างยังไม่ถือว่าส่ง","success");await loadPersonnelPaWorkspace();await renderDashboard();}catch(err){toast("บันทึกรายงาน PA ไม่สำเร็จ",err.message||String(err),"error");}finally{buttonLoading(btn,false);}};
+  modal.querySelector("#pa-report-draft")?.addEventListener("click",e=>save("draft",e.currentTarget));modal.querySelector("#pa-report-submit").addEventListener("click",e=>save("submitted",e.currentTarget));
+}
+
+async function personnelPaSaveReport(data,newFiles,keptFiles,status){
+  const period=personnelPaSelectedPeriod(),source=state.personnelPaSubmission,old=state.personnelPaReport;if(!period||source?.status!=="submitted")throw new Error("ไม่พบ PA ต้นปีที่ส่งแล้ว");
+  const oldFiles=personnelPaEvidenceFiles(old),uploaded=[];const mimeMap={"application/pdf":"pdf","image/png":"png","image/jpeg":"jpg","image/webp":"webp"};
+  try{
+    for(const file of newFiles){let mime=file.type||"";if(!mimeMap[mime]){const ext=(file.name.split(".").pop()||"").toLowerCase();mime=ext==="pdf"?"application/pdf":ext==="png"?"image/png":["jpg","jpeg"].includes(ext)?"image/jpeg":ext==="webp"?"image/webp":"";}if(!mimeMap[mime])throw new Error(`ไฟล์ ${file.name} ไม่ใช่ชนิดที่รองรับ`);if(file.size>25*1024*1024)throw new Error(`ไฟล์ ${file.name} มีขนาดเกิน 25 MB`);const path=`${state.user.id}/${period.id}/report-evidence/${crypto.randomUUID()}.${mimeMap[mime]}`;const up=await supabase.storage.from("personnel-pa").upload(path,file,{contentType:mime,upsert:false,cacheControl:"3600"});if(up.error)throw up.error;uploaded.push({bucket:"personnel-pa",path,name:file.name,size:file.size,mime});}
+    const evidence=[...keptFiles,...uploaded];const payload={period_id:period.id,pa_submission_id:source.id,user_id:state.user.id,status,result_summary:String(data.result_summary||"").trim(),quantitative_result:String(data.quantitative_result||"").trim(),qualitative_result:String(data.qualitative_result||"").trim(),development_result:String(data.development_result||"").trim(),indicators_result:String(data.indicators_result||"").trim(),evidence_summary:String(data.evidence_summary||"").trim(),problems_obstacles:String(data.problems_obstacles||"").trim()||null,next_development:String(data.next_development||"").trim()||null,evidence_files:evidence,updated_by:state.user.id};let res;if(old?.id)res=await supabase.from("personnel_pa_reports").update(payload).eq("id",old.id).select().single();else res=await supabase.from("personnel_pa_reports").insert({...payload,created_by:state.user.id}).select().single();if(res.error)throw res.error;
+    const kept=new Set(evidence.map(x=>x.path));const removed=oldFiles.filter(x=>x.path&&!kept.has(x.path));if(removed.length){const rm=await supabase.storage.from("personnel-pa").remove(removed.map(x=>x.path));if(rm.error)console.warn("PA report evidence cleanup",rm.error);}return res.data;
+  }catch(err){if(uploaded.length)await supabase.storage.from("personnel-pa").remove(uploaded.map(x=>x.path));throw err;}
+}
+
+function personnelPaReportPdfStyles(){return `${officialPdfFontFaceCss()}@page{size:A4 portrait;margin:17mm 17mm 16mm}*{box-sizing:border-box}html,body{margin:0;padding:0;font-family:"TH SarabunIT๙","THSarabunIT๙",serif;color:#111}.a4-print-body{margin:0;background:#eef2f7}.pa-report-document{width:210mm;min-height:297mm;margin:0 auto;background:#fff;padding:17mm 17mm 16mm;font-size:16pt;line-height:1.34;orphans:3;widows:3}.pa-report-head{text-align:center;padding:0 4mm 4.5mm;border-bottom:1.3px solid #222;margin-bottom:5mm}.pa-report-head .kicker{font-size:14.5pt;letter-spacing:.15mm;margin:0 0 1mm}.pa-report-head h1{font-size:21pt;margin:0;line-height:1.12;font-weight:700}.pa-report-head h2{font-size:18pt;margin:1.8mm 0 0;line-height:1.05}.pa-report-head p{font-size:15pt;margin:1mm 0 0}.pa-report-meta{display:grid;grid-template-columns:1fr 1fr;border:1px solid #888;border-radius:1.5mm;overflow:hidden;margin:0 0 5.5mm}.pa-report-meta .item{display:grid;grid-template-columns:28mm 1fr;gap:2mm;padding:2.2mm 3mm;min-height:9mm;align-items:baseline}.pa-report-meta .item:nth-child(odd){border-right:1px solid #bbb}.pa-report-meta .item:nth-child(n+3){border-top:1px solid #bbb}.pa-report-meta span{color:#444}.pa-report-meta strong{font-weight:700}.pa-report-part-title{display:flex;align-items:baseline;gap:2.5mm;margin:6mm 0 3mm;padding-bottom:1.3mm;border-bottom:1.2px solid #333;break-after:avoid;page-break-after:avoid}.pa-report-part-title .no{font-size:14.5pt;font-weight:700;border:1px solid #444;border-radius:999px;padding:.1mm 2.2mm;white-space:nowrap}.pa-report-part-title h3{font-size:19pt;line-height:1.05;margin:0}.pa-report-source{border-left:1.2mm solid #444;background:#f7f7f7;padding:3mm 4mm;margin:0 0 3.5mm;break-inside:avoid;page-break-inside:avoid}.pa-report-source .label{display:block;font-size:14.5pt;color:#555;margin-bottom:.8mm}.pa-report-source .challenge{font-size:17pt;font-weight:700;line-height:1.25}.pa-report-source .full-title{margin-top:1.5mm}.pa-report-target-title{font-weight:700;margin:3mm 0 1.5mm}.pa-report-target-grid,.pa-report-result-grid{display:grid;grid-template-columns:1fr 1fr;gap:3mm;margin:0 0 3.5mm;break-inside:avoid;page-break-inside:avoid}.pa-report-card{border:1px solid #aaa;border-radius:1.5mm;padding:2.8mm 3.2mm;min-height:18mm}.pa-report-card strong{display:block;font-size:16pt;margin-bottom:1mm}.pa-report-card .content{line-height:1.3}.pa-report-section{margin:0 0 5mm;break-inside:auto;page-break-inside:auto}.pa-report-section h3{font-size:17.5pt;line-height:1.1;margin:0 0 2mm;padding:1.5mm 3mm;background:#f2f2f2;border-left:1.1mm solid #444;break-after:avoid;page-break-after:avoid}.pa-report-section .body{padding:0 3mm 0 4.1mm;line-height:1.38}.pa-report-section .body strong{font-weight:700}.pa-report-files{margin:2mm 0 0;padding-left:8mm}.pa-report-files li{padding-left:1mm;margin:.7mm 0}.pa-report-note{border-top:1px dotted #999;margin-top:2mm;padding-top:1.5mm}.pa-report-sign-wrap{margin-top:12mm;padding-top:4mm;border-top:1px solid #aaa;break-inside:avoid;page-break-inside:avoid}.pa-report-sign-title{text-align:center;font-size:17pt;font-weight:700;margin:0 0 9mm}.pa-report-sign{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18mm;align-items:start;text-align:center}.pa-report-sign-block{font-size:16pt;line-height:1.18;min-width:0}.pa-report-sign-row{display:grid;grid-template-columns:auto minmax(30mm,1fr) auto;align-items:end;gap:2mm;white-space:nowrap}.pa-report-sign-row .line{height:10mm;border-bottom:1px dotted #333;min-width:0}.pa-report-sign-name{margin-top:2mm;min-height:6mm;white-space:nowrap}.pa-report-sign-position{margin-top:.8mm;min-height:6mm;white-space:normal}.pa-report-foot{display:flex;justify-content:space-between;gap:8mm;font-size:13pt;color:#555;margin-top:10mm;padding-top:2mm;border-top:.8px solid #bbb}.pa-report-foot span:last-child{text-align:right}@media print{html,body{background:#fff}.pa-report-document{width:auto;min-height:0;margin:0;padding:0}.pa-report-part-title,.pa-report-section h3{break-after:avoid;page-break-after:avoid}.pa-report-source,.pa-report-target-grid,.pa-report-result-grid,.pa-report-sign-wrap{break-inside:avoid;page-break-inside:avoid}}`;}
+
+
+function personnelPaReportDirectorSigner(){
+  const director=state.personnelPaDirector||null;
+  const name=String(director?.full_name||"").trim();
+  const rawPosition=String(director?.position_title||"").trim();
+  const school=schoolName();
+  let position=rawPosition;
+  if(!position||position==="ผู้อำนวยการ"||position==="ผู้อำนวยการโรงเรียน")position=`ผู้อำนวยการ${school}`;
+  return {name:name||"........................................................",position:position||`ผู้อำนวยการ${school}`};
+}
+
+function personnelPaReportHtml(report,period){
+  const name=report?.person_name_snapshot||state.profile?.full_name||"—",position=report?.position_title_snapshot||state.personnelOwnRecord?.position_title||ROLE_LABEL[state.profile?.role]||"—",rank=report?.academic_rank_snapshot?(ACADEMIC_RANK_LABEL[report.academic_rank_snapshot]||report.academic_rank_snapshot):"—",files=personnelPaEvidenceFiles(report),director=personnelPaReportDirectorSigner();
+  const sourceIsOnePage=report?.source_mode_snapshot==="one_page";
+  const optionalSections=`${report?.problems_obstacles?`<section class="pa-report-section"><h3>6. ปัญหา / อุปสรรค</h3><div class="body">${personnelPaTextHtml(report.problems_obstacles)}</div></section>`:""}${report?.next_development?`<section class="pa-report-section"><h3>7. แนวทางพัฒนาต่อไป</h3><div class="body">${personnelPaTextHtml(report.next_development)}</div></section>`:""}`;
+  return `<article class="pa-report-document">
+    <header class="pa-report-head"><div class="kicker">รายงานผลการปฏิบัติงาน</div><h1>ตามข้อตกลงในการพัฒนางาน (PA)</h1><h2>${escapeHtml(schoolName())}</h2><p>ประจำปีงบประมาณ พ.ศ. ${escapeHtml(String(period?.fiscal_year||""))}</p></header>
+    <section class="pa-report-meta"><div class="item"><span>ผู้รายงาน</span><strong>${escapeHtml(name)}</strong></div><div class="item"><span>ตำแหน่ง</span><strong>${escapeHtml(position)}</strong></div><div class="item"><span>วิทยฐานะ</span><strong>${escapeHtml(rank)}</strong></div><div class="item"><span>รอบข้อตกลง</span><strong>${period?`${thaiDateOnly(period.agreement_start_date)} - ${thaiDateOnly(period.agreement_end_date)}`:"—"}</strong></div></section>
+
+    <div class="pa-report-part-title"><span class="no">ส่วนที่ 1</span><h3>ข้อตกลงในการพัฒนางานที่ใช้เป็นฐานในการรายงานผล</h3></div>
+    <section class="pa-report-source"><span class="label">ประเด็นท้าทาย</span><div class="challenge">${personnelPaTextHtml(report?.challenge_title_snapshot)}</div>${report?.source_mode_snapshot==="full_file"&&report?.pa_title_snapshot?`<div class="full-title"><strong>ชื่อ PA ฉบับเต็ม:</strong> ${personnelPaTextHtml(report.pa_title_snapshot)}</div>`:""}</section>
+    ${sourceIsOnePage?`<div class="pa-report-target-title">เป้าหมายตามข้อตกลงต้นปี</div><div class="pa-report-target-grid"><div class="pa-report-card"><strong>เป้าหมายเชิงปริมาณ</strong><div class="content">${personnelPaTextHtml(report.quantitative_target_snapshot)}</div></div><div class="pa-report-card"><strong>เป้าหมายเชิงคุณภาพ</strong><div class="content">${personnelPaTextHtml(report.qualitative_target_snapshot)}</div></div></div>`:""}
+
+    <div class="pa-report-part-title"><span class="no">ส่วนที่ 2</span><h3>ผลการปฏิบัติงานตามข้อตกลงในการพัฒนางาน</h3></div>
+    <section class="pa-report-section"><h3>1. สรุปผลการดำเนินงาน</h3><div class="body">${personnelPaTextHtml(report?.result_summary)}</div></section>
+    <section class="pa-report-section"><h3>2. ผลลัพธ์ตามเป้าหมาย</h3><div class="pa-report-result-grid"><div class="pa-report-card"><strong>ผลเชิงปริมาณ</strong><div class="content">${personnelPaTextHtml(report?.quantitative_result)}</div></div><div class="pa-report-card"><strong>ผลเชิงคุณภาพ</strong><div class="content">${personnelPaTextHtml(report?.qualitative_result)}</div></div></div></section>
+    <section class="pa-report-section"><h3>3. ผลจากวิธีดำเนินการ / กระบวนการพัฒนา</h3><div class="body">${personnelPaTextHtml(report?.development_result)}</div></section>
+    <section class="pa-report-section"><h3>4. ผลตามตัวชี้วัดความสำเร็จ</h3><div class="body">${personnelPaTextHtml(report?.indicators_result)}</div></section>
+    <section class="pa-report-section"><h3>5. หลักฐาน / ร่องรอยประกอบผลการดำเนินงาน</h3><div class="body">${personnelPaTextHtml(report?.evidence_summary)}${files.length?`<ol class="pa-report-files">${files.map(f=>`<li>${escapeHtml(f.name||"ไฟล์หลักฐาน")}</li>`).join("")}</ol>`:""}</div></section>
+    ${optionalSections}
+
+    <section class="pa-report-sign-wrap"><div class="pa-report-sign-title">ลงนามรับรองรายงานผลการปฏิบัติงาน</div><div class="pa-report-sign"><div class="pa-report-sign-block"><div class="pa-report-sign-row"><span>ลงชื่อ</span><span class="line"></span><span>ผู้รายงานผล</span></div><div class="pa-report-sign-name">( ${escapeHtml(name)} )</div><div class="pa-report-sign-position">ตำแหน่ง ${escapeHtml(position)}</div></div><div class="pa-report-sign-block"><div class="pa-report-sign-row"><span>ลงชื่อ</span><span class="line"></span><span>ผู้รับรอง</span></div><div class="pa-report-sign-name">( ${escapeHtml(director.name)} )</div><div class="pa-report-sign-position">ตำแหน่ง ${escapeHtml(director.position)}</div></div></div></section>
+    <footer class="pa-report-foot"><span>รายงานผล PA ปีงบประมาณ ${escapeHtml(String(period?.fiscal_year||""))}</span><span>${report?.submitted_at?`ส่งเมื่อ ${thaiDateTimeDocument(report.submitted_at)}`:"ฉบับร่าง"}</span></footer>
+  </article>`;
+}
+
+
+async function personnelPaOpenReportPdf(report=state.personnelPaReport){
+  const period=personnelPaSelectedPeriod();if(!report||!period)return toast("ยังไม่มีรายงานผล","กรุณาจัดทำรายงานผลก่อน","error");try{await ensureOfficialPdfFont("16pt");openPrintPreview(personnelPaReportHtml(report,period),personnelPaReportPdfStyles(),`รายงานผล PA · ปีงบประมาณ ${period.fiscal_year}`);}catch(err){toast("สร้างรายงาน PDF ไม่สำเร็จ",err.message||String(err),"error");}
+}
+
+async function personnelPaOpenDashboardReport(id){
+  const {data,error}=await supabase.from("personnel_pa_reports").select("*").eq("id",id).single();if(error)return toast("เปิดรายงาน PA ไม่สำเร็จ",error.message,"error");return personnelPaOpenReportPdf(data);
+}
+
+function personnelPa2CommitteeMembers(row){return Array.isArray(row?.committee_members)?row.committee_members:[];}
+function personnelPa2AssessmentStatusLabel(status){return status==="submitted"?"ประเมินแล้ว":status==="draft"?"ฉบับร่าง":"ยังไม่ประเมิน";}
+function personnelPa2AssessmentStatusClass(status){return status==="submitted"?"active":status==="draft"?"pending":"neutral";}
+function personnelPa2CommitteeRoleLabel(role){return role==="chair"?"ประธานกรรมการ":"กรรมการ";}
+function personnelPa2TeacherStatus(row){
+  if(row?.report_status!=="submitted")return {label:"ยังไม่ส่งรายงานผล",className:"neutral"};
+  if(Number(row?.committee_count||0)!==3)return {label:"รอตั้งกรรมการ",className:"pending"};
+  const n=Number(row?.submitted_assessment_count||0);
+  if(n>=3)return {label:"ครบ 3/3",className:"active"};
+  if(n>0)return {label:`ประเมินแล้ว ${n}/3`,className:"pending"};
+  return {label:"พร้อมประเมิน",className:"active"};
+}
+function personnelPa2EvaluatorProfileComplete(profile=state.personnelPaEvaluatorProfile){return !!(profile?.profile_completed_at&&profile?.full_name&&profile?.position_title&&profile?.organization&&profile?.signature_path);}
+
+function personnelPaEvaluatorProfilePanelHtml(){
+  const p=state.personnelPaEvaluatorProfile;
+  if(!p)return `<section class="panel pa-evaluator-onboarding"><div class="empty"><strong>บัญชีกรรมการยังไม่ได้เชื่อมกับช่องกรรมการ PA</strong><span>กรุณาติดต่อ Super Admin ให้กด “เตรียมบัญชีกรรมการ” ในหน้า PA2</span></div></section>`;
+  if(!personnelPa2EvaluatorProfileComplete(p))return `<section class="panel pa-evaluator-onboarding"><div class="pa-evaluator-onboarding-icon">✍</div><div><span class="form-type-badge">ตั้งค่าก่อนเริ่มประเมิน</span><h3>กรอกข้อมูลกรรมการและลายเซ็น</h3><p>บัญชี ${escapeHtml(p.login_email||state.profile?.email||"")} ต้องบันทึกชื่อ ตำแหน่ง หน่วยงาน และลายเซ็นก่อน ระบบจึงจะเปิดงานประเมิน PA2</p></div><button class="btn btn-primary" id="pa-evaluator-profile-edit">กรอกข้อมูลกรรมการ</button></section>`;
+  return `<section class="panel pa-evaluator-profile-card"><div class="pa-evaluator-profile-copy"><span class="form-type-badge">โปรไฟล์กรรมการ PA</span><h3>${escapeHtml(p.full_name)}</h3><p>${escapeHtml(p.position_title)} · ${escapeHtml(p.organization)}</p><small>${escapeHtml(p.login_email||state.profile?.email||"")}</small></div><div class="pa-evaluator-profile-signature">${state.personnelPaEvaluatorSignatureUrl?`<img src="${state.personnelPaEvaluatorSignatureUrl}" alt="ลายเซ็นกรรมการ">`:`<span>มีลายเซ็นในระบบ</span>`}<button class="mini-link" id="pa-evaluator-profile-edit">แก้ไขข้อมูล / ลายเซ็น</button></div></section>`;
+}
+
+function personnelPa2MyWorkspaceHtml(period){
+  if(!period)return `<section class="panel"><div class="empty"><strong>ยังไม่มีรอบ PA</strong></div></section>`;
+  const win=personnelPaAssessmentWindowInfo(period);
+  if(personnelPaIsEvaluatorUi()){
+    const profilePanel=personnelPaEvaluatorProfilePanelHtml();
+    if(!personnelPa2EvaluatorProfileComplete())return `${profilePanel}<section class="panel"><div class="empty"><strong>งานประเมินจะเปิดหลังกรอกข้อมูลครบ</strong><span>ลายเซ็นที่บันทึกจะถูกใช้ลงนามในแบบ PA2 เมื่อกดส่งผลประเมิน</span></div></section>`;
+    const tasks=state.personnelPaAssessmentTasks||[];
+    const master=personnelPaMasterDetailHtml(tasks,{
+      idKey:"evaluatee_user_id",nameKey:"evaluatee_name",
+      status:t=>({label:personnelPa2AssessmentStatusLabel(t.assessment_status),className:personnelPa2AssessmentStatusClass(t.assessment_status)}),
+      meta:t=>t.position_title||ACADEMIC_RANK_LABEL[t.academic_rank]||"ครู",
+      empty:"ยังไม่มีครูที่พร้อมให้คุณประเมิน",
+      detail:t=>`<div class="pa-detail-head"><div><span class="eyebrow dark">${escapeHtml(personnelPa2CommitteeRoleLabel(t.member_role))} · PA2</span><h3>${escapeHtml(t.evaluatee_name||"—")}</h3><p>${escapeHtml(t.position_title||"—")} · ${escapeHtml(ACADEMIC_RANK_LABEL[t.academic_rank]||t.academic_rank||"ยังไม่ระบุวิทยฐานะ")}</p></div><span class="status ${personnelPa2AssessmentStatusClass(t.assessment_status)}">${personnelPa2AssessmentStatusLabel(t.assessment_status)}</span></div><div class="pa-detail-grid"><div class="wide"><span>ประเด็นท้าทาย</span><strong>${escapeHtml(t.challenge_title||"—")}</strong></div><div><span>ส่วนที่ 1</span><strong>${t.assessment_status==="submitted"?`${personnelPa2Number(t.section1_total||0,1)} / 60`:"รอประเมิน"}</strong></div><div><span>ส่วนที่ 2</span><strong>${t.assessment_status==="submitted"?`${personnelPa2Number(t.section2_total||0,1)} / 40`:"รอประเมิน"}</strong></div><div><span>รวม</span><strong>${t.assessment_status==="submitted"?`${personnelPa2Number(t.total_score||0,1)} / 100`:"—"}</strong></div></div><div class="pa-detail-actions"><button class="btn ${t.assessment_status==="submitted"?"btn-secondary":"btn-primary"}" data-pa2-assess-member="${t.committee_member_id}" data-pa2-evaluatee="${t.evaluatee_user_id}">${t.assessment_status==="submitted"?"เปิดผลประเมิน":"เริ่มประเมิน"}</button></div>`
+    });
+    return `${profilePanel}<section class="pa-window-banner ${win.code}"><div><strong>${escapeHtml(win.label)}</strong><span>${escapeHtml(win.detail)}</span></div><div><b>หลักการคะแนน</b><span>60 + 40 = 100 · เลือก Rubric ระดับ 1–4 เท่านั้น</span></div></section><section class="panel pa-master-panel"><div class="panel-head"><div class="panel-title-wrap"><h3>งานประเมิน PA2 ของฉัน</h3><p>ค้นหาและเลือกครู 1 คน แล้วจึงเปิดข้อมูลประกอบและ Rubric สำหรับคนนั้น</p></div></div>${master}</section>`;
+  }
+
+  if(!personnelPaIsRequiredUi())return `<section class="panel"><div class="empty"><strong>ไม่มีงาน PA2 สำหรับบัญชีนี้</strong></div></section>`;
+  const summary=state.personnelPaAssessmentSummary,summaryAssessments=Array.isArray(summary?.assessments)?summary.assessments:[];
+  if(summary?.all_complete)return `<section class="pa-window-banner ${win.code}"><div><strong>${escapeHtml(win.label)}</strong><span>${escapeHtml(win.detail)}</span></div></section><section class="panel pa2-own-result"><div class="panel-head"><div class="panel-title-wrap"><h3>ผลประเมิน PA2 ของฉัน</h3><p>แสดงผลเมื่อกรรมการทั้ง 3 คนส่งแบบประเมินครบแล้ว</p></div><span class="status ${summary.pa2_passed?"active":"rejected"}">${summary.pa2_passed?"ผ่านเกณฑ์":"ไม่ผ่านเกณฑ์"}</span></div><div class="pa2-summary-metrics"><article><span>กรรมการส่งครบ</span><strong>${summary.submitted_count}/3</strong></article><article><span>คะแนนเฉลี่ย</span><strong>${personnelPa2Number(summary.average_score||0,2)}</strong><small>ใช้ดูภาพรวม</small></article><article><span>เกณฑ์</span><strong>≥ 70</strong><small>แต่ละกรรมการ</small></article></div><div class="pa2-own-assessments">${summaryAssessments.map(a=>`<div><span>${escapeHtml(personnelPa2CommitteeRoleLabel(a.member_role))}</span><strong>${escapeHtml(a.evaluator_name||"—")}</strong><b>${personnelPa2Number(a.total_score||0,1)} / 100</b><em class="${a.passed?"pass":"fail"}">${a.passed?"ผ่าน":"ไม่ผ่าน"}</em></div>`).join("")}</div><div class="pa-detail-actions"><button class="btn btn-primary" id="pa2-export-my-all">Export PA2 กรรมการทั้ง 3</button><button class="btn btn-secondary" id="pa3-export-my">Export PA3</button></div></section>`;
+  return `<section class="pa-window-banner ${win.code}"><div><strong>${escapeHtml(win.label)}</strong><span>${escapeHtml(win.detail)}</span></div></section><section class="panel"><div class="panel-head"><div class="panel-title-wrap"><h3>ผลประเมิน PA2 ของฉัน</h3><p>คะแนนจะเปิดเมื่อกรรมการทั้ง 3 คนส่งผลครบ</p></div><span class="status pending">${Number(summary?.submitted_count||0)}/3 คน</span></div><div class="pa2-waiting-result"><strong>${Number(summary?.committee_count||0)===3?"อยู่ระหว่างการประเมิน":"ยังไม่ได้ตั้งคณะกรรมการกลางครบ 3 คน"}</strong><span>ผลรายกรรมการจะถูกเก็บเป็นรายปีและไม่เปลี่ยนเมื่อมีการเปลี่ยนกรรมการในปีถัดไป</span></div></section>`;
+}
+
+function personnelPa2EvaluatorAccountsHtml(){
+  if(!personnelPaCanReviewUi())return "";
+  const accounts=state.personnelPaEvaluatorAccounts||[],isSuper=state.profile?.role==="super_admin",initialized=accounts.filter(x=>x.auth_user_id).length;
+  return `<section class="panel pa2-evaluator-accounts-panel"><div class="panel-head"><div class="panel-title-wrap"><h3>บัญชีกรรมการ PA เฉพาะระบบ</h3><p>บัญชีถาวร 3 ช่อง ใช้ต่อเนื่องทุกปี · อีเมลนี้ใช้เป็นชื่อ Login ของระบบ · เปลี่ยนตัวบุคคลโดยรีเซตโปรไฟล์ ไม่ลบบัญชี Login</p></div>${isSuper?`<button class="btn btn-secondary" id="pa2-evaluator-ensure">${initialized<3?"เตรียมบัญชีกรรมการ 3 บัญชี":"ตรวจบัญชีกรรมการ"}</button>`:""}</div><div class="pa2-account-grid">${accounts.length?accounts.map(a=>{const complete=personnelPa2EvaluatorProfileComplete(a);return `<article class="pa2-account-card"><div class="pa2-account-number">${a.slot_no}</div><div class="pa2-account-copy"><strong>${escapeHtml(a.full_name||`กรรมการ PA ${a.slot_no}`)}</strong><span>${escapeHtml(a.login_email||"")}</span><small>${a.auth_user_id?(complete?`${escapeHtml(a.position_title||"")} · ${escapeHtml(a.organization||"")}`:"สร้างบัญชีแล้ว · รอกรรมการกรอกโปรไฟล์และลายเซ็น"):"ยังไม่ได้สร้างบัญชี Auth"}</small></div><span class="status ${complete?"active":a.auth_user_id?"pending":"neutral"}">${complete?"พร้อมใช้งาน":a.auth_user_id?"รอข้อมูล":"ยังไม่สร้าง"}</span>${isSuper&&a.auth_user_id?`<div class="pa2-account-actions"><button class="mini-link" data-pa2-reset-password="${a.slot_no}">ตั้งรหัสใหม่</button>${complete?`<button class="mini-link danger" data-pa2-reset-profile="${a.slot_no}">รีเซตข้อมูลตัวบุคคล</button>`:""}</div>`:""}</article>`;}).join(""):`<div class="empty"><strong>ไม่พบช่องบัญชีกรรมการ</strong></div>`}</div></section>`;
+}
+
+function personnelPa2AnnualCommitteeHtml(period){
+  const members=state.personnelPaPeriodCommittee||[],ready=members.length===3;
+  return `<section class="panel pa2-annual-committee"><div class="panel-head"><div class="panel-title-wrap"><h3>คณะกรรมการประเมิน PA2 ปีงบประมาณ ${escapeHtml(String(period?.fiscal_year||""))}</h3><p>ตั้ง 1 ครั้ง แล้วใช้กรรมการชุดเดียวกันกับครูทุกคนในรอบนี้</p></div>${personnelPaCanManageUi()?`<button class="btn ${ready?"btn-secondary":"btn-primary"}" id="pa2-committee-settings">${ready?"ดู / เปลี่ยนคณะกรรมการ":"ตั้งคณะกรรมการ"}</button>`:""}</div>${ready?`<div class="pa2-annual-committee-grid">${members.map(m=>{const account=(state.personnelPaEvaluatorAccounts||[]).find(a=>Number(a.slot_no)===Number(m.evaluator_account_slot));const name=m.evaluator_name_snapshot||account?.full_name||`บัญชีกรรมการ PA ${m.evaluator_account_slot||m.slot_no}`;const meta=m.evaluator_position_snapshot&&m.evaluator_organization_snapshot?`${m.evaluator_position_snapshot} · ${m.evaluator_organization_snapshot}`:"รอกรรมการ Login เพื่อกรอกข้อมูลและลายเซ็น";return `<article><span>${escapeHtml(personnelPa2CommitteeRoleLabel(m.member_role))}</span><strong>${escapeHtml(name)}</strong><small>${escapeHtml(meta)}</small></article>`;}).join("")}</div>`:`<div class="pa2-waiting-result"><strong>ยังไม่ได้ตั้งคณะกรรมการกลาง</strong><span>ต้องเลือกบัญชีกรรมการ PA 3 บัญชี และกำหนด 1 คนเป็นประธานกรรมการก่อนเริ่มประเมิน</span></div>`}</section>`;
+}
+
+function personnelPa2DashboardHtml(period){
+  if(!personnelPaCanReviewUi())return "";
+  if(!period)return `<section class="panel"><div class="empty"><strong>ยังไม่มีรอบ PA</strong></div></section>`;
+  const rows=state.personnelPaAssessmentDashboard||[],reportReady=rows.filter(x=>x.report_status==="submitted").length,complete=rows.filter(x=>x.all_complete).length,passed=rows.filter(x=>x.all_complete&&x.pa2_passed).length,committeeReady=(state.personnelPaPeriodCommittee||[]).length===3;
+  const master=personnelPaMasterDetailHtml(rows,{
+    status:personnelPa2TeacherStatus,
+    meta:r=>r.position_title||r.department_name||ROLE_LABEL[r.role]||"ครู",
+    empty:"ไม่พบรายชื่อผู้รับการประเมิน",
+    detail:r=>{const members=personnelPa2CommitteeMembers(r),st=personnelPa2TeacherStatus(r);return `<div class="pa-detail-head"><div><span class="eyebrow dark">PA2 · ปีงบประมาณ ${period.fiscal_year}</span><h3>${escapeHtml(r.full_name||"—")}</h3><p>${escapeHtml(r.position_title||ROLE_LABEL[r.role]||"—")} · ${escapeHtml(ACADEMIC_RANK_LABEL[r.academic_rank]||r.academic_rank||"ไม่ระบุวิทยฐานะ")}</p></div><span class="status ${st.className}">${escapeHtml(st.label)}</span></div><div class="pa-detail-grid"><div><span>รายงานผลปลายปี</span><strong>${escapeHtml(personnelPaStatusLabel(r.report_status))}</strong></div><div><span>ความคืบหน้า</span><strong>${Number(r.submitted_assessment_count||0)} / 3 คน</strong></div><div class="wide"><span>ประเด็นท้าทาย</span><strong>${escapeHtml(r.challenge_title||"—")}</strong></div>${r.all_complete?`<div><span>คะแนนเฉลี่ย</span><strong>${personnelPa2Number(r.average_score||0,2)}</strong></div><div><span>ผลรวม</span><strong>${r.pa2_passed?"ผ่านเกณฑ์":"ไม่ผ่านเกณฑ์"}</strong></div>`:""}</div><div class="pa2-selected-committee"><h4>ผลรายกรรมการ</h4>${members.length?members.map(m=>`<article><div><span>${escapeHtml(personnelPa2CommitteeRoleLabel(m.member_role))}</span><strong>${escapeHtml(m.evaluator_name||"—")}</strong><small>${escapeHtml(m.evaluator_position||"")}</small></div><div class="pa2-selected-score"><span class="status ${personnelPa2AssessmentStatusClass(m.assessment_status)}">${personnelPa2AssessmentStatusLabel(m.assessment_status)}</span>${m.assessment_id?`<b>${personnelPa2Number(m.total_score||0,1)} / 100</b>`:""}</div><div class="pa2-selected-actions">${m.assessment_id?`<button class="mini-link" data-pa2-view-assessment="${m.member_id}" data-pa2-evaluatee="${r.user_id}">ดูแบบประเมิน</button><button class="mini-link" data-pa2-export-assessment="${m.member_id}" data-pa2-evaluatee="${r.user_id}">PDF รายคน</button><button class="mini-link danger" data-pa2-reset-assessment="${m.assessment_id}" data-pa2-reset-name="${escapeHtml(r.full_name||"")}">ล้างผล</button>`:`<span>รอกรรมการประเมิน</span>`}</div></article>`).join(""):`<div class="empty"><strong>ยังไม่ได้ตั้งคณะกรรมการกลาง</strong></div>`}</div><div class="pa-detail-actions">${r.all_complete?`<button class="btn btn-primary" data-pa2-export-teacher="${r.user_id}">Export PA2 กรรมการทั้ง 3</button><button class="btn btn-secondary" data-pa3-export-teacher="${r.user_id}">Export PA3</button>`:""}</div>`;}
+  });
+  return `${personnelPa2EvaluatorAccountsHtml()}${personnelPa2AnnualCommitteeHtml(period)}<section class="pa-dashboard-metrics pa2-dashboard-metrics"><article><span>รายงานพร้อมประเมิน</span><strong>${reportReady}</strong></article><article><span>กรรมการกลาง</span><strong>${committeeReady?"3/3":"0/3"}</strong></article><article><span>ประเมินครบ 3 คน</span><strong>${complete}</strong></article><article><span>ผ่านเกณฑ์</span><strong>${passed}</strong></article></section><section class="panel pa-master-panel"><div class="panel-head"><div class="panel-title-wrap"><h3>Dashboard PA2</h3><p>เลือกครู 1 คนเพื่อดูรายงาน ความคืบหน้า และผลของกรรมการทั้ง 3 คน</p></div><div class="pa-export-action-row"><button class="btn btn-secondary" id="pa2-export-school" ${complete?"":"disabled"}>PDF PA2 ทั้งโรงเรียน</button><button class="btn btn-ghost" id="pa-refresh-dashboard">↻ รีเฟรช</button></div></div>${master}</section>`;
+}
+
+function personnelPaSignaturePad(canvas,clearButton,statusNode){
+  const ctx=canvas.getContext("2d",{willReadFrequently:true});
+  let drawing=false,hasInk=false,last=null,dpr=1;
+  const configure=()=>{
+    const rect=canvas.getBoundingClientRect();
+    dpr=Math.max(1,Math.min(window.devicePixelRatio||1,2));
+    canvas.width=Math.max(1,Math.round(rect.width*dpr));
+    canvas.height=Math.max(1,Math.round(rect.height*dpr));
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.lineWidth=2.5;ctx.lineCap="round";ctx.lineJoin="round";ctx.strokeStyle="#17231c";
+    hasInk=false;last=null;if(statusNode)statusNode.textContent="ยังไม่ได้เซ็นใหม่";
+  };
+  const point=e=>{const r=canvas.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top};};
+  const begin=e=>{e.preventDefault();drawing=true;hasInk=true;last=point(e);try{canvas.setPointerCapture(e.pointerId);}catch{};ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(last.x+.01,last.y+.01);ctx.stroke();if(statusNode)statusNode.textContent="มีลายเซ็นที่เซ็นในระบบแล้ว";};
+  const move=e=>{if(!drawing)return;e.preventDefault();const p=point(e);ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(p.x,p.y);ctx.stroke();last=p;};
+  const stop=e=>{if(!drawing)return;e?.preventDefault?.();drawing=false;last=null;try{canvas.releasePointerCapture(e.pointerId);}catch{};};
+  const clear=()=>{ctx.save();ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,canvas.width,canvas.height);ctx.restore();hasInk=false;last=null;if(statusNode)statusNode.textContent="ล้างแล้ว · กรุณาเซ็นใหม่";};
+  canvas.addEventListener("pointerdown",begin);canvas.addEventListener("pointermove",move);canvas.addEventListener("pointerup",stop);canvas.addEventListener("pointercancel",stop);canvas.addEventListener("pointerleave",e=>{if(e.pointerType==="mouse")stop(e);});
+  clearButton?.addEventListener("click",e=>{e.preventDefault();clear();});
+  requestAnimationFrame(configure);
+  const toBlob=async()=>{
+    if(!hasInk)return null;
+    const img=ctx.getImageData(0,0,canvas.width,canvas.height),data=img.data;
+    let minX=canvas.width,minY=canvas.height,maxX=-1,maxY=-1;
+    for(let y=0;y<canvas.height;y++)for(let x=0;x<canvas.width;x++){if(data[(y*canvas.width+x)*4+3]>8){if(x<minX)minX=x;if(x>maxX)maxX=x;if(y<minY)minY=y;if(y>maxY)maxY=y;}}
+    if(maxX<minX||maxY<minY)return null;
+    const pad=Math.round(14*dpr),sx=Math.max(0,minX-pad),sy=Math.max(0,minY-pad),sw=Math.min(canvas.width-sx,maxX-minX+1+pad*2),sh=Math.min(canvas.height-sy,maxY-minY+1+pad*2);
+    const out=document.createElement("canvas");out.width=sw;out.height=sh;out.getContext("2d").drawImage(canvas,sx,sy,sw,sh,0,0,sw,sh);
+    return await new Promise(resolve=>out.toBlob(resolve,"image/png"));
+  };
+  return{hasInk:()=>hasInk,clear,toBlob};
+}
+
+function personnelPaEvaluatorProfileModal(){
+  if(!personnelPaIsEvaluatorUi())return;
+  const current=state.personnelPaEvaluatorProfile||{};
+  const modal=document.createElement("div");modal.className="modal-backdrop";
+  modal.innerHTML=`<div class="modal modal-wide pa-evaluator-profile-modal"><div class="modal-head"><div><span class="form-type-badge">โปรไฟล์กรรมการ PA</span><h3>${personnelPa2EvaluatorProfileComplete(current)?"แก้ไขข้อมูลกรรมการ":"กรอกข้อมูลก่อนเริ่มประเมิน"}</h3><p>เลือกเซ็นในระบบด้วยเมาส์/นิ้ว/ปากกา หรืออัปโหลด PNG ก็ได้ ลายเซ็นจะถูกใช้เมื่อส่งผล PA2</p></div><button class="modal-close">×</button></div><form id="pa-evaluator-profile-form" class="form-grid"><div class="field"><label>ชื่อ-สกุลกรรมการ</label><input class="input" name="full_name" required value="${escapeHtml(current.full_name||"")}"></div><div class="field"><label>ตำแหน่ง / วิทยฐานะ</label><input class="input" name="position_title" required value="${escapeHtml(current.position_title||"")}"></div><div class="field"><label>หน่วยงาน</label><input class="input" name="organization" required value="${escapeHtml(current.organization||schoolName())}"></div><div class="field pa-evaluator-signature-field"><label>ลายเซ็นกรรมการ ${current.signature_path?`<span class="optional">(มีลายเซ็นเดิมแล้ว)</span>`:""}</label><div class="pa-signature-method-switch"><button type="button" class="active" data-pa-signature-mode="draw">✍ เซ็นในระบบ</button><button type="button" data-pa-signature-mode="upload">⇧ อัปโหลด PNG</button></div><div class="pa-signature-draw-panel" data-pa-signature-panel="draw"><div class="pa-signature-pad-wrap"><canvas id="pa-evaluator-signature-pad" aria-label="พื้นที่เซ็นลายเซ็น"></canvas><span>เซ็นชื่อภายในกรอบนี้ · ใช้เมาส์ นิ้ว หรือปากกาได้</span></div><div class="pa-signature-pad-actions"><button type="button" class="mini-link" id="pa-evaluator-signature-clear">ล้างลายเซ็น</button><small id="pa-evaluator-signature-pad-status">ยังไม่ได้เซ็นใหม่</small></div></div><div class="pa-signature-upload-panel hidden" data-pa-signature-panel="upload"><label class="upload-dropzone"><input type="file" id="pa-evaluator-signature-file" accept="image/png,.png"><strong>${current.signature_path?"เลือก PNG ใหม่":"เลือกลายเซ็น PNG"}</strong><span>พื้นหลังโปร่งใส · ไม่เกิน 5 MB</span></label><div class="pa-evaluator-upload-preview" id="pa-evaluator-upload-preview"></div></div>${state.personnelPaEvaluatorSignatureUrl?`<div class="pa-evaluator-signature-current"><img src="${state.personnelPaEvaluatorSignatureUrl}" alt="ลายเซ็นปัจจุบัน"><span>ลายเซ็นที่บันทึกอยู่ในระบบ</span></div>`:""}<div class="pa-signature-note"><strong>การลงนาม PA2</strong><span>เมื่อกดส่งผลประเมิน ระบบจะ Snapshot ลายเซ็นที่บันทึกอยู่ ณ ขณะนั้นไว้กับผลประเมินปีนั้น</span></div></div></form><div class="modal-actions"><button class="btn btn-ghost modal-cancel">ยกเลิก</button><button class="btn btn-primary" id="pa-evaluator-profile-save">บันทึกข้อมูลกรรมการ</button></div></div>`;
+  document.body.appendChild(modal);
+  const close=()=>modal.remove();modal.querySelector(".modal-close").onclick=close;modal.querySelector(".modal-cancel").onclick=close;
+  const modeButtons=[...modal.querySelectorAll("[data-pa-signature-mode]")],panels=[...modal.querySelectorAll("[data-pa-signature-panel]")];let mode="draw";
+  const setMode=next=>{mode=next;modeButtons.forEach(b=>b.classList.toggle("active",b.dataset.paSignatureMode===next));panels.forEach(p=>p.classList.toggle("hidden",p.dataset.paSignaturePanel!==next));};
+  modeButtons.forEach(b=>b.onclick=()=>setMode(b.dataset.paSignatureMode));
+  const canvas=modal.querySelector("#pa-evaluator-signature-pad"),clearBtn=modal.querySelector("#pa-evaluator-signature-clear"),padStatus=modal.querySelector("#pa-evaluator-signature-pad-status"),pad=personnelPaSignaturePad(canvas,clearBtn,padStatus),fileInput=modal.querySelector("#pa-evaluator-signature-file"),uploadPreview=modal.querySelector("#pa-evaluator-upload-preview");
+  fileInput.onchange=()=>{const f=fileInput.files?.[0]||null;if(!f){uploadPreview.innerHTML="";return;}if(f.size>5*1024*1024){fileInput.value="";uploadPreview.innerHTML="";return toast("ไฟล์ใหญ่เกินไป","ลายเซ็นต้องไม่เกิน 5 MB","error");}if(f.type!=="image/png"&&!/\.png$/i.test(f.name)){fileInput.value="";uploadPreview.innerHTML="";return toast("รูปแบบไฟล์ไม่ถูกต้อง","รองรับเฉพาะ PNG เพื่อใช้ในเอกสาร PA2","error");}const url=URL.createObjectURL(f);uploadPreview.innerHTML=`<img src="${url}" alt="ตัวอย่างลายเซ็น"><span>${escapeHtml(f.name)}</span>`;setMode("upload");};
+  modal.querySelector("#pa-evaluator-profile-save").onclick=async e=>{
+    const form=modal.querySelector("#pa-evaluator-profile-form");if(!form.reportValidity())return;
+    const fd=new FormData(form),uploadFile=fileInput.files?.[0]||null;let newSignature=null;
+    if(mode==="draw"&&pad.hasInk())newSignature=await pad.toBlob();
+    else if(mode==="upload"&&uploadFile)newSignature=uploadFile;
+    if(!newSignature&&!current.signature_path)return toast("ต้องมีลายเซ็น","กรุณาเซ็นในระบบหรืออัปโหลดลายเซ็น PNG ก่อนเริ่มประเมิน","error");
+    buttonLoading(e.currentTarget,true,"กำลังบันทึก...");
+    let bucket=current.signature_bucket||"personnel-pa-signatures",path=current.signature_path||null,mime=current.signature_mime_type||"image/png";
+    if(newSignature){path=`${state.user.id}/signature/${crypto.randomUUID()}.png`;const up=await supabase.storage.from("personnel-pa-signatures").upload(path,newSignature,{contentType:"image/png",upsert:false,cacheControl:"3600"});if(up.error){buttonLoading(e.currentTarget,false);return toast("อัปโหลดลายเซ็นไม่สำเร็จ",up.error.message,"error");}bucket="personnel-pa-signatures";mime="image/png";}
+    const res=await supabase.rpc("save_my_personnel_pa_evaluator_profile",{p_full_name:String(fd.get("full_name")||"").trim(),p_position_title:String(fd.get("position_title")||"").trim(),p_organization:String(fd.get("organization")||"").trim(),p_signature_bucket:bucket,p_signature_path:path,p_signature_mime_type:mime});
+    buttonLoading(e.currentTarget,false);if(res.error)return toast("บันทึกข้อมูลกรรมการไม่สำเร็จ",res.error.message,"error");
+    close();toast("บันทึกข้อมูลกรรมการแล้ว",newSignature?(mode==="draw"?"บันทึกลายเซ็นที่เซ็นในระบบแล้ว":"บันทึกลายเซ็น PNG แล้ว"):"คงลายเซ็นเดิมไว้และอัปเดตข้อมูลกรรมการแล้ว","success");await loadPersonnelPaWorkspace();await renderDashboard();
+  };
+}
+
+function personnelPa2CredentialsModal(rows,title="ข้อมูลเข้าสู่ระบบกรรมการ PA"){
+  const list=Array.isArray(rows)?rows:[];const modal=document.createElement("div");modal.className="modal-backdrop";modal.innerHTML=`<div class="modal modal-wide"><div class="modal-head"><div><span class="form-type-badge">PA Evaluator Accounts</span><h3>${escapeHtml(title)}</h3><p>อีเมลด้านล่างเป็นชื่อสำหรับ Login ระบบ PA และรหัสผ่านชั่วคราวจะแสดงเฉพาะตอนสร้าง/รีเซต กรุณาส่งให้กรรมการแต่ละคนอย่างปลอดภัย</p></div><button class="modal-close">×</button></div><div class="pa2-credential-list">${list.map(x=>`<article><span>บัญชีกรรมการ ${x.slot_no}</span><strong>${escapeHtml(x.email||"")}</strong>${x.password?`<code>${escapeHtml(x.password)}</code><small>รหัสผ่านชั่วคราว</small>`:`<em>บัญชีมีอยู่แล้ว · หากจำรหัสไม่ได้ให้กด “ตั้งรหัสใหม่”</em>`}</article>`).join("")}</div><div class="modal-actions"><button class="btn btn-primary modal-cancel">ปิด</button></div></div>`;document.body.appendChild(modal);const close=()=>modal.remove();modal.querySelector(".modal-close").onclick=close;modal.querySelector(".modal-cancel").onclick=close;
+}
+
+async function personnelPa2InvokeEvaluatorAdmin(action,payload={},button=null){
+  if(state.profile?.role!=="super_admin")return null;
+  if(button)buttonLoading(button,true,"กำลังดำเนินการ...");
+  const {data,error}=await supabase.functions.invoke("personnel-pa-evaluator-admin",{body:{action,...payload}});
+  if(button)buttonLoading(button,false);
+  if(error){let message=error.message||"เรียกบริการไม่สำเร็จ";try{const p=await error.context?.json?.();if(p?.error)message=p.error;}catch{}toast("จัดการบัญชีกรรมการไม่สำเร็จ",message,"error");return null;}
+  if(data?.error){toast("จัดการบัญชีกรรมการไม่สำเร็จ",data.error,"error");return null;}
+  return data;
+}
+
+function personnelPa2CommitteeModal(){
+  if(!personnelPaCanManageUi())return;
+  const period=personnelPaSelectedPeriod();if(!period)return;
+  const current=state.personnelPaPeriodCommittee||[],accounts=state.personnelPaEvaluatorAccounts||[];
+  const currentBySlot=n=>current.find(x=>Number(x.slot_no)===n)||{};
+  const options=selected=>accounts.map(a=>`<option value="${a.slot_no}" ${Number(selected)===Number(a.slot_no)?"selected":""} ${a.auth_user_id?"":"disabled"}>บัญชี ${a.slot_no} · ${escapeHtml(a.full_name||a.login_email)}${a.auth_user_id?(personnelPa2EvaluatorProfileComplete(a)?"":" · รอกรอกข้อมูล/ลายเซ็น"):" · ยังไม่สร้างบัญชี"}</option>`).join("");
+  const modal=document.createElement("div");modal.className="modal-backdrop";
+  modal.innerHTML=`<div class="modal modal-wide pa2-committee-modal"><div class="modal-head"><div><span class="form-type-badge">คณะกรรมการกลาง · ปีงบประมาณ ${period.fiscal_year}</span><h3>ตั้งคณะกรรมการ PA2 ครั้งเดียว ใช้กับครูทุกคน</h3><p>เลือกจากบัญชีกรรมการ PA 3 บัญชีเท่านั้น และกำหนดให้มีประธานกรรมการ 1 คน + กรรมการ 2 คน</p></div><button class="modal-close">×</button></div><div class="form-grid pa2-committee-grid">${[1,2,3].map(slot=>{const m=currentBySlot(slot),sel=m.evaluator_account_slot||slot,role=m.member_role||(slot===1?"chair":"member");return `<section class="pa2-committee-slot"><div class="pa2-slot-head"><strong>ตำแหน่งในชุดที่ ${slot}</strong><span>เลือกบัญชีและบทบาทได้อิสระ</span></div><div class="field"><label>บัญชีกรรมการ PA</label><select class="select" data-pa2-account-slot="${slot}"><option value="">— เลือกบัญชี —</option>${options(sel)}</select></div><div class="field"><label>บทบาทในคณะกรรมการ</label><select class="select" data-pa2-member-role="${slot}"><option value="chair" ${role==="chair"?"selected":""}>ประธานกรรมการ</option><option value="member" ${role==="member"?"selected":""}>กรรมการ</option></select></div></section>`;}).join("")}<div class="pa-setting-note"><strong>การเปลี่ยนคณะกรรมการ</strong><span>หากมีแบบประเมิน PA2 เกิดขึ้นแล้ว ต้องล้างผลประเมินทั้งหมดของรอบนั้นก่อน จึงจะเปลี่ยนคณะกรรมการกลางได้ เพื่อรักษาประวัติให้ตรงกับผู้ลงนาม</span></div></div><div class="modal-actions"><button class="btn btn-ghost modal-cancel">ยกเลิก</button><button class="btn btn-primary" id="pa2-committee-save">ยืนยันคณะกรรมการกลาง</button></div></div>`;
+  document.body.appendChild(modal);const close=()=>modal.remove();modal.querySelector(".modal-close").onclick=close;modal.querySelector(".modal-cancel").onclick=close;
+  modal.querySelector("#pa2-committee-save").onclick=async e=>{const members=[1,2,3].map(slot=>({slot_no:slot,evaluator_account_slot:Number(modal.querySelector(`[data-pa2-account-slot="${slot}"]`).value||0),member_role:modal.querySelector(`[data-pa2-member-role="${slot}"]`).value}));if(members.some(x=>![1,2,3].includes(x.evaluator_account_slot)))return toast("เลือกกรรมการไม่ครบ","กรุณาเลือกบัญชีกรรมการครบทั้ง 3 ตำแหน่ง","error");if(new Set(members.map(x=>x.evaluator_account_slot)).size!==3)return toast("เลือกบัญชีซ้ำ","กรรมการทั้ง 3 ตำแหน่งต้องเป็นคนละบัญชี","error");if(members.filter(x=>x.member_role==="chair").length!==1)return toast("บทบาทกรรมการไม่ถูกต้อง","ต้องกำหนดประธานกรรมการเพียง 1 คน","error");buttonLoading(e.currentTarget,true,"กำลังยืนยัน...");const {error}=await supabase.rpc("save_personnel_pa_period_committee",{p_period_id:period.id,p_members:members});buttonLoading(e.currentTarget,false);if(error)return toast("บันทึกคณะกรรมการไม่สำเร็จ",error.message,"error");close();toast("ตั้งคณะกรรมการกลางแล้ว","กรรมการชุดนี้จะใช้กับครูทุกคนในปีงบประมาณนี้","success");await loadPersonnelPaWorkspace();await renderDashboard();};
+}
+
+async function personnelPa2FetchContext(memberId,evaluateeUserId){
+  if(!evaluateeUserId)throw new Error("ไม่พบผู้รับการประเมิน");
+  const {data:rawMember,error:me}=await supabase.from("personnel_pa_period_committee_members").select("*").eq("id",memberId).single();if(me)throw me;
+  const member={...rawMember,evaluatee_user_id:evaluateeUserId,evaluator_name:rawMember.evaluator_name_snapshot,evaluator_position:rawMember.evaluator_position_snapshot,evaluator_organization:rawMember.evaluator_organization_snapshot};
+  const {data:report,error:re}=await supabase.from("personnel_pa_reports").select("*").eq("period_id",member.period_id).eq("user_id",evaluateeUserId).eq("status","submitted").single();if(re)throw re;
+  const [{data:source,error:se},{data:assessment,error:ae}]=await Promise.all([
+    supabase.from("personnel_pa_submissions").select("*").eq("id",report.pa_submission_id).single(),
+    supabase.from("personnel_pa_assessments").select("*").eq("committee_member_id",memberId).eq("evaluatee_user_id",evaluateeUserId).maybeSingle()
+  ]);if(se)throw se;if(ae)throw ae;
+  const person=(state.personnelPaCommitteeDirectory||[]).find(x=>x.user_id===evaluateeUserId)||{user_id:evaluateeUserId,full_name:report.person_name_snapshot,position_title:report.position_title_snapshot,academic_rank:report.academic_rank_snapshot};
+  return {member,report,source,assessment:assessment||null,person};
+}
+
+function personnelPa2RubricChoices(key,current,expected,weight=1){return [4,3,2,1].map(level=>{const score=level*weight;return `<label class="pa2-rubric-choice ${Number(current)===level?"selected":""}"><input type="radio" name="rubric-${key}" data-pa2-rubric="${key}" value="${level}" ${Number(current)===level?"checked":""}><span class="pa2-rubric-level"><b>ระดับ ${level}</b><em>${personnelPa2Number(score,1)} คะแนน</em></span><span class="pa2-rubric-copy"><strong>${escapeHtml(PERSONNEL_PA2_LEVEL_LABEL[level])}</strong><small>${escapeHtml(personnelPa2LevelText(level,expected))}</small></span></label>`;}).join("");}
+
+async function personnelPa2ResetAssessment(assessmentId,displayName="ผู้รับการประเมิน"){
+  if(!assessmentId)return;
+  if(!window.confirm(`ล้างผลประเมิน PA2 ของ “${displayName}” หรือไม่?\n\nระบบจะเก็บ Snapshot เดิมไว้ใน Audit Log และกรรมการสามารถประเมินใหม่ได้`))return;
+  const reason=window.prompt("เหตุผลในการล้างผลประเมิน (เว้นว่างได้)","");if(reason===null)return;
+  const {error}=await supabase.rpc("reset_personnel_pa_assessment",{p_assessment_id:assessmentId,p_reason:String(reason||"").trim()||null});
+  if(error)return toast("ล้างผลประเมินไม่สำเร็จ",error.message,"error");
+  toast("ล้างผลประเมินแล้ว","เก็บประวัติเดิมไว้ใน Audit Log และเปิดให้ประเมินใหม่แล้ว","success");await loadPersonnelPaWorkspace();await renderDashboard();
+}
+
+async function personnelPa2AssessmentModal(memberId,options={}){
+  let ctx;try{ctx=await personnelPa2FetchContext(memberId,options.evaluateeUserId);}catch(err){return toast("เปิดแบบประเมินไม่ได้",err.message||String(err),"error");}
+  const {member,report,source,assessment,person}=ctx,period=state.personnelPaPeriods.find(x=>x.id===member.period_id)||personnelPaSelectedPeriod(),win=personnelPaAssessmentWindowInfo(period);
+  const currentEvaluator=(state.personnelPaEvaluatorAccounts||[]).find(x=>x.auth_user_id===state.user?.id),canSelf=member.evaluator_user_id===state.user.id&&personnelPaIsEvaluatorUi(),alreadySubmitted=assessment?.status==="submitted",editable=!options.readOnly&&!alreadySubmitted&&win.open&&canSelf&&personnelPa2EvaluatorProfileComplete(currentEvaluator),canReset=!!assessment?.id&&(canSelf||personnelPaCanReviewUi());
+  const expected=personnelPa2ExpectedLevel(person.academic_rank||report.academic_rank_snapshot),s1=assessment?.section1_levels||{},s2=assessment?.section2_levels||{};
+  const evidence=Array.isArray(report.evidence_files)?report.evidence_files:[];
+  const groupHtml=[];let lastGroup="";for(const item of PERSONNEL_PA2_SECTION1){if(item.group!==lastGroup){groupHtml.push(`<div class="pa2-group-title"><strong>${escapeHtml(item.group)}</strong><span>คะแนนเต็ม ${item.group.startsWith("1.")?32:item.group.startsWith("2.")?16:12} คะแนน</span></div>`);lastGroup=item.group;}groupHtml.push(`<article class="pa2-rubric-item"><div class="pa2-rubric-question"><span class="pa2-item-number">${item.key}</span><div><h5>${escapeHtml(item.title)}</h5><p>${escapeHtml(item.guide)}</p><small>ระดับการปฏิบัติที่คาดหวัง: <b>${escapeHtml(expected)}</b></small></div></div><div class="pa2-rubric-options">${personnelPa2RubricChoices(item.key,s1[item.key],expected,1)}</div></article>`);}
+  const section2Html=PERSONNEL_PA2_SECTION2.map(item=>`<article class="pa2-rubric-item pa2-rubric-item-challenge"><div class="pa2-rubric-question"><span class="pa2-item-number">${item.max}</span><div><h5>${escapeHtml(item.title)} · ${item.max} คะแนน</h5><p>${escapeHtml(item.guide)}</p>${item.key==="method"?`<small>วิธีดำเนินการที่รายงาน: ${escapeHtml((report.development_result||"").slice(0,260))}${String(report.development_result||"").length>260?"…":""}</small>`:item.key==="quantitative"?`<small>ผลจริง: ${escapeHtml((report.quantitative_result||"").slice(0,260))}${String(report.quantitative_result||"").length>260?"…":""}</small>`:`<small>ผลจริง: ${escapeHtml((report.qualitative_result||"").slice(0,260))}${String(report.qualitative_result||"").length>260?"…":""}</small>`}</div></div><div class="pa2-rubric-options">${personnelPa2RubricChoices(`s2-${item.key}`,s2[item.key],expected,item.weight)}</div></article>`).join("");
+  const modal=document.createElement("div");modal.className="modal-backdrop pa-editor-backdrop pa2-assessment-backdrop";
+  modal.innerHTML=`<div class="modal pa2-assessment-modal"><div class="modal-head pa2-assessment-head"><div><span class="form-type-badge">PA2/ส · ${escapeHtml(personnelPa2CommitteeRoleLabel(member.member_role))}</span><h3>แบบประเมินผลการพัฒนางานตามข้อตกลง</h3><p>ผู้รับการประเมิน: <strong>${escapeHtml(person.full_name||report.person_name_snapshot||"—")}</strong> · ${escapeHtml(ACADEMIC_RANK_LABEL[person.academic_rank]||person.academic_rank||"ยังไม่ระบุวิทยฐานะ")}</p></div><button class="modal-close">×</button></div><div class="pa2-scorebar"><div><span>ส่วนที่ 1</span><strong id="pa2-score-60">0 / 60</strong></div><div><span>ส่วนที่ 2</span><strong id="pa2-score-40">0 / 40</strong></div><div class="total"><span>รวม</span><strong id="pa2-score-100">0 / 100</strong></div><div><span>ผลเบื้องต้น</span><strong id="pa2-pass-live">ยังไม่ครบ</strong></div></div><div class="pa2-assessment-scroll"><section class="pa2-source-panel"><div><span>ประเด็นท้าทาย</span><strong>${escapeHtml(report.challenge_title_snapshot||source.challenge_title||"—")}</strong><small>ระดับที่คาดหวัง: ${escapeHtml(expected)}</small></div><div class="pa2-source-actions"><button type="button" class="btn btn-ghost" id="pa2-open-source">เปิด PA ต้นปี</button><button type="button" class="btn btn-ghost" id="pa2-open-report">เปิดรายงานผล</button></div>${evidence.length?`<div class="pa2-evidence-row"><span>หลักฐาน:</span>${evidence.map((f,i)=>`<button type="button" class="pa-report-file-chip" data-pa2-evidence="${i}">📎 ${escapeHtml(f.name||`หลักฐาน ${i+1}`)}</button>`).join("")}</div>`:""}</section><form id="pa2-assessment-form"><section class="pa2-workload"><div><h4>ภาระงานตามมาตรฐานตำแหน่ง</h4><p>พิจารณาว่าผู้รับการประเมินมีภาระงานตามที่ ก.ค.ศ. กำหนดสำหรับตำแหน่ง/วิทยฐานะหรือไม่</p></div><div class="pa2-workload-options"><label><input type="radio" name="workload" value="true" ${assessment?.workload_compliant===true?"checked":""}> เป็นไปตามที่กำหนด</label><label><input type="radio" name="workload" value="false" ${assessment?.workload_compliant===false?"checked":""}> ไม่เป็นไปตามที่กำหนด</label></div></section><section class="pa2-section-head"><div><span>ส่วนที่ 1</span><h4>ข้อตกลงในการพัฒนางานตามมาตรฐานตำแหน่ง</h4><p>15 ตัวชี้วัด · เลือกระดับ 1–4 · คะแนนเต็ม 60 คะแนน</p></div><strong>60</strong></section>${groupHtml.join("")}<section class="pa2-section-head challenge"><div><span>ส่วนที่ 2</span><h4>ข้อตกลงในการพัฒนางานที่เสนอเป็นประเด็นท้าทาย</h4><p>วิธีดำเนินการ 20 + ผลเชิงปริมาณ 10 + ผลเชิงคุณภาพ 10</p></div><strong>40</strong></section>${section2Html}<section class="pa2-comment"><h4>ข้อสังเกต / ความคิดเห็นของผู้ประเมิน <span class="optional">(ไม่บังคับ)</span></h4><textarea class="input textarea" name="evaluator_comment" maxlength="2000" ${editable?"":"readonly"}>${escapeHtml(assessment?.evaluator_comment||"")}</textarea></section></form></div><div class="modal-actions pa2-assessment-actions"><button class="btn btn-ghost modal-cancel">ปิด</button>${alreadySubmitted?`<button class="btn btn-secondary" id="pa2-assessment-pdf">Export PDF รายกรรมการ</button>${canReset?`<button class="btn btn-danger" id="pa2-reset-current">ล้างผล / ประเมินใหม่</button>`:""}`:editable?`<button class="btn btn-secondary" id="pa2-save-draft">บันทึกฉบับร่าง</button><button class="btn btn-primary" id="pa2-submit">ส่งผลและลงนาม</button>`:""}</div></div>`;
+  document.body.appendChild(modal);document.body.classList.add("pa-editor-open");const close=()=>{modal.remove();document.body.classList.remove("pa-editor-open");};modal.querySelector(".modal-close").onclick=close;modal.querySelector(".modal-cancel").onclick=close;
+  if(!editable)modal.querySelectorAll('input[type="radio"]').forEach(x=>x.disabled=true);
+  modal.querySelector("#pa2-open-source").onclick=()=>personnelPaOpenSourceAgreement(source);modal.querySelector("#pa2-open-report").onclick=()=>personnelPaOpenReportPdf(report);modal.querySelectorAll("[data-pa2-evidence]").forEach(b=>b.onclick=()=>personnelPaOpenEvidenceFile(evidence[Number(b.dataset.pa2Evidence)]));
+  const readLevels=()=>{const one={},two={};PERSONNEL_PA2_SECTION1.forEach(i=>{const el=modal.querySelector(`[data-pa2-rubric="${i.key}"]:checked`);if(el)one[i.key]=Number(el.value);});PERSONNEL_PA2_SECTION2.forEach(i=>{const el=modal.querySelector(`[data-pa2-rubric="s2-${i.key}"]:checked`);if(el)two[i.key]=Number(el.value);});return {one,two};};
+  const refresh=()=>{modal.querySelectorAll(".pa2-rubric-choice").forEach(l=>l.classList.toggle("selected",!!l.querySelector("input:checked")));const {one,two}=readLevels(),score=personnelPa2LiveScore(one,two),work=modal.querySelector('input[name="workload"]:checked');modal.querySelector("#pa2-score-60").textContent=`${personnelPa2Number(score.section1,1)} / 60`;modal.querySelector("#pa2-score-40").textContent=`${personnelPa2Number(score.section2,1)} / 40`;modal.querySelector("#pa2-score-100").textContent=`${personnelPa2Number(score.total,1)} / 100`;const complete=Object.keys(one).length===15&&Object.keys(two).length===3&&!!work,pass=complete&&work.value==="true"&&score.total>=70,el=modal.querySelector("#pa2-pass-live");el.textContent=complete?(pass?"ผ่านเกณฑ์":"ไม่ผ่านเกณฑ์"):`ยังขาด ${18-Object.keys(one).length-Object.keys(two).length+(work?0:1)} จุด`;el.className=complete?(pass?"pass":"fail"):"";};modal.querySelectorAll('input[type="radio"]').forEach(x=>x.addEventListener("change",refresh));refresh();
+  const save=async(status,btn)=>{const {one,two}=readLevels(),work=modal.querySelector('input[name="workload"]:checked');if(status==="submitted"&&(Object.keys(one).length!==15||Object.keys(two).length!==3||!work))return toast("ประเมินยังไม่ครบ","กรุณาเลือก Rubric ครบ 15 ตัวชี้วัด + 3 เกณฑ์ประเด็นท้าทาย และระบุภาระงาน","error");if(status==="submitted"&&!window.confirm("ยืนยันส่งผลประเมิน PA2 หรือไม่?\n\nเมื่อส่ง ระบบจะบันทึกคะแนนและลงนามด้วยลายเซ็นกรรมการที่บันทึกไว้ในระบบทันที"))return;const payload={committee_member_id:member.id,workload_compliant:work?work.value==="true":null,section1_levels:one,section2_levels:two,evaluator_comment:modal.querySelector('[name="evaluator_comment"]').value.trim()||null,status,updated_by:state.user.id};buttonLoading(btn,true,status==="submitted"?"กำลังส่งและลงนาม...":"กำลังบันทึก...");let res;if(assessment?.id)res=await supabase.from("personnel_pa_assessments").update(payload).eq("id",assessment.id).select().single();else res=await supabase.from("personnel_pa_assessments").insert({...payload,period_id:member.period_id,evaluatee_user_id:person.user_id||report.user_id,pa_report_id:report.id,created_by:state.user.id}).select().single();buttonLoading(btn,false);if(res.error)return toast("บันทึก PA2 ไม่สำเร็จ",res.error.message,"error");close();toast(status==="submitted"?"ส่งผลและลงนาม PA2 แล้ว":"บันทึกฉบับร่างแล้ว",status==="submitted"?`คะแนนรวม ${personnelPa2Number(res.data.total_score,1)} / 100`:`สามารถกลับมาประเมินต่อได้ภายในช่วงเวลาที่กำหนด`,"success");await loadPersonnelPaWorkspace();await renderDashboard();};
+  modal.querySelector("#pa2-save-draft")?.addEventListener("click",e=>save("draft",e.currentTarget));modal.querySelector("#pa2-submit")?.addEventListener("click",e=>save("submitted",e.currentTarget));modal.querySelector("#pa2-assessment-pdf")?.addEventListener("click",()=>personnelPa2OpenAssessmentPdf(ctx));modal.querySelector("#pa2-reset-current")?.addEventListener("click",async()=>{const id=assessment?.id,name=person.full_name||report.person_name_snapshot||"ผู้รับการประเมิน";close();await personnelPa2ResetAssessment(id,name);});
+}
+
+function personnelPa2PdfStyles(){return `${officialPdfFontFaceCss()}@page{size:A4 portrait;margin:16mm 15mm 15mm}*{box-sizing:border-box}html,body{margin:0;padding:0;font-family:"TH SarabunIT๙","THSarabunIT๙",serif;color:#111}.pa2-pdf{font-size:16pt;line-height:1.22}.pa2-pdf-head{text-align:center;border-bottom:1.2px solid #111;padding-bottom:3mm;margin-bottom:4mm}.pa2-pdf-head h1{font-size:21pt;margin:0}.pa2-pdf-head h2{font-size:18pt;margin:1mm 0}.pa2-pdf-meta{display:grid;grid-template-columns:1fr 1fr;border:1px solid #777;margin-bottom:4mm}.pa2-pdf-meta div{padding:1.5mm 2mm;border-bottom:1px solid #aaa}.pa2-pdf-meta div:nth-child(odd){border-right:1px solid #aaa}.pa2-pdf-meta .wide{grid-column:1/-1;border-right:0}.pa2-pdf h3{font-size:17pt;margin:4mm 0 1.5mm;border-bottom:1px solid #555;padding-bottom:1mm}.pa2-pdf-table{width:100%;border-collapse:collapse;font-size:14.5pt;line-height:1.15}.pa2-pdf-table th,.pa2-pdf-table td{border:1px solid #555;padding:1.4mm 1.5mm;vertical-align:top}.pa2-pdf-table th{background:#f1f1f1}.pa2-pdf-table .score{text-align:center;width:20mm}.pa2-pdf-table tr{break-inside:avoid}.pa2-pdf-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:2mm;margin:4mm 0}.pa2-pdf-summary div{border:1px solid #555;padding:2mm;text-align:center}.pa2-pdf-summary strong{display:block;font-size:19pt}.pa2-pdf-result{border:1.4px solid #111;padding:2.5mm;margin-top:3mm}.pa2-pdf-comment{margin-top:4mm;border-top:1px solid #777;padding-top:2mm}.pa2-pdf-sign{width:88mm;margin:9mm 0 0 auto;text-align:center;break-inside:avoid}.pa2-pdf-sign .sign-label{margin-bottom:1mm}.pa2-pdf-signature-img{display:block;max-width:42mm;max-height:17mm;object-fit:contain;margin:0 auto 1mm}.pa2-pdf-signature-space{height:14mm}.pa2-pdf-sign .role{font-weight:700}.pa2-pdf-sign .signed-at{display:block;font-size:12.5pt;color:#555;margin-top:1mm}.pa2-pdf-foot{margin-top:8mm;padding-top:2mm;border-top:1px solid #bbb;font-size:12.5pt;color:#555;display:flex;justify-content:space-between}@media print{body{background:#fff}}`;}
+function personnelPa2PdfHtml(ctx,assets={}){const {member,report,assessment,person}=ctx,period=state.personnelPaPeriods.find(x=>x.id===member.period_id)||personnelPaSelectedPeriod(),expected=personnelPa2ExpectedLevel(person.academic_rank||report.academic_rank_snapshot),s1=assessment?.section1_levels||{},s2=assessment?.section2_levels||{},evalName=assessment?.evaluator_name_snapshot||member.evaluator_name||"—",evalPosition=assessment?.evaluator_position_snapshot||member.evaluator_position||"",evalOrg=assessment?.evaluator_organization_snapshot||member.evaluator_organization||"",evalRole=personnelPa2CommitteeRoleLabel(assessment?.committee_role_snapshot||member.member_role);return `<article class="pa2-pdf"><header class="pa2-pdf-head"><h1>แบบประเมินผลการพัฒนางานตามข้อตกลง (PA2/ส)</h1><h2>สำหรับข้าราชการครูและบุคลากรทางการศึกษา ตำแหน่งครู</h2><p>ปีงบประมาณ พ.ศ. ${escapeHtml(String(period?.fiscal_year||""))} · ${escapeHtml(schoolName())}</p></header><section class="pa2-pdf-meta"><div><b>ผู้รับการประเมิน:</b> ${escapeHtml(person.full_name||report.person_name_snapshot||"—")}</div><div><b>ตำแหน่ง:</b> ${escapeHtml(person.position_title||report.position_title_snapshot||"—")}</div><div><b>วิทยฐานะ:</b> ${escapeHtml(ACADEMIC_RANK_LABEL[person.academic_rank||report.academic_rank_snapshot]||person.academic_rank||report.academic_rank_snapshot||"—")}</div><div><b>ระดับที่คาดหวัง:</b> ${escapeHtml(expected)}</div><div class="wide"><b>ประเด็นท้าทาย:</b> ${escapeHtml(report.challenge_title_snapshot||"—")}</div><div class="wide"><b>ผู้ประเมิน:</b> ${escapeHtml(evalName)} · ${escapeHtml(evalRole)} · ${escapeHtml(evalPosition)} ${escapeHtml(evalOrg)}</div></section><h3>ส่วนที่ 1 ข้อตกลงในการพัฒนางานตามมาตรฐานตำแหน่ง (60 คะแนน)</h3><table class="pa2-pdf-table"><thead><tr><th>ตัวชี้วัด</th><th class="score">ระดับ</th><th class="score">คะแนน</th></tr></thead><tbody>${PERSONNEL_PA2_SECTION1.map(i=>`<tr><td><b>${i.key} ${escapeHtml(i.title)}</b><br><span>${escapeHtml(i.guide)}</span></td><td class="score">${s1[i.key]||"—"}</td><td class="score">${s1[i.key]||0}</td></tr>`).join("")}</tbody></table><h3>ส่วนที่ 2 ประเด็นท้าทายในการพัฒนาผลลัพธ์การเรียนรู้ของผู้เรียน (40 คะแนน)</h3><table class="pa2-pdf-table"><thead><tr><th>รายการประเมิน</th><th class="score">ระดับ</th><th class="score">คะแนน</th></tr></thead><tbody>${PERSONNEL_PA2_SECTION2.map(i=>`<tr><td><b>${escapeHtml(i.title)}</b><br><span>${escapeHtml(i.guide)}</span></td><td class="score">${s2[i.key]||"—"}</td><td class="score">${personnelPa2Number(personnelPa2ScoreForSection2(i.key,s2[i.key]),1)}</td></tr>`).join("")}</tbody></table><div class="pa2-pdf-summary"><div><span>ส่วนที่ 1</span><strong>${personnelPa2Number(assessment?.section1_total||0,1)} / 60</strong></div><div><span>ส่วนที่ 2</span><strong>${personnelPa2Number(assessment?.section2_total||0,1)} / 40</strong></div><div><span>รวม</span><strong>${personnelPa2Number(assessment?.total_score||0,1)} / 100</strong></div></div><div class="pa2-pdf-result"><b>ภาระงานตามมาตรฐานตำแหน่ง:</b> ${assessment?.workload_compliant?"เป็นไปตามที่กำหนด":"ไม่เป็นไปตามที่กำหนด"}<br><b>ผลการประเมินของกรรมการรายนี้:</b> ${assessment?.passed?"ผ่านเกณฑ์":"ไม่ผ่านเกณฑ์"} ${assessment?.passed?"(คะแนนไม่น้อยกว่า 70 และภาระงานเป็นไปตามที่กำหนด)":""}</div>${assessment?.evaluator_comment?`<div class="pa2-pdf-comment"><b>ข้อสังเกต / ความคิดเห็น</b><p>${personnelPaTextHtml(assessment.evaluator_comment)}</p></div>`:""}<div class="pa2-pdf-sign"><div class="sign-label">ลงชื่อ</div>${assets.signatureDataUrl?`<img class="pa2-pdf-signature-img" src="${assets.signatureDataUrl}" alt="ลายเซ็นผู้ประเมิน">`:`<div class="pa2-pdf-signature-space"></div>`}<div>( ${escapeHtml(evalName)} )</div><div class="role">${escapeHtml(evalRole)}</div><div>${escapeHtml(evalPosition)}</div><div>${escapeHtml(evalOrg)}</div>${assessment?.submitted_at?`<small class="signed-at">ลงนามในระบบเมื่อ ${thaiDateTimeDocument(assessment.submitted_at)}</small>`:""}</div><footer class="pa2-pdf-foot"><span>PA2 · ปีงบประมาณ ${escapeHtml(String(period?.fiscal_year||""))}</span><span>สร้างจาก ${escapeHtml(appName())}</span></footer></article>`;}
+async function personnelPa2AssessmentSignatureDataUrl(assessment){if(!assessment?.evaluator_signature_path_snapshot)return null;const bucket=assessment.evaluator_signature_bucket_snapshot||"personnel-pa-signatures";const {data,error}=await supabase.storage.from(bucket).download(assessment.evaluator_signature_path_snapshot);if(error){console.warn("PA2 signature download",error);return null;}return blobToDataUrl(data);}
+const personnelPaPdfSignatureCache=new Map();
+async function personnelPaAssessmentSignatureDataUrlCached(assessment){
+  const path=assessment?.evaluator_signature_path_snapshot;if(!path)return null;
+  const bucket=assessment.evaluator_signature_bucket_snapshot||"personnel-pa-signatures",key=`${bucket}:${path}`;
+  if(personnelPaPdfSignatureCache.has(key))return personnelPaPdfSignatureCache.get(key);
+  const value=await personnelPa2AssessmentSignatureDataUrl(assessment);personnelPaPdfSignatureCache.set(key,value);return value;
+}
+function personnelPaExportSafeName(value){return String(value||"PA").replace(/[\\/:*?"<>|]+/g,"-").replace(/\s+/g,"_").slice(0,90);}
+function personnelPaExportPdfStyles(){return `${officialPdfFontFaceCss()}*{box-sizing:border-box}html,body{margin:0;padding:0;font-family:"TH SarabunIT๙","THSarabunIT๙",serif;color:#111}.pa-export-host{position:fixed;left:-100000px;top:0;width:210mm;background:#fff}.pa-export-page{width:210mm;height:297mm;overflow:hidden;background:#fff;padding:14mm 15mm 13mm;font-size:15pt;line-height:1.16;position:relative}.pa-export-page *{font-family:"TH SarabunIT๙","THSarabunIT๙",serif}.pa-export-doc-code{position:absolute;right:15mm;top:9mm;font-size:13.5pt;font-weight:700}.pa-export-head{text-align:center;margin:0 0 3.5mm}.pa-export-head h1{font-size:20pt;line-height:1.05;margin:0;font-weight:700}.pa-export-head h2{font-size:17pt;line-height:1.05;margin:1mm 0 0}.pa-export-head p{font-size:14pt;margin:1mm 0 0}.pa-export-meta{display:grid;grid-template-columns:1fr 1fr;border:1px solid #555;margin:0 0 3mm}.pa-export-meta>div{padding:1.2mm 2mm;border-bottom:1px solid #aaa}.pa-export-meta>div:nth-child(odd){border-right:1px solid #aaa}.pa-export-meta>.wide{grid-column:1/-1;border-right:0}.pa-export-section-title{font-size:16pt;font-weight:700;margin:2.5mm 0 1.4mm}.pa-export-table{width:100%;border-collapse:collapse;font-size:13.25pt;line-height:1.08}.pa-export-table th,.pa-export-table td{border:1px solid #555;padding:1.15mm 1.3mm;vertical-align:top}.pa-export-table th{background:#f4f4f4;text-align:center}.pa-export-table .score{width:17mm;text-align:center;vertical-align:middle}.pa-export-table .short{width:13mm;text-align:center;vertical-align:middle}.pa-export-table .guide{font-size:12pt;color:#333}.pa-export-page-foot{position:absolute;left:15mm;right:15mm;bottom:7mm;border-top:.6px solid #aaa;padding-top:1mm;display:flex;justify-content:space-between;font-size:11.5pt;color:#555}.pa-export-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:2mm;margin:4mm 0}.pa-export-summary>div{border:1px solid #555;text-align:center;padding:2mm}.pa-export-summary strong{display:block;font-size:18pt}.pa-export-result{border:1.2px solid #333;padding:2mm 3mm;margin:3mm 0}.pa-export-comment{border-top:1px dotted #777;padding-top:2mm;margin-top:3mm}.pa-export-sign-single{width:90mm;margin:8mm 0 0 auto;text-align:center;line-height:1.12}.pa-export-signature{display:block;max-width:45mm;max-height:17mm;object-fit:contain;margin:0 auto .5mm}.pa-export-sign-spacer{height:14mm}.pa3-page{font-size:16pt;line-height:1.13;padding:13mm 15mm 11mm}.pa3-page .pa-export-head{margin-bottom:3mm}.pa3-page .pa-export-head h1{font-size:20pt}.pa3-page .pa-export-head h2{font-size:17pt}.pa3-info{margin:1.5mm 0 3mm;line-height:1.35}.pa3-workload{margin:2mm 0 3mm}.pa3-box{display:inline-grid;place-items:center;width:4.2mm;height:4.2mm;border:1px solid #111;margin:0 1mm;vertical-align:-.5mm;font-size:12pt;font-weight:700}.pa3-table{width:100%;border-collapse:collapse;font-size:14pt;line-height:1.1;margin-top:1.5mm}.pa3-table th,.pa3-table td{border:1px solid #333;padding:2mm 1.5mm;text-align:center;vertical-align:middle}.pa3-table .desc{text-align:left;width:70mm}.pa3-table .note{width:37mm;font-size:12.5pt}.pa3-result{margin:4mm 0 3mm;text-align:center;font-size:16pt}.pa3-sign-grid{display:grid;grid-template-columns:1fr 1fr;gap:4mm 9mm;margin-top:4mm;text-align:center}.pa3-sign-card{min-height:42mm;line-height:1.1}.pa3-sign-card.chair{grid-column:1/-1;width:90mm;justify-self:center}.pa3-sign-card img{display:block;max-width:42mm;max-height:14mm;object-fit:contain;margin:0 auto}.pa3-sign-space{height:12mm}.pa3-sign-card small{display:block;font-size:12pt;margin-top:.5mm}.pa3-ref{position:absolute;left:15mm;bottom:5.5mm;font-size:10.5pt;color:#666}`;}
+async function personnelPaBuildPagedPdf(html,filename){
+  await ensureOfficialPdfFont("16pt");const host=document.createElement("div");host.className="pa-export-host";host.innerHTML=`<style>${personnelPaExportPdfStyles()}</style>${html}`;document.body.appendChild(host);
+  try{await Promise.all([...host.querySelectorAll("img")].map(img=>img.complete?Promise.resolve():new Promise(r=>{img.onload=img.onerror=r;})));await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const pages=[...host.querySelectorAll(".pa-export-page")];if(!pages.length)throw new Error("ไม่พบหน้าเอกสารสำหรับ Export");for(const page of pages){if(page.scrollHeight>page.clientHeight+3)throw new Error("เนื้อหา PDF ล้นหน้ากระดาษ กรุณาแจ้งผู้ดูแลระบบเพื่อปรับแม่แบบ");}const pdf=new jsPDF({orientation:"portrait",unit:"mm",format:"a4",compress:true});for(let i=0;i<pages.length;i++){if(i)pdf.addPage("a4","portrait");const canvas=await html2canvas(pages[i],{scale:1.9,useCORS:true,backgroundColor:"#fff",logging:false});pdf.addImage(canvas.toDataURL("image/jpeg",.96),"JPEG",0,0,210,297,undefined,"FAST");}return {blob:pdf.output("blob"),filename,pageCount:pages.length};}finally{host.remove();}
+}
+function personnelPa2ExportHeader(ctx,page,total){const {member,report,assessment,person}=ctx,period=state.personnelPaPeriods.find(x=>x.id===member.period_id)||personnelPaSelectedPeriod(),evalName=assessment?.evaluator_name_snapshot||member.evaluator_name_snapshot||member.evaluator_name||"—",evalRole=personnelPa2CommitteeRoleLabel(assessment?.committee_role_snapshot||member.member_role);return `<span class="pa-export-doc-code">PA 2/ส · ${page}/${total}</span><header class="pa-export-head"><h1>แบบประเมินผลการพัฒนางานตามข้อตกลง (PA)</h1><h2>สำหรับข้าราชการครูและบุคลากรทางการศึกษา ตำแหน่งครู</h2><p>ประจำปีงบประมาณ พ.ศ. ${escapeHtml(String(period?.fiscal_year||""))}</p></header>${page===1?`<section class="pa-export-meta"><div><b>ผู้รับการประเมิน:</b> ${escapeHtml(person.full_name||report.person_name_snapshot||"—")}</div><div><b>ตำแหน่ง:</b> ${escapeHtml(person.position_title||report.position_title_snapshot||"ครู")}</div><div><b>วิทยฐานะ:</b> ${escapeHtml(ACADEMIC_RANK_LABEL[person.academic_rank||report.academic_rank_snapshot]||person.academic_rank||report.academic_rank_snapshot||"—")}</div><div><b>กรรมการ:</b> ${escapeHtml(evalName)} · ${escapeHtml(evalRole)}</div><div class="wide"><b>ประเด็นท้าทาย:</b> ${escapeHtml(report.challenge_title_snapshot||"—")}</div></section>`:`<section class="pa-export-meta"><div class="wide"><b>${escapeHtml(person.full_name||report.person_name_snapshot||"—")}</b> · ${escapeHtml(evalName)} (${escapeHtml(evalRole)})</div></section>`}`;}
+function personnelPa2RowsHtml(items,levels){return items.map(i=>`<tr><td><b>${i.key} ${escapeHtml(i.title)}</b><div class="guide">${escapeHtml(i.guide)}</div></td><td class="short">${levels[i.key]||"—"}</td><td class="score">${levels[i.key]||0}</td></tr>`).join("");}
+function personnelPa2PdfPagesHtml(ctx,assets={}){const {member,report,assessment}=ctx,s1=assessment?.section1_levels||{},s2=assessment?.section2_levels||{},evalName=assessment?.evaluator_name_snapshot||member.evaluator_name_snapshot||"—",evalPosition=assessment?.evaluator_position_snapshot||member.evaluator_position_snapshot||"",evalOrg=assessment?.evaluator_organization_snapshot||member.evaluator_organization_snapshot||"",evalRole=personnelPa2CommitteeRoleLabel(assessment?.committee_role_snapshot||member.member_role),period=state.personnelPaPeriods.find(x=>x.id===member.period_id)||personnelPaSelectedPeriod(),partA=PERSONNEL_PA2_SECTION1.slice(0,8),partB=PERSONNEL_PA2_SECTION1.slice(8);const foot=n=>`<footer class="pa-export-page-foot"><span>PA2 · ${escapeHtml(schoolName())}</span><span>หน้า ${n} / 3</span></footer>`;return `<article class="pa-export-page">${personnelPa2ExportHeader(ctx,1,3)}<div class="pa-export-section-title">ส่วนที่ 1 ข้อตกลงในการพัฒนางานตามมาตรฐานตำแหน่ง (60 คะแนน)</div><table class="pa-export-table"><thead><tr><th>ตัวชี้วัด / เกณฑ์พิจารณา</th><th class="short">ระดับ</th><th class="score">คะแนน</th></tr></thead><tbody>${personnelPa2RowsHtml(partA,s1)}</tbody></table>${foot(1)}</article><article class="pa-export-page">${personnelPa2ExportHeader(ctx,2,3)}<div class="pa-export-section-title">ส่วนที่ 1 (ต่อ)</div><table class="pa-export-table"><thead><tr><th>ตัวชี้วัด / เกณฑ์พิจารณา</th><th class="short">ระดับ</th><th class="score">คะแนน</th></tr></thead><tbody>${personnelPa2RowsHtml(partB,s1)}</tbody></table><div class="pa-export-summary"><div><span>คะแนนส่วนที่ 1</span><strong>${personnelPa2Number(assessment.section1_total,1)} / 60</strong></div><div><span>ประเมินแล้ว</span><strong>15</strong><span>ตัวชี้วัด</span></div><div><span>ภาระงาน</span><strong>${assessment.workload_compliant?"ผ่าน":"ไม่ผ่าน"}</strong></div></div>${foot(2)}</article><article class="pa-export-page">${personnelPa2ExportHeader(ctx,3,3)}<div class="pa-export-section-title">ส่วนที่ 2 ข้อตกลงที่เสนอเป็นประเด็นท้าทายในการพัฒนาผลลัพธ์การเรียนรู้ของผู้เรียน (40 คะแนน)</div><table class="pa-export-table"><thead><tr><th>รายการประเมิน</th><th class="short">ระดับ</th><th class="score">คะแนน</th></tr></thead><tbody>${PERSONNEL_PA2_SECTION2.map(i=>`<tr><td><b>${escapeHtml(i.title)}</b><div class="guide">${escapeHtml(i.guide)}</div></td><td class="short">${s2[i.key]||"—"}</td><td class="score">${personnelPa2Number(personnelPa2ScoreForSection2(i.key,s2[i.key]),1)}</td></tr>`).join("")}</tbody></table><div class="pa-export-summary"><div><span>ส่วนที่ 1</span><strong>${personnelPa2Number(assessment.section1_total,1)} / 60</strong></div><div><span>ส่วนที่ 2</span><strong>${personnelPa2Number(assessment.section2_total,1)} / 40</strong></div><div><span>รวม</span><strong>${personnelPa2Number(assessment.total_score,1)} / 100</strong></div></div><div class="pa-export-result"><b>ผลการประเมิน:</b> ${assessment.passed?"ผ่านเกณฑ์":"ไม่ผ่านเกณฑ์"} · <b>ภาระงาน:</b> ${assessment.workload_compliant?"เป็นไปตามที่ ก.ค.ศ. กำหนด":"ไม่เป็นไปตามที่ ก.ค.ศ. กำหนด"}</div>${assessment.evaluator_comment?`<div class="pa-export-comment"><b>ข้อสังเกต / ความคิดเห็นของผู้ประเมิน</b><div>${personnelPaTextHtml(assessment.evaluator_comment)}</div></div>`:""}<div class="pa-export-sign-single"><div>ลงชื่อ</div>${assets.signatureDataUrl?`<img class="pa-export-signature" src="${assets.signatureDataUrl}" alt="ลายเซ็นกรรมการ">`:`<div class="pa-export-sign-spacer"></div>`}<div>( ${escapeHtml(evalName)} )</div><b>${escapeHtml(evalRole)}</b><div>${escapeHtml(evalPosition)}</div><div>${escapeHtml(evalOrg)}</div><small>ลงนามในระบบเมื่อ ${assessment.submitted_at?thaiDateTimeDocument(assessment.submitted_at):"—"}</small></div>${foot(3)}</article>`;}
+function personnelPaExportPerson(userId,report=null){const d=(state.personnelPaAssessmentDashboard||[]).find(x=>x.user_id===userId)||(state.personnelPaCommitteeDirectory||[]).find(x=>x.user_id===userId)||{};return {user_id:userId,full_name:d.full_name||report?.person_name_snapshot||"—",position_title:d.position_title||report?.position_title_snapshot||"ครู",academic_rank:d.academic_rank||report?.academic_rank_snapshot||null};}
+async function personnelPa2FetchTeacherExportBundle(userId){const period=personnelPaSelectedPeriod();if(!period)throw new Error("ไม่พบรอบ PA");const [reportRes,assessRes,committeeRes]=await Promise.all([supabase.from("personnel_pa_reports").select("*").eq("period_id",period.id).eq("user_id",userId).eq("status","submitted").maybeSingle(),supabase.from("personnel_pa_assessments").select("*").eq("period_id",period.id).eq("evaluatee_user_id",userId).eq("status","submitted"),supabase.from("personnel_pa_period_committee_members").select("*").eq("period_id",period.id).order("slot_no")]);if(reportRes.error)throw reportRes.error;if(assessRes.error)throw assessRes.error;if(committeeRes.error)throw committeeRes.error;if(!reportRes.data)throw new Error("ครูคนนี้ยังไม่ได้ส่งรายงานผลปลายปี");const members=committeeRes.data||[],memberMap=new Map(members.map(x=>[x.id,x])),assessments=(assessRes.data||[]).sort((a,b)=>Number(memberMap.get(a.committee_member_id)?.slot_no||a.committee_slot_snapshot||99)-Number(memberMap.get(b.committee_member_id)?.slot_no||b.committee_slot_snapshot||99)),person=personnelPaExportPerson(userId,reportRes.data);return {period,report:reportRes.data,person,members,assessments,contexts:assessments.map(a=>({member:memberMap.get(a.committee_member_id)||{id:a.committee_member_id,period_id:a.period_id,slot_no:a.committee_slot_snapshot,member_role:a.committee_role_snapshot},report:reportRes.data,assessment:a,person}))};}
+async function personnelPa2BuildContextsPdf(contexts,filename){if(!contexts.length)throw new Error("ไม่มีผล PA2 ที่ส่งแล้วสำหรับ Export");let html="";for(const ctx of contexts){if(ctx.assessment?.status!=="submitted")continue;const signatureDataUrl=await personnelPaAssessmentSignatureDataUrlCached(ctx.assessment);html+=personnelPa2PdfPagesHtml(ctx,{signatureDataUrl});}return personnelPaBuildPagedPdf(html,filename);}
+async function personnelPa2OpenAssessmentPdf(contextOrMemberId,evaluateeUserId=null){let ctx=contextOrMemberId;if(typeof contextOrMemberId==="string"){try{ctx=await personnelPa2FetchContext(contextOrMemberId,evaluateeUserId);}catch(err){return toast("เปิดแบบ PA2 ไม่สำเร็จ",err.message||String(err),"error");}}if(!ctx?.assessment||ctx.assessment.status!=="submitted")return toast("ยัง Export PA2 ไม่ได้","กรรมการต้องส่งผลประเมินก่อน","error");try{const name=ctx.person?.full_name||ctx.report?.person_name_snapshot||"ผู้รับการประเมิน",built=await personnelPa2BuildContextsPdf([ctx],`PA2_${personnelPaExportSafeName(name)}_${personnelPaExportSafeName(ctx.assessment.evaluator_name_snapshot||"กรรมการ")}.pdf`);openPdfPreviewModal({title:`PA2 รายกรรมการ · ${name}`,subtitle:`${built.pageCount} หน้า · ${OFFICIAL_PDF_FONT}`,blob:built.blob,filename:built.filename});}catch(err){console.error(err);toast("สร้าง PDF PA2 ไม่สำเร็จ",err.message||String(err),"error");}}
+async function personnelPa2ExportTeacher(userId){try{const b=await personnelPa2FetchTeacherExportBundle(userId);if(b.assessments.length!==3)return toast("ยัง Export กรรมการทั้ง 3 ไม่ได้",`ขณะนี้ส่งผลแล้ว ${b.assessments.length}/3 คน`,"error");const built=await personnelPa2BuildContextsPdf(b.contexts,`PA2_กรรมการ3คน_${personnelPaExportSafeName(b.person.full_name)}_${b.period.fiscal_year}.pdf`);openPdfPreviewModal({title:`PA2 กรรมการทั้ง 3 คน · ${b.person.full_name}`,subtitle:`${built.pageCount} หน้า · ปีงบประมาณ ${b.period.fiscal_year}`,blob:built.blob,filename:built.filename});}catch(err){console.error(err);toast("Export PA2 ไม่สำเร็จ",err.message||String(err),"error");}}
+async function personnelPa2FetchSchoolExportBundles(){const period=personnelPaSelectedPeriod();if(!period)throw new Error("ไม่พบรอบ PA");const [reportsRes,assessRes,committeeRes]=await Promise.all([supabase.from("personnel_pa_reports").select("*").eq("period_id",period.id).eq("status","submitted"),supabase.from("personnel_pa_assessments").select("*").eq("period_id",period.id).eq("status","submitted"),supabase.from("personnel_pa_period_committee_members").select("*").eq("period_id",period.id).order("slot_no")]);if(reportsRes.error)throw reportsRes.error;if(assessRes.error)throw assessRes.error;if(committeeRes.error)throw committeeRes.error;const reports=reportsRes.data||[],assessments=assessRes.data||[],members=committeeRes.data||[],memberMap=new Map(members.map(x=>[x.id,x])),reportMap=new Map(reports.map(x=>[x.user_id,x])),rows=state.personnelPaAssessmentDashboard||[],bundles=[];for(const row of rows){const report=reportMap.get(row.user_id);if(!report)continue;const aa=assessments.filter(a=>a.evaluatee_user_id===row.user_id).sort((a,b)=>Number(memberMap.get(a.committee_member_id)?.slot_no||a.committee_slot_snapshot||99)-Number(memberMap.get(b.committee_member_id)?.slot_no||b.committee_slot_snapshot||99)),person=personnelPaExportPerson(row.user_id,report);bundles.push({period,report,person,members,assessments:aa,contexts:aa.map(a=>({member:memberMap.get(a.committee_member_id)||{id:a.committee_member_id,period_id:a.period_id,slot_no:a.committee_slot_snapshot,member_role:a.committee_role_snapshot},report,assessment:a,person}))});}return bundles;}
+async function personnelPa2ExportSchool(){if(!personnelPaCanReviewUi())return;try{const bundles=await personnelPa2FetchSchoolExportBundles(),complete=bundles.filter(x=>x.assessments.length===3),waiting=bundles.length-complete.length;if(!complete.length)throw new Error("ยังไม่มีครูที่กรรมการส่ง PA2 ครบ 3/3");if(waiting&&!window.confirm(`มีครู ${waiting} คนที่ PA2 ยังไม่ครบ 3/3\n\nระบบจะ Export เฉพาะ ${complete.length} คนที่ประเมินครบ ต้องการดำเนินการต่อหรือไม่?`))return;const contexts=complete.flatMap(x=>x.contexts),period=personnelPaSelectedPeriod(),built=await personnelPa2BuildContextsPdf(contexts,`PA2_ทั้งโรงเรียน_${period.fiscal_year}.pdf`);openPdfPreviewModal({title:"PA2 ทั้งโรงเรียน",subtitle:`${complete.length} คน · ${built.pageCount} หน้า · ปีงบประมาณ ${period.fiscal_year}`,blob:built.blob,filename:built.filename});}catch(err){console.error(err);toast("Export PA2 ทั้งโรงเรียนไม่สำเร็จ",err.message||String(err),"error");}}
+function personnelPa3SalaryGrade(rank){return ({assistant_teacher:"ครูผู้ช่วย",teacher_k1:"คศ.1",teacher_k2:"คศ.2",teacher_k3:"คศ.3",teacher_k4:"คศ.4",teacher_k5:"คศ.5"})[rank]||"........";}
+function personnelPa3Status(row){const n=Number(row?.submitted_assessment_count||0);if(n<3)return {label:`รอ PA2 ${n}/3`,className:n?"pending":"neutral"};return {label:row.pa2_passed?"PA3 พร้อม · ผ่าน":"PA3 พร้อม · ไม่ผ่าน",className:row.pa2_passed?"active":"rejected"};}
+function personnelPa3SignCard(a,signatureDataUrl,isChair=false){const role=isChair?"ประธานกรรมการผู้ประเมิน":"กรรมการผู้ประเมิน";return `<div class="pa3-sign-card ${isChair?"chair":""}"><div>ลงชื่อ</div>${signatureDataUrl?`<img src="${signatureDataUrl}" alt="ลายเซ็น ${escapeHtml(a.evaluator_name_snapshot||"")}">`:`<div class="pa3-sign-space"></div>`}<div>( ${escapeHtml(a.evaluator_name_snapshot||"—")} )</div><div>${escapeHtml(a.evaluator_position_snapshot||"")}</div><b>${role}</b><small>${a.submitted_at?`วันที่ ${thaiDateOnly(a.submitted_at)}`:""}</small></div>`;}
+async function personnelPa3PageHtml(bundle){const aa=[...bundle.assessments].sort((a,b)=>Number(a.committee_slot_snapshot||99)-Number(b.committee_slot_snapshot||99));if(aa.length!==3)throw new Error(`PA2 ของ ${bundle.person.full_name} ยังไม่ครบ 3/3`);const signatures={};for(const a of aa)signatures[a.id]=await personnelPaAssessmentSignatureDataUrlCached(a);const chair=aa.find(a=>a.committee_role_snapshot==="chair")||aa[0],members=aa.filter(a=>a.id!==chair.id),pass=aa.every(a=>a.passed),workload=aa.every(a=>a.workload_compliant),rank=bundle.person.academic_rank||bundle.report.academic_rank_snapshot,period=bundle.period;const score=(a,key)=>personnelPa2Number(a?.[key]||0,1),box=v=>`<span class="pa3-box">${v?"✓":""}</span>`;return `<article class="pa-export-page pa3-page"><span class="pa-export-doc-code">PA 3/ส<br><small>สำหรับกรรมการประเมิน PA</small></span><header class="pa-export-head"><h1>แบบสรุปผลการประเมินการพัฒนางานตามข้อตกลง (PA)</h1><h2>สำหรับข้าราชการครูและบุคลากรทางการศึกษา ตำแหน่งครู</h2><p>(ทุกสังกัด)</p><p>ประจำปีงบประมาณ พ.ศ. ${escapeHtml(String(period.fiscal_year||""))}</p><p>(ระหว่างวันที่ ${escapeHtml(thaiDateOnly(period.agreement_start_date))} ถึงวันที่ ${escapeHtml(thaiDateOnly(period.agreement_end_date))})</p></header><div class="pa3-info"><b>ข้อมูลผู้รับการประเมิน</b><br>ชื่อ ${escapeHtml(bundle.person.full_name||bundle.report.person_name_snapshot||"—")} &nbsp;&nbsp; ตำแหน่ง ${escapeHtml(bundle.person.position_title||bundle.report.position_title_snapshot||"ครู")} &nbsp;&nbsp; วิทยฐานะ ${escapeHtml(ACADEMIC_RANK_LABEL[rank]||rank||"—")}<br>สถานศึกษา ${escapeHtml(schoolName())} &nbsp;&nbsp; สังกัด ${escapeHtml(educationOffice())}<br>รับเงินเดือนในอันดับ ${escapeHtml(personnelPa3SalaryGrade(rank))} &nbsp;&nbsp; อัตราเงินเดือน ................................ บาท</div><div class="pa3-workload"><b>ภาระงาน</b> ${box(workload)} เป็นไปตามที่ ก.ค.ศ. กำหนด &nbsp;&nbsp; ${box(!workload)} ไม่เป็นไปตามที่ ก.ค.ศ. กำหนด</div><b>ผลการประเมิน</b><table class="pa3-table"><thead><tr><th class="desc">การประเมินข้อตกลงในการพัฒนางาน</th><th>คะแนนเต็ม</th><th>คนที่ 1</th><th>คนที่ 2</th><th>คนที่ 3</th><th class="note">หมายเหตุ</th></tr></thead><tbody><tr><td class="desc">ส่วนที่ 1 ข้อตกลงในการพัฒนางานตามมาตรฐานตำแหน่ง</td><td>60</td>${aa.map(a=>`<td>${score(a,"section1_total")}</td>`).join("")}<td class="note" rowspan="3">เกณฑ์ผ่านต้องได้คะแนนจากกรรมการแต่ละคนไม่ต่ำกว่าร้อยละ 70</td></tr><tr><td class="desc">ส่วนที่ 2 ข้อตกลงในการพัฒนางานที่เสนอเป็นประเด็นท้าทายในการพัฒนาผลลัพธ์การเรียนรู้ของผู้เรียน</td><td>40</td>${aa.map(a=>`<td>${score(a,"section2_total")}</td>`).join("")}</tr><tr><td class="desc"><b>รวม</b></td><td><b>100</b></td>${aa.map(a=>`<td><b>${score(a,"total_score")}</b></td>`).join("")}</tr></tbody></table><div class="pa3-result"><b>สรุปผลการประเมินทั้ง 2 ส่วน จากกรรมการ 3 คน</b> &nbsp; ${box(pass)} ผ่านเกณฑ์ &nbsp;&nbsp; ${box(!pass)} ไม่ผ่านเกณฑ์</div><div class="pa3-sign-grid">${personnelPa3SignCard(chair,signatures[chair.id],true)}${members.map(a=>personnelPa3SignCard(a,signatures[a.id],false)).join("")}</div><div class="pa3-ref">แบบ PA 3/ส · สรุปจากผล PA2 ที่กรรมการทั้ง 3 คนส่งและลงนามในระบบ</div></article>`;}
+async function personnelPa3BuildPdf(bundles,filename){if(!bundles.length)throw new Error("ไม่มีข้อมูล PA3 สำหรับ Export");let html="";for(const b of bundles)html+=await personnelPa3PageHtml(b);return personnelPaBuildPagedPdf(html,filename);}
+async function personnelPa3ExportTeacher(userId){try{const b=await personnelPa2FetchTeacherExportBundle(userId);if(b.assessments.length!==3)return toast("ยัง Export PA3 ไม่ได้",`ต้องรอกรรมการส่ง PA2 ครบ 3/3 · ปัจจุบัน ${b.assessments.length}/3`,"error");const built=await personnelPa3BuildPdf([b],`PA3_${personnelPaExportSafeName(b.person.full_name)}_${b.period.fiscal_year}.pdf`);openPdfPreviewModal({title:`PA3 · ${b.person.full_name}`,subtitle:`1 หน้า · ปีงบประมาณ ${b.period.fiscal_year} · ${OFFICIAL_PDF_FONT}`,blob:built.blob,filename:built.filename});}catch(err){console.error(err);toast("Export PA3 ไม่สำเร็จ",err.message||String(err),"error");}}
+async function personnelPa3ExportSchool(){if(!personnelPaCanReviewUi())return;try{const all=await personnelPa2FetchSchoolExportBundles(),complete=all.filter(x=>x.assessments.length===3),waiting=all.length-complete.length;if(!complete.length)throw new Error("ยังไม่มีครูที่ PA2 ครบ 3/3");if(waiting&&!window.confirm(`มีครู ${waiting} คนที่ PA2 ยังไม่ครบ 3/3\n\nระบบจะสร้าง PA3 เฉพาะ ${complete.length} คนที่พร้อม ต้องการดำเนินการต่อหรือไม่?`))return;const period=personnelPaSelectedPeriod(),built=await personnelPa3BuildPdf(complete,`PA3_ทั้งโรงเรียน_${period.fiscal_year}.pdf`);openPdfPreviewModal({title:"PA3 ทั้งโรงเรียน",subtitle:`${complete.length} คน · ${built.pageCount} หน้า · ปีงบประมาณ ${period.fiscal_year}`,blob:built.blob,filename:built.filename});}catch(err){console.error(err);toast("Export PA3 ทั้งโรงเรียนไม่สำเร็จ",err.message||String(err),"error");}}
+function personnelPa3MyWorkspaceHtml(period){if(!personnelPaIsRequiredUi())return `<section class="panel"><div class="empty"><strong>ไม่มี PA3 สำหรับบัญชีนี้</strong></div></section>`;const s=state.personnelPaAssessmentSummary,n=Number(s?.submitted_count||0),ready=!!s?.all_complete;return `<section class="panel pa3-panel"><div class="panel-head"><div class="panel-title-wrap"><h3>PA3 · แบบสรุปผลการประเมิน</h3><p>ระบบสร้างจากผล PA2 ของกรรมการทั้ง 3 คนโดยอัตโนมัติ ไม่มีการกรอกคะแนนซ้ำ</p></div><span class="status ${ready?(s.pa2_passed?"active":"rejected"):"pending"}">${ready?(s.pa2_passed?"พร้อม · ผ่านเกณฑ์":"พร้อม · ไม่ผ่านเกณฑ์"):`รอ PA2 ${n}/3`}</span></div>${ready?`<div class="pa2-summary-metrics"><article><span>กรรมการครบ</span><strong>3/3</strong></article><article><span>คะแนนเฉลี่ย</span><strong>${personnelPa2Number(s.average_score||0,2)}</strong></article><article><span>ผลสรุป</span><strong>${s.pa2_passed?"ผ่าน":"ไม่ผ่าน"}</strong></article></div><div class="pa-detail-actions"><button class="btn btn-primary" id="pa3-export-my">Export PDF PA3</button><button class="btn btn-secondary" id="pa2-export-my-all">Export PA2 กรรมการทั้ง 3</button></div>`:`<div class="pa2-waiting-result"><strong>PA3 จะเปิดอัตโนมัติเมื่อ PA2 ครบ 3/3</strong><span>ขณะนี้กรรมการส่งผลแล้ว ${n}/3 คน</span></div>`}</section>`;}
+function personnelPa3DashboardHtml(period){if(!personnelPaCanReviewUi())return "";const rows=state.personnelPaAssessmentDashboard||[],complete=rows.filter(x=>x.all_complete).length,passed=rows.filter(x=>x.all_complete&&x.pa2_passed).length,waiting=rows.length-complete,master=personnelPaMasterDetailHtml(rows,{status:personnelPa3Status,meta:r=>r.position_title||r.department_name||ROLE_LABEL[r.role]||"ครู",empty:"ไม่พบรายชื่อผู้รับการประเมิน",detail:r=>{const ms=personnelPa2CommitteeMembers(r),st=personnelPa3Status(r);return `<div class="pa-detail-head"><div><span class="eyebrow dark">PA3 · ปีงบประมาณ ${period.fiscal_year}</span><h3>${escapeHtml(r.full_name||"—")}</h3><p>${escapeHtml(r.position_title||ROLE_LABEL[r.role]||"ครู")} · ${escapeHtml(ACADEMIC_RANK_LABEL[r.academic_rank]||r.academic_rank||"ไม่ระบุวิทยฐานะ")}</p></div><span class="status ${st.className}">${escapeHtml(st.label)}</span></div><div class="pa3-dashboard-scores">${ms.map((m,i)=>`<article><span>กรรมการคนที่ ${i+1} · ${escapeHtml(personnelPa2CommitteeRoleLabel(m.member_role))}</span><strong>${m.assessment_status==="submitted"?`${personnelPa2Number(m.section1_total||0,1)} + ${personnelPa2Number(m.section2_total||0,1)} = ${personnelPa2Number(m.total_score||0,1)}`:"รอประเมิน"}</strong><small>${escapeHtml(m.evaluator_name||"—")}</small></article>`).join("")}</div><div class="pa-detail-actions">${r.all_complete?`<button class="btn btn-primary" data-pa3-export-teacher="${r.user_id}">Export PDF PA3</button><button class="btn btn-secondary" data-pa2-export-teacher="${r.user_id}">PA2 กรรมการทั้ง 3</button>`:`<span class="pa-detail-muted">ต้องรอ PA2 ครบ 3/3 ก่อนสร้าง PA3</span>`}</div>`;}});return `<section class="pa-dashboard-metrics pa3-dashboard-metrics"><article><span>ผู้รับการประเมิน</span><strong>${rows.length}</strong></article><article><span>PA3 พร้อม</span><strong>${complete}</strong></article><article><span>ผ่านเกณฑ์</span><strong>${passed}</strong></article><article><span>รอ PA2</span><strong>${waiting}</strong></article></section><section class="panel pa-master-panel"><div class="panel-head"><div class="panel-title-wrap"><h3>Dashboard PA3</h3><p>เลือกครูเพื่อดูคะแนนจากกรรมการทั้ง 3 คน และ Export แบบ PA 3/ส</p></div><div class="pa-export-action-row"><button class="btn btn-secondary" id="pa2-export-school">PDF PA2 ทั้งโรงเรียน</button><button class="btn btn-primary" id="pa3-export-school">PDF PA3 ทั้งโรงเรียน</button></div></div>${master}</section>`;}
+
+
+function personnelPaWorkspaceHtml(module){
+  if(state.personnelPaLoadError&&/relation .*personnel_pa_/i.test(state.personnelPaLoadError))return `<section class="panel"><div class="empty"><strong>ระบบ PA ยังติดตั้งฐานข้อมูลไม่ครบ</strong><span>กรุณาตรวจสอบ SQL v5.8.2 สำหรับบัญชีกรรมการและคณะกรรมการกลางก่อนใช้งาน</span><small>${escapeHtml(state.personnelPaLoadError)}</small></div></section>`;
+  const period=personnelPaSelectedPeriod();
+  if(personnelPaIsEvaluatorUi()){
+    state.personnelPaPhase="assessment";state.personnelPaView="mine";
+    const win=personnelPaAssessmentWindowInfo(period);
+    return `<section class="pa-hero pa-evaluator-hero"><div><span class="eyebrow dark">PA Evaluator · Dedicated Workspace</span><h2>ระบบประเมินข้อตกลงในการพัฒนางาน (PA)</h2><p>บัญชีกรรมการเห็นเฉพาะงานประเมิน PA · เลือกครูก่อน แล้วจึงเปิดรายงาน หลักฐาน และ Rubric ของคนนั้น</p></div><div class="pa-hero-side">${personnelPaPeriodSelectorHtml()}<span class="pa-window-chip ${win.code}">${escapeHtml(win.label)}</span></div></section>${state.personnelPaLoadError&&!/relation .*personnel_pa_/i.test(state.personnelPaLoadError)?`<div class="alert error"><strong>โหลดข้อมูล PA ไม่ครบ</strong><span>${escapeHtml(state.personnelPaLoadError)}</span></div>`:""}${personnelPa2MyWorkspaceHtml(period)}`;
+  }
+  const phase=state.personnelPaPhase||"agreement";
+  const windowInfo=phase==="report"?personnelPaReportWindowInfo(period):(phase==="assessment"||phase==="summary")?personnelPaAssessmentWindowInfo(period):personnelPaWindowInfo(period);
+  const canMine=phase==="assessment"?personnelPaIsRequiredUi():personnelPaIsRequiredUi();
+  const canDash=personnelPaCanReviewUi();
+  if(state.personnelPaView==="dashboard"&&!canDash)state.personnelPaView="mine";
+  if(state.personnelPaView==="mine"&&!canMine&&canDash)state.personnelPaView="dashboard";
+  const tabs=[];
+  if(canMine)tabs.push(`<button class="lesson-view-tab ${state.personnelPaView==="mine"?"active":""}" data-pa-view="mine">${phase==="assessment"?"ผล PA2 ของฉัน":phase==="summary"?"PA3 ของฉัน":"งานของฉัน"}</button>`);
+  if(canDash)tabs.push(`<button class="lesson-view-tab ${state.personnelPaView==="dashboard"?"active":""}" data-pa-view="dashboard">${phase==="assessment"?"Dashboard PA2":phase==="summary"?"Dashboard PA3":"Dashboard ตรวจการส่ง"}</button>`);
+  const phaseTabs=`<div class="pa-phase-tabs"><button class="pa-phase-tab ${phase==="agreement"?"active":""}" data-pa-phase="agreement"><strong>1</strong><span>บันทึกข้อตกลงต้นปี</span></button><button class="pa-phase-tab ${phase==="report"?"active":""}" data-pa-phase="report"><strong>2</strong><span>รายงานผลปลายปี</span></button><button class="pa-phase-tab ${phase==="assessment"?"active":""}" data-pa-phase="assessment"><strong>PA2</strong><span>การประเมิน 60 + 40</span></button><button class="pa-phase-tab ${phase==="summary"?"active":""}" data-pa-phase="summary"><strong>PA3</strong><span>สรุปผล 3 กรรมการ</span></button></div>`;
+  const phaseCopy=phase==="report"?"ปลายปีงบประมาณ · รายงานผลจริงตามข้อตกลงต้นปี":phase==="assessment"?"PA2 · คณะกรรมการกลาง 3 คนประเมินครูทุกคนด้วย Rubric 60 + 40 คะแนน":phase==="summary"?"PA3 · สรุปคะแนนและผลจากกรรมการ 3 คนโดยอัตโนมัติ":"ต้นปีงบประมาณ · เลือกส่ง PA 1 หน้า หรือแนบ PA ฉบับเต็มอย่างใดอย่างหนึ่ง";
+  let content="";
+  if(phase==="assessment")content=state.personnelPaView==="dashboard"&&canDash?personnelPa2DashboardHtml(period):personnelPa2MyWorkspaceHtml(period);
+  else if(phase==="summary")content=state.personnelPaView==="dashboard"&&canDash?personnelPa3DashboardHtml(period):personnelPa3MyWorkspaceHtml(period);
+  else if(phase==="report")content=state.personnelPaView==="dashboard"&&canDash?personnelPaReportDashboardHtml(period):personnelPaReportMyWorkspaceHtml(period);
+  else content=state.personnelPaView==="dashboard"&&canDash?personnelPaDashboardHtml(period):personnelPaMyWorkspaceHtml(period);
+  return `<section class="pa-hero"><div><span class="eyebrow dark">Personnel Administration · Performance Agreement</span><h2>ระบบข้อตกลงในการพัฒนางาน (PA)</h2><p>${phaseCopy}</p></div><div class="pa-hero-side">${personnelPaPeriodSelectorHtml()}${personnelPaCanManageUi()?`<button class="btn btn-secondary" id="pa-period-settings">ตั้งค่ารอบและวันรับส่ง</button>`:""}<span class="pa-window-chip ${windowInfo.code}">${escapeHtml(windowInfo.label)}</span></div></section>${phaseTabs}${state.personnelPaLoadError&&!/relation .*personnel_pa_/i.test(state.personnelPaLoadError)?`<div class="alert error"><strong>โหลดข้อมูล PA ไม่ครบ</strong><span>${escapeHtml(state.personnelPaLoadError)}</span></div>`:""}${tabs.length>1?`<div class="lesson-view-tabs pa-tabs">${tabs.join("")}</div>`:""}${content}`;
+}
+
+
+function personnelPaPeriodSettingsModal(){
+  if(!personnelPaCanManageUi())return;
+  const current=personnelPaSelectedPeriod();
+  const fy=current?.fiscal_year||personnelPaSuggestedFiscalYear();
+  const modal=document.createElement("div");modal.className="modal-backdrop";
+  modal.innerHTML=`<div class="modal modal-wide"><div class="modal-head"><div><h3>ตั้งค่ารอบ PA ปีงบประมาณ</h3><p>กำหนด 3 ช่วงเวลาแยกกัน: ข้อตกลงต้นปี → รายงานผลปลายปี → ประเมิน PA2</p></div><button class="modal-close">×</button></div><div class="form-grid"><div class="field"><label>ปีงบประมาณ พ.ศ.</label><input class="input" id="pa-period-fiscal-year" type="number" min="2500" max="2700" value="${fy}"></div><div class="pa-period-derived"><strong>รอบข้อตกลง</strong><span id="pa-period-derived-text">ระบบคำนวณ 1 ตุลาคม – 30 กันยายนอัตโนมัติ</span></div>
+  <section class="pa-setting-window"><h4>ช่วงที่ 1 · ส่งบันทึกข้อตกลงต้นปี</h4><div class="form-row"><div class="field"><label>เปิดรับส่งตั้งแต่วันที่</label><input class="input" id="pa-period-open" type="date" value="${escapeHtml(current?.submission_open_date||"")}"></div><div class="field"><label>ปิดรับส่งวันที่</label><input class="input" id="pa-period-close" type="date" value="${escapeHtml(current?.submission_close_date||"")}"></div></div></section>
+  <section class="pa-setting-window report"><h4>ช่วงที่ 2 · ส่งรายงานผล PA ปลายปี</h4><div class="form-row"><div class="field"><label>เปิดรับรายงานวันที่ <span class="optional">(ตั้งภายหลังได้)</span></label><input class="input" id="pa-report-period-open" type="date" value="${escapeHtml(current?.report_open_date||"")}"></div><div class="field"><label>ปิดรับรายงานวันที่</label><input class="input" id="pa-report-period-close" type="date" value="${escapeHtml(current?.report_close_date||"")}"></div></div></section>
+  <section class="pa-setting-window assessment"><h4>ช่วงที่ 3 · ประเมิน PA2</h4><div class="form-row"><div class="field"><label>เปิดประเมินวันที่ <span class="optional">(ตั้งภายหลังได้)</span></label><input class="input" id="pa-assessment-period-open" type="date" value="${escapeHtml(current?.assessment_open_date||"")}"></div><div class="field"><label>ปิดประเมินวันที่</label><input class="input" id="pa-assessment-period-close" type="date" value="${escapeHtml(current?.assessment_close_date||"")}"></div></div><small>ช่วงนี้กรรมการที่ได้รับมอบหมายจึงจะบันทึก/ส่งผลประเมินได้</small></section>
+  <div class="field"><label>หมายเหตุ <span class="optional">(ไม่บังคับ)</span></label><textarea class="input textarea" id="pa-period-note" maxlength="500">${escapeHtml(current?.note||"")}</textarea></div><div class="pa-setting-note"><strong>ผู้ที่ระบบนับว่าต้องส่ง PA</strong><span>ครู และหัวหน้ากลุ่มงานทุกกลุ่มงาน · หัวหน้าบุคคลต้องส่ง PA ของตนเองด้วย ส่วน PA2 ตั้งคณะกรรมการกลาง 3 คนต่อปีงบประมาณและใช้กับครูทุกคน</span></div></div><div class="modal-actions"><button class="btn btn-ghost modal-cancel">ยกเลิก</button><button class="btn btn-primary" id="pa-period-save">บันทึกและใช้เป็นรอบปัจจุบัน</button></div></div>`;
+  document.body.appendChild(modal);const close=()=>modal.remove();modal.querySelector(".modal-close").onclick=close;modal.querySelector(".modal-cancel").onclick=close;
+  const updateDerived=()=>{const y=Number(modal.querySelector("#pa-period-fiscal-year").value||0);const el=modal.querySelector("#pa-period-derived-text");if(y>=2500)el.textContent=`1 ตุลาคม ${y-1} – 30 กันยายน ${y}`;};updateDerived();modal.querySelector("#pa-period-fiscal-year").oninput=updateDerived;
+  modal.querySelector("#pa-period-save").onclick=async e=>{const y=Number(modal.querySelector("#pa-period-fiscal-year").value),open=modal.querySelector("#pa-period-open").value,closeDate=modal.querySelector("#pa-period-close").value,reportOpen=modal.querySelector("#pa-report-period-open").value,reportClose=modal.querySelector("#pa-report-period-close").value,assessmentOpen=modal.querySelector("#pa-assessment-period-open").value,assessmentClose=modal.querySelector("#pa-assessment-period-close").value,note=modal.querySelector("#pa-period-note").value.trim();if(!y||!open||!closeDate)return toast("กรอกข้อมูลไม่ครบ","กรุณาระบุปีงบประมาณและวันเปิด–ปิดรับ PA ต้นปี","error");if(open>closeDate)return toast("ช่วงวันที่ไม่ถูกต้อง","วันเปิดรับ PA ต้นปีต้องไม่เกินวันปิดรับ","error");if((reportOpen&&!reportClose)||(!reportOpen&&reportClose))return toast("ช่วงรายงานปลายปีไม่ครบ","หากกำหนดช่วงรายงาน ต้องระบุทั้งวันเปิดและวันปิด","error");if(reportOpen&&reportOpen>reportClose)return toast("ช่วงวันที่ไม่ถูกต้อง","วันเปิดรายงานปลายปีต้องไม่เกินวันปิดรับ","error");if((assessmentOpen&&!assessmentClose)||(!assessmentOpen&&assessmentClose))return toast("ช่วงประเมิน PA2 ไม่ครบ","หากกำหนดช่วงประเมิน ต้องระบุทั้งวันเปิดและวันปิด","error");if(assessmentOpen&&assessmentOpen>assessmentClose)return toast("ช่วงวันที่ไม่ถูกต้อง","วันเปิดประเมิน PA2 ต้องไม่เกินวันปิดประเมิน","error");buttonLoading(e.currentTarget,true,"กำลังบันทึก...");const {data,error}=await supabase.rpc("save_personnel_pa_period_v3",{p_fiscal_year:y,p_submission_open_date:open,p_submission_close_date:closeDate,p_report_open_date:reportOpen||null,p_report_close_date:reportClose||null,p_assessment_open_date:assessmentOpen||null,p_assessment_close_date:assessmentClose||null,p_note:note||null});buttonLoading(e.currentTarget,false);if(error)return toast("ตั้งค่ารอบ PA ไม่สำเร็จ",error.message,"error");state.personnelPaSelectedPeriodId=data?.id||state.personnelPaSelectedPeriodId;close();toast("ตั้งค่ารอบ PA แล้ว",`ปีงบประมาณ ${y} · ตั้งค่าต้นปี ปลายปี และ PA2 เรียบร้อย`,"success");await loadPersonnelPaWorkspace();await renderDashboard();};
+}
+
+function personnelPaOnePageModal(){
+  const period=personnelPaSelectedPeriod();if(!period)return;
+  const windowInfo=personnelPaWindowInfo(period);if(!windowInfo.open)return toast("ยังส่ง PA ไม่ได้",windowInfo.detail,"error");
+  const current=state.personnelPaSubmission||{};
+  const s=current.submission_mode==="one_page"?current:{pa_title:current.pa_title||"",challenge_title:current.challenge_title||""};
+  const modal=document.createElement("div");modal.className="modal-backdrop pa-editor-backdrop";
+  modal.innerHTML=`<div class="modal pa-editor-modal"><div class="modal-head"><div><span class="form-type-badge">PA 1 หน้า · ปีงบประมาณ ${period.fiscal_year}</span><h3>บันทึกข้อตกลงในการพัฒนางานแบบ 1 หน้า</h3><p>กำหนดเพดานคำรวม ${PERSONNEL_PA_ONE_PAGE_TOTAL_WORDS} คำ · ระบบนับคำภาษาไทยและตรวจพื้นที่ A4 จริงอีกครั้งก่อนส่ง</p></div><button class="modal-close">×</button></div><form id="pa-one-page-form" class="pa-editor-body">
+  <div class="pa-word-budget" id="pa-word-budget"><div><strong>งบคำ PA 1 หน้า</strong><span>นับเฉพาะเนื้อหาที่ผู้จัดทำกรอก ไม่รวมข้อมูลบุคคลและลายเซ็น</span></div><div class="pa-word-budget-total"><strong id="pa-word-total">0 / ${PERSONNEL_PA_ONE_PAGE_TOTAL_WORDS} คำ</strong><span id="pa-word-budget-detail">อยู่ในขอบเขต 1 หน้า</span></div></div>
+  <section><h4>1. หัวข้อและภาระงานสำคัญ</h4>
+    <div class="field"><label>ชื่อ/หัวข้อ PA <span class="pa-word-limit">ไม่เกิน ${PERSONNEL_PA_ONE_PAGE_WORD_LIMITS.pa_title} คำ</span></label><input class="input" name="pa_title" maxlength="220" data-pa-word-field="pa_title" required value="${escapeHtml(s.pa_title||"")}" placeholder="สรุปหัวข้อ PA ให้เห็นภาพรวมของงานพัฒนา"><small class="pa-word-counter" data-pa-word-counter="pa_title">0 / ${PERSONNEL_PA_ONE_PAGE_WORD_LIMITS.pa_title} คำ</small></div>
+    <div class="field"><label>สรุปภาระงานสำคัญ <span class="pa-word-limit">ไม่เกิน ${PERSONNEL_PA_ONE_PAGE_WORD_LIMITS.workload_summary} คำ</span></label><textarea class="input textarea" name="workload_summary" maxlength="520" data-pa-word-field="workload_summary" required placeholder="เช่น งานสอน / งานส่งเสริมการเรียนรู้ / งานพัฒนาคุณภาพสถานศึกษา / งานที่ได้รับมอบหมาย">${escapeHtml(s.workload_summary||"")}</textarea><small class="pa-word-counter" data-pa-word-counter="workload_summary">0 / ${PERSONNEL_PA_ONE_PAGE_WORD_LIMITS.workload_summary} คำ</small></div>
+  </section>
+  <section><h4>2. ประเด็นท้าทาย</h4>
+    <div class="field"><label>ชื่อประเด็นท้าทาย <span class="pa-word-limit">ไม่เกิน ${PERSONNEL_PA_ONE_PAGE_WORD_LIMITS.challenge_title} คำ</span></label><input class="input" name="challenge_title" maxlength="260" data-pa-word-field="challenge_title" required value="${escapeHtml(s.challenge_title||"")}"><small class="pa-word-counter" data-pa-word-counter="challenge_title">0 / ${PERSONNEL_PA_ONE_PAGE_WORD_LIMITS.challenge_title} คำ</small></div>
+    <div class="field"><label>สภาพปัญหา / เหตุผลที่เลือก <span class="pa-word-limit">ไม่เกิน ${PERSONNEL_PA_ONE_PAGE_WORD_LIMITS.challenge_context} คำ</span></label><textarea class="input textarea" name="challenge_context" maxlength="720" data-pa-word-field="challenge_context" required>${escapeHtml(s.challenge_context||"")}</textarea><small class="pa-word-counter" data-pa-word-counter="challenge_context">0 / ${PERSONNEL_PA_ONE_PAGE_WORD_LIMITS.challenge_context} คำ</small></div>
+  </section>
+  <section><h4>3. เป้าหมายการพัฒนา</h4><div class="form-row">
+    <div class="field"><label>เป้าหมายเชิงปริมาณ <span class="pa-word-limit">ไม่เกิน ${PERSONNEL_PA_ONE_PAGE_WORD_LIMITS.quantitative_target} คำ</span></label><textarea class="input textarea" name="quantitative_target" maxlength="420" data-pa-word-field="quantitative_target" required>${escapeHtml(s.quantitative_target||"")}</textarea><small class="pa-word-counter" data-pa-word-counter="quantitative_target">0 / ${PERSONNEL_PA_ONE_PAGE_WORD_LIMITS.quantitative_target} คำ</small></div>
+    <div class="field"><label>เป้าหมายเชิงคุณภาพ <span class="pa-word-limit">ไม่เกิน ${PERSONNEL_PA_ONE_PAGE_WORD_LIMITS.qualitative_target} คำ</span></label><textarea class="input textarea" name="qualitative_target" maxlength="460" data-pa-word-field="qualitative_target" required>${escapeHtml(s.qualitative_target||"")}</textarea><small class="pa-word-counter" data-pa-word-counter="qualitative_target">0 / ${PERSONNEL_PA_ONE_PAGE_WORD_LIMITS.qualitative_target} คำ</small></div>
+  </div></section>
+  <section><h4>4. วิธีดำเนินการ / แนวทางพัฒนา</h4><div class="field"><label>สรุปเป็น 3–5 ขั้นตอน <span class="pa-word-limit">ไม่เกิน ${PERSONNEL_PA_ONE_PAGE_WORD_LIMITS.development_methods} คำ</span></label><textarea class="input textarea" name="development_methods" maxlength="820" data-pa-word-field="development_methods" required placeholder="เช่น 1) วิเคราะห์ปัญหา 2) ออกแบบกิจกรรม 3) ดำเนินการ 4) ประเมินผล 5) ปรับปรุง">${escapeHtml(s.development_methods||"")}</textarea><small class="pa-word-counter" data-pa-word-counter="development_methods">0 / ${PERSONNEL_PA_ONE_PAGE_WORD_LIMITS.development_methods} คำ</small></div></section>
+  <section><h4>5. ตัวชี้วัดและหลักฐาน</h4><div class="form-row">
+    <div class="field"><label>ตัวชี้วัดความสำเร็จ <span class="pa-word-limit">ไม่เกิน ${PERSONNEL_PA_ONE_PAGE_WORD_LIMITS.success_indicators} คำ</span></label><textarea class="input textarea" name="success_indicators" maxlength="520" data-pa-word-field="success_indicators" required>${escapeHtml(s.success_indicators||"")}</textarea><small class="pa-word-counter" data-pa-word-counter="success_indicators">0 / ${PERSONNEL_PA_ONE_PAGE_WORD_LIMITS.success_indicators} คำ</small></div>
+    <div class="field"><label>หลักฐาน / เครื่องมือที่จะใช้ <span class="pa-word-limit">ไม่เกิน ${PERSONNEL_PA_ONE_PAGE_WORD_LIMITS.evidence_plan} คำ</span></label><textarea class="input textarea" name="evidence_plan" maxlength="420" data-pa-word-field="evidence_plan" required>${escapeHtml(s.evidence_plan||"")}</textarea><small class="pa-word-counter" data-pa-word-counter="evidence_plan">0 / ${PERSONNEL_PA_ONE_PAGE_WORD_LIMITS.evidence_plan} คำ</small></div>
+  </div></section>
+  <div class="pa-word-note"><strong>กติกา 1 หน้า</strong><span>ไม่ตัดข้อความอัตโนมัติ หากช่องใดเกินเพดาน ระบบจะแจ้งจำนวนคำที่เกินและไม่ให้ส่งจนกว่าจะย่อให้ครบ แม้จำนวนคำผ่านแล้ว ระบบยังตรวจความสูง A4 จริงอีกชั้นหนึ่ง</span></div>
+  </form><div class="modal-actions pa-editor-actions"><button class="btn btn-ghost modal-cancel">ยกเลิก</button>${state.personnelPaSubmission?.status!=="submitted"?`<button class="btn btn-secondary" id="pa-one-page-draft">บันทึกฉบับร่าง</button>`:""}<button class="btn btn-primary" id="pa-one-page-submit">${state.personnelPaSubmission?.status==="submitted"?"บันทึกและส่งอีกครั้ง":"บันทึกและส่ง PA"}</button></div></div>`;
+  document.body.appendChild(modal);document.body.classList.add("pa-editor-open");const close=()=>{modal.remove();document.body.classList.remove("pa-editor-open");};modal.querySelector(".modal-close").onclick=close;modal.querySelector(".modal-cancel").onclick=close;
+  const form=modal.querySelector("#pa-one-page-form"),submitBtn=modal.querySelector("#pa-one-page-submit");
+  const refreshWordCounts=()=>{
+    const data=Object.fromEntries(new FormData(form).entries()),stats=personnelPaOnePageWordStats(data);
+    stats.items.forEach(item=>{
+      const counter=modal.querySelector(`[data-pa-word-counter="${item.field}"]`),control=form.elements[item.field],fieldWrap=control?.closest(".field");
+      if(counter){counter.textContent=`${item.count} / ${item.limit} คำ`;counter.classList.toggle("warn",item.count>=Math.ceil(item.limit*.85)&&!item.over);counter.classList.toggle("over",item.over);}
+      fieldWrap?.classList.toggle("pa-word-over",item.over);
+    });
+    const total=modal.querySelector("#pa-word-total"),detail=modal.querySelector("#pa-word-budget-detail"),budget=modal.querySelector("#pa-word-budget");
+    if(total)total.textContent=`${stats.total} / ${stats.limit} คำ`;
+    if(detail)detail.textContent=stats.issues.length?`เกินกำหนด ${stats.issues.length} ช่อง · ต้องย่อก่อนส่ง`:stats.total>=Math.ceil(stats.limit*.85)?"ใกล้เต็มพื้นที่ที่กำหนด":"อยู่ในขอบเขต 1 หน้า";
+    budget?.classList.toggle("warn",!stats.issues.length&&stats.total>=Math.ceil(stats.limit*.85));
+    budget?.classList.toggle("over",stats.issues.length>0);
+    if(submitBtn)submitBtn.disabled=stats.issues.length>0;
+  };
+  form.querySelectorAll("[data-pa-word-field]").forEach(el=>el.addEventListener("input",refreshWordCounts));refreshWordCounts();
+  const save=async(status,btn)=>{
+    if(status==="submitted"&&!form.reportValidity())return;
+    const data=Object.fromEntries(new FormData(form).entries()),stats=personnelPaOnePageWordStats(data);
+    if(status==="submitted"&&stats.issues.length)return toast("จำนวนคำเกินกำหนด",personnelPaOnePageWordError(data),"error");
+    buttonLoading(btn,true,status==="submitted"?"กำลังตรวจและส่ง...":"กำลังบันทึก...");
+    try{await personnelPaSaveOnePage(data,status);close();toast(status==="submitted"?"ส่ง PA แล้ว":"บันทึกฉบับร่างแล้ว",status==="submitted"?"ระบบตรวจจำนวนคำและพื้นที่ A4 แล้วบันทึก PA 1 หน้าเรียบร้อย":"ฉบับร่างยังไม่ถือว่าส่ง","success");await loadPersonnelPaWorkspace();await renderDashboard();}catch(err){toast("บันทึก PA ไม่สำเร็จ",err.message||String(err),"error");}finally{buttonLoading(btn,false);refreshWordCounts();}
+  };
+  modal.querySelector("#pa-one-page-draft")?.addEventListener("click",e=>save("draft",e.currentTarget));submitBtn.addEventListener("click",e=>save("submitted",e.currentTarget));
+}
+
+async function personnelPaSaveOnePage(data,status){
+  const period=personnelPaSelectedPeriod();if(!period)throw new Error("ไม่พบรอบ PA");
+  const old=state.personnelPaSubmission,oldFile=old?.full_file_path||null;
+  const payload={period_id:period.id,user_id:state.user.id,submission_mode:"one_page",status,pa_title:String(data.pa_title||"").trim(),workload_summary:String(data.workload_summary||"").trim(),challenge_title:String(data.challenge_title||"").trim(),challenge_context:String(data.challenge_context||"").trim(),quantitative_target:String(data.quantitative_target||"").trim(),qualitative_target:String(data.qualitative_target||"").trim(),development_methods:String(data.development_methods||"").trim(),success_indicators:String(data.success_indicators||"").trim(),evidence_plan:String(data.evidence_plan||"").trim(),full_file_bucket:null,full_file_path:null,full_file_name:null,full_file_size:null,full_file_mime_type:null,updated_by:state.user.id};
+  if(status==="submitted"){
+    const wordError=personnelPaOnePageWordError(payload);if(wordError)throw new Error(`จำนวนคำเกินกำหนด: ${wordError}`);
+    const measured=await personnelPaMeasureOnePage({...old,...payload},period);
+    if(!measured.fits)throw new Error("แม้จำนวนคำไม่เกินกำหนด แต่เนื้อหายังล้นพื้นที่ A4 1 หน้า กรุณาลดการขึ้นบรรทัดหรือย่อข้อความบางส่วน");
+  }
+  let res;if(old?.id)res=await supabase.from("personnel_pa_submissions").update(payload).eq("id",old.id).select().single();else res=await supabase.from("personnel_pa_submissions").insert({...payload,created_by:state.user.id}).select().single();if(res.error)throw res.error;
+  if(oldFile&&old?.submission_mode==="full_file"){const rm=await supabase.storage.from(old.full_file_bucket||"personnel-pa").remove([oldFile]);if(rm.error)console.warn("PA old file cleanup",rm.error);}
+  return res.data;
+}
+
+function personnelPaFullFileModal(){
+  const period=personnelPaSelectedPeriod();if(!period)return;const windowInfo=personnelPaWindowInfo(period);if(!windowInfo.open)return toast("ยังส่ง PA ไม่ได้",windowInfo.detail,"error");
+  const current=state.personnelPaSubmission||{};
+  const s=current.submission_mode==="full_file"?current:{challenge_title:current.challenge_title||""};
+  const modal=document.createElement("div");modal.className="modal-backdrop";modal.innerHTML=`<div class="modal modal-wide"><div class="modal-head"><div><span class="form-type-badge">PA ฉบับเต็ม · ปีงบประมาณ ${period.fiscal_year}</span><h3>แนบไฟล์บันทึกข้อตกลง PA</h3><p>กรอกข้อมูลสรุปเพียงเล็กน้อย แล้วแนบไฟล์ PDF รูปเล่มฉบับเต็ม</p></div><button class="modal-close">×</button></div><form id="pa-full-file-form" class="form-grid"><div class="field"><label>ชื่อ / เรื่องของ PA</label><input class="input" name="pa_title" maxlength="250" required value="${escapeHtml(s.pa_title||"")}" placeholder="เช่น ข้อตกลงในการพัฒนางานของ... ปีงบประมาณ..."></div><div class="field"><label>ชื่อประเด็นท้าทาย</label><textarea class="input textarea" name="challenge_title" maxlength="350" required>${escapeHtml(s.challenge_title||"")}</textarea></div><div class="field"><label>ไฟล์ PA ฉบับเต็ม (PDF)</label>${s.full_file_path?`<div class="pa-existing-file"><strong>ไฟล์ปัจจุบัน</strong><span>${escapeHtml(s.full_file_name||"PA.pdf")}</span><button class="mini-link" type="button" id="pa-full-current-file">เปิดไฟล์</button></div>`:""}<label class="upload-zone"><input id="pa-full-file-input" type="file" accept="application/pdf,.pdf"><strong>${s.full_file_path?"เลือก PDF ใหม่เพื่อแทนที่":"เลือกไฟล์ PA PDF"}</strong><span>PDF เท่านั้น · ไม่เกิน 25 MB</span></label></div></form><div class="modal-actions"><button class="btn btn-ghost modal-cancel">ยกเลิก</button>${state.personnelPaSubmission?.status!=="submitted"?`<button class="btn btn-secondary" id="pa-full-draft">บันทึกฉบับร่าง</button>`:""}<button class="btn btn-primary" id="pa-full-submit">${state.personnelPaSubmission?.status==="submitted"?"บันทึกและส่งอีกครั้ง":"บันทึกและส่ง PA"}</button></div></div>`;
+  document.body.appendChild(modal);const close=()=>modal.remove();modal.querySelector(".modal-close").onclick=close;modal.querySelector(".modal-cancel").onclick=close;modal.querySelector("#pa-full-current-file")?.addEventListener("click",()=>personnelPaOpenFullFile(s));
+  const save=async(status,btn)=>{const form=modal.querySelector("#pa-full-file-form");if(status==="submitted"&&!form.reportValidity())return;const data=Object.fromEntries(new FormData(form).entries()),file=modal.querySelector("#pa-full-file-input").files?.[0]||null;if(status==="submitted"&&!file&&!s.full_file_path)return toast("ยังไม่มีไฟล์ PA","กรุณาเลือกไฟล์ PDF ก่อนส่ง","error");buttonLoading(btn,true,status==="submitted"?"กำลังอัปโหลดและส่ง...":"กำลังบันทึก...");try{await personnelPaSaveFullFile(data,file,status);close();toast(status==="submitted"?"ส่ง PA แล้ว":"บันทึกฉบับร่างแล้ว",status==="submitted"?"ระบบบันทึก PA ฉบับเต็มเรียบร้อย":"ฉบับร่างยังไม่ถือว่าส่ง","success");await loadPersonnelPaWorkspace();await renderDashboard();}catch(err){toast("บันทึก PA ไม่สำเร็จ",err.message||String(err),"error");}finally{buttonLoading(btn,false);}};
+  modal.querySelector("#pa-full-draft")?.addEventListener("click",e=>save("draft",e.currentTarget));modal.querySelector("#pa-full-submit").addEventListener("click",e=>save("submitted",e.currentTarget));
+}
+
+async function personnelPaSaveFullFile(data,file,status){
+  const period=personnelPaSelectedPeriod();if(!period)throw new Error("ไม่พบรอบ PA");const old=state.personnelPaSubmission;let newPath=null,newMeta={};
+  if(file){if(file.type!=="application/pdf"&&!/\.pdf$/i.test(file.name))throw new Error("รองรับเฉพาะไฟล์ PDF");if(file.size>25*1024*1024)throw new Error("ไฟล์ PDF ต้องมีขนาดไม่เกิน 25 MB");newPath=`${state.user.id}/${period.id}/${crypto.randomUUID()}.pdf`;const up=await supabase.storage.from("personnel-pa").upload(newPath,file,{contentType:"application/pdf",upsert:false,cacheControl:"3600"});if(up.error)throw up.error;newMeta={full_file_bucket:"personnel-pa",full_file_path:newPath,full_file_name:file.name,full_file_size:file.size,full_file_mime_type:"application/pdf"};}
+  const payload={period_id:period.id,user_id:state.user.id,submission_mode:"full_file",status,pa_title:String(data.pa_title||"").trim(),challenge_title:String(data.challenge_title||"").trim(),updated_by:state.user.id,...(newPath?newMeta:{full_file_bucket:old?.full_file_bucket||null,full_file_path:old?.full_file_path||null,full_file_name:old?.full_file_name||null,full_file_size:old?.full_file_size||null,full_file_mime_type:old?.full_file_mime_type||null})};
+  try{let res;if(old?.id)res=await supabase.from("personnel_pa_submissions").update(payload).eq("id",old.id).select().single();else res=await supabase.from("personnel_pa_submissions").insert({...payload,created_by:state.user.id}).select().single();if(res.error)throw res.error;if(newPath&&old?.full_file_path&&old.full_file_path!==newPath){const rm=await supabase.storage.from(old.full_file_bucket||"personnel-pa").remove([old.full_file_path]);if(rm.error)console.warn("PA old file cleanup",rm.error);}return res.data;}catch(err){if(newPath)await supabase.storage.from("personnel-pa").remove([newPath]);throw err;}
+}
+
+async function personnelPaOpenFullFile(submission){
+  if(!submission?.full_file_path)return toast("ยังไม่มีไฟล์ PDF","รายการนี้ยังไม่ได้แนบไฟล์","error");const bucket=submission.full_file_bucket||"personnel-pa";const {data,error}=await supabase.storage.from(bucket).createSignedUrl(submission.full_file_path,600);if(error)return toast("เปิดไฟล์ไม่สำเร็จ",error.message,"error");const w=window.open(data.signedUrl,"_blank","noopener,noreferrer");if(!w)toast("เปิดไฟล์ไม่ได้","กรุณาอนุญาต Pop-up สำหรับเว็บไซต์นี้","error");
+}
+
+function personnelPaOnePageStyles(){return `${officialPdfFontFaceCss()}@page{size:A4 portrait;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0;font-family:"TH SarabunIT๙","THSarabunIT๙",serif;color:#111}.a4-print-body{margin:0;background:#eef2f7}.pa-onepage-document{width:210mm;height:297mm;overflow:hidden;background:#fff;margin:0 auto;padding:13mm 16mm 11mm;font-size:16pt;line-height:1.05}.pa-onepage-head{display:grid;grid-template-columns:18mm 1fr 18mm;align-items:center;text-align:center;border-bottom:1.2px solid #111;padding-bottom:2.2mm;margin-bottom:2.5mm}.pa-onepage-head img{width:16mm;height:16mm;object-fit:contain}.pa-onepage-head h1{font-size:21pt;line-height:1;margin:0;font-weight:700}.pa-onepage-head h2{font-size:17pt;line-height:1.05;margin:1mm 0 0}.pa-onepage-head p{font-size:14pt;margin:.8mm 0 0}.pa-onepage-meta{display:grid;grid-template-columns:1fr 1fr;gap:1.4mm 6mm;border:1px solid #111;padding:2mm 3mm;margin-bottom:2mm}.pa-onepage-meta div{display:grid;grid-template-columns:31mm 1fr;gap:2mm}.pa-onepage-meta .wide{grid-column:1/-1}.pa-onepage-section{border:1px solid #777;margin-top:1.8mm}.pa-onepage-section h3{margin:0;padding:.7mm 2.2mm;font-size:16pt;line-height:1;background:#f0f0f0;border-bottom:1px solid #777}.pa-onepage-section .body{padding:1.2mm 2.2mm;min-height:5mm}.pa-onepage-challenge{font-weight:700;text-decoration:underline;text-decoration-thickness:.3mm;text-underline-offset:.5mm}.pa-onepage-two{display:grid;grid-template-columns:1fr 1fr}.pa-onepage-two>div{padding:1.2mm 2.2mm}.pa-onepage-two>div+div{border-left:1px solid #999}.pa-onepage-two strong{display:block;margin-bottom:.5mm}.pa-onepage-sign{display:grid;grid-template-columns:1fr 1fr;gap:18mm;margin-top:3mm;text-align:center}.pa-onepage-sign .line{margin-top:7mm;border-bottom:1px dotted #333;height:1mm}.pa-onepage-sign strong{display:block;margin-top:.8mm}.pa-onepage-foot{display:flex;justify-content:space-between;font-size:12.5pt;margin-top:1.5mm;color:#444}@media print{html,body{background:#fff}.pa-onepage-document{margin:0;break-after:page;page-break-after:always}}`;}
+
+function personnelPaOnePageHtml(s,period,assets={}){
+  const name=s?.person_name_snapshot||state.profile?.full_name||"—";const position=s?.position_title_snapshot||state.personnelOwnRecord?.position_title||ROLE_LABEL[state.profile?.role]||"—";const rank=s?.academic_rank_snapshot?(ACADEMIC_RANK_LABEL[s.academic_rank_snapshot]||s.academic_rank_snapshot):"—";
+  return `<article class="pa-onepage-document"><header class="pa-onepage-head"><div>${assets.schoolLogo?`<img src="${assets.schoolLogo}" alt="ตราโรงเรียน">`:""}</div><div><h1>บันทึกข้อตกลงในการพัฒนางาน (PA) ฉบับ 1 หน้า</h1><h2>${escapeHtml(schoolName())}</h2><p>ประจำปีงบประมาณ พ.ศ. ${escapeHtml(String(period?.fiscal_year||""))}</p></div><div></div></header><section class="pa-onepage-meta"><div><span>ผู้จัดทำข้อตกลง</span><strong>${escapeHtml(name)}</strong></div><div><span>ตำแหน่ง</span><strong>${escapeHtml(position)}</strong></div><div><span>วิทยฐานะ</span><strong>${escapeHtml(rank)}</strong></div><div><span>ระยะเวลาข้อตกลง</span><strong>${period?`${thaiDateOnly(period.agreement_start_date)} – ${thaiDateOnly(period.agreement_end_date)}`:"—"}</strong></div><div class="wide"><span>ชื่อ/หัวข้อ PA</span><strong>${escapeHtml(s?.pa_title||"—")}</strong></div></section><section class="pa-onepage-section"><h3>1. ภาระงานสำคัญในปีงบประมาณ</h3><div class="body">${personnelPaTextHtml(s?.workload_summary)}</div></section><section class="pa-onepage-section"><h3>2. ประเด็นท้าทายในการพัฒนาผลลัพธ์การเรียนรู้ของผู้เรียน</h3><div class="body"><div class="pa-onepage-challenge">${personnelPaTextHtml(s?.challenge_title)}</div><div>${personnelPaTextHtml(s?.challenge_context)}</div></div></section><section class="pa-onepage-section"><h3>3. เป้าหมายที่ต้องการพัฒนา</h3><div class="pa-onepage-two"><div><strong>เชิงปริมาณ</strong>${personnelPaTextHtml(s?.quantitative_target)}</div><div><strong>เชิงคุณภาพ</strong>${personnelPaTextHtml(s?.qualitative_target)}</div></div></section><section class="pa-onepage-section"><h3>4. วิธีดำเนินการ / แนวทางพัฒนา</h3><div class="body">${personnelPaTextHtml(s?.development_methods)}</div></section><section class="pa-onepage-section"><h3>5. ตัวชี้วัดความสำเร็จและหลักฐาน</h3><div class="pa-onepage-two"><div><strong>ตัวชี้วัดความสำเร็จ</strong>${personnelPaTextHtml(s?.success_indicators)}</div><div><strong>หลักฐาน / เครื่องมือ</strong>${personnelPaTextHtml(s?.evidence_plan)}</div></div></section><div class="pa-onepage-sign"><div><div class="line"></div><span>( ${escapeHtml(name)} )</span><strong>ผู้จัดทำข้อตกลง</strong></div><div><div class="line"></div><span>( ........................................................ )</span><strong>ผู้อำนวยการ${escapeHtml(schoolName())}</strong></div></div><footer class="pa-onepage-foot"><span>PA ต้นปีงบประมาณ ${escapeHtml(String(period?.fiscal_year||""))}</span><span>สร้างจาก ${escapeHtml(appName())}</span></footer></article>`;
+}
+
+async function personnelPaMeasureOnePage(submission,period){
+  await ensureOfficialPdfFont("16pt");
+  const schoolLogo=await schoolLogoDataUrl(),body=personnelPaOnePageHtml(submission,period,{schoolLogo}),styles=personnelPaOnePageStyles();
+  const host=document.createElement("div");host.style.cssText="position:fixed;left:-12000px;top:0;width:210mm;visibility:hidden;pointer-events:none";host.innerHTML=`<style>${styles}</style>${body}`;document.body.appendChild(host);
+  await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+  const sheet=host.querySelector(".pa-onepage-document"),overflow=!!(sheet&&sheet.scrollHeight>sheet.clientHeight+4);host.remove();
+  return {fits:!overflow,body,styles};
+}
+
+async function personnelPaOpenOnePagePdf(submission=state.personnelPaSubmission){
+  const period=personnelPaSelectedPeriod();if(!submission||submission.submission_mode!=="one_page")return toast("ไม่พบ PA 1 หน้า","รายการนี้ไม่ได้ใช้รูปแบบ PA 1 หน้า","error");if(!period)return;
+  const wordError=personnelPaOnePageWordError(submission);if(wordError)return toast("PA 1 หน้าเกินจำนวนคำ",`${wordError} · กรุณาแก้ไขก่อน Export`,"error");
+  try{const measured=await personnelPaMeasureOnePage(submission,period);if(!measured.fits)return toast("PA 1 หน้ายาวเกินพื้นที่ A4","แม้จำนวนคำไม่เกินกำหนด แต่รูปแบบการขึ้นบรรทัดทำให้ล้นหน้า กรุณาย่อหรือจัดข้อความใหม่ก่อนพิมพ์","error");openPrintPreview(measured.body,measured.styles,`PA 1 หน้า · ปีงบประมาณ ${period.fiscal_year}`);}catch(err){toast("สร้าง PA 1 หน้าไม่สำเร็จ",err.message||String(err),"error");}
+}
+
+async function personnelPaOpenDashboardSubmission(id){
+  const {data,error}=await supabase.from("personnel_pa_submissions").select("*").eq("id",id).single();if(error)return toast("เปิด PA ไม่สำเร็จ",error.message,"error");if(data.submission_mode==="one_page")return personnelPaOpenOnePagePdf(data);if(data.submission_mode==="full_file")return personnelPaOpenFullFile(data);toast("ยังไม่มีเอกสาร","รายการนี้ยังไม่ได้เลือกรูปแบบ PA","error");
+}
+
+function bindPersonnelPaEvents(){
+  document.querySelector("#personnel-pa-period")?.addEventListener("change",async e=>{state.personnelPaSelectedPeriodId=e.currentTarget.value;state.personnelPaSelectedTeacherId=null;await loadPersonnelPaWorkspace();await renderDashboard();});
+  document.querySelector("#pa-period-settings")?.addEventListener("click",personnelPaPeriodSettingsModal);
+  document.querySelectorAll("[data-pa-phase]").forEach(b=>b.addEventListener("click",()=>{state.personnelPaPhase=b.dataset.paPhase||"agreement";state.personnelPaSelectedTeacherId=null;renderDashboard();}));
+  document.querySelectorAll("[data-pa-view]").forEach(b=>b.addEventListener("click",()=>{state.personnelPaView=b.dataset.paView||"mine";state.personnelPaSelectedTeacherId=null;renderDashboard();}));
+  document.querySelector("#pa-edit-one-page")?.addEventListener("click",personnelPaOnePageModal);
+  document.querySelector("#pa-preview-one-page")?.addEventListener("click",()=>personnelPaOpenOnePagePdf());
+  document.querySelector("#pa-edit-full-file")?.addEventListener("click",personnelPaFullFileModal);
+  document.querySelector("#pa-open-full-file")?.addEventListener("click",()=>personnelPaOpenFullFile(state.personnelPaSubmission));
+  document.querySelector("#pa-report-open-source")?.addEventListener("click",()=>personnelPaOpenSourceAgreement());
+  document.querySelector("#pa-report-edit")?.addEventListener("click",personnelPaReportModal);
+  document.querySelector("#pa-report-preview")?.addEventListener("click",()=>personnelPaOpenReportPdf());
+  document.querySelector("#pa-refresh-dashboard")?.addEventListener("click",async()=>{await loadPersonnelPaWorkspace();await renderDashboard();});
+  document.querySelector("#pa-evaluator-profile-edit")?.addEventListener("click",personnelPaEvaluatorProfileModal);
+  document.querySelector("#pa2-committee-settings")?.addEventListener("click",personnelPa2CommitteeModal);
+  document.querySelector("#pa2-evaluator-ensure")?.addEventListener("click",async e=>{const data=await personnelPa2InvokeEvaluatorAdmin("ensure_accounts",{},e.currentTarget);if(!data)return;personnelPa2CredentialsModal(data.credentials||[],"บัญชีกรรมการ PA 3 บัญชี");await loadPersonnelPaWorkspace();await renderDashboard();});
+  document.querySelectorAll("[data-pa2-reset-password]").forEach(b=>b.addEventListener("click",async()=>{if(!window.confirm(`ตั้งรหัสผ่านใหม่สำหรับบัญชีกรรมการ ${b.dataset.pa2ResetPassword} หรือไม่?`))return;const data=await personnelPa2InvokeEvaluatorAdmin("reset_password",{slot_no:Number(b.dataset.pa2ResetPassword),reason:"Super Admin reset from PA2 settings"},b);if(!data)return;personnelPa2CredentialsModal([{slot_no:data.slot_no,email:data.email,password:data.password}],"รหัสผ่านใหม่ของกรรมการ PA");}));
+  document.querySelectorAll("[data-pa2-reset-profile]").forEach(b=>b.addEventListener("click",async()=>{const slot=Number(b.dataset.pa2ResetProfile);if(!window.confirm(`รีเซตข้อมูลตัวบุคคลของบัญชีกรรมการ ${slot} หรือไม่?\n\nชื่อ ตำแหน่ง หน่วยงาน และลายเซ็นปัจจุบันจะถูกล้าง แต่บัญชี Login และประวัติการประเมินปีเก่าจะยังคงอยู่`))return;const reason=window.prompt("เหตุผลในการรีเซตข้อมูลกรรมการ (เช่น เปลี่ยนกรรมการปีงบประมาณใหม่)","เปลี่ยนกรรมการสำหรับรอบปีงบประมาณใหม่");if(reason===null)return;const {error}=await supabase.rpc("reset_personnel_pa_evaluator_profile",{p_slot_no:slot,p_reason:String(reason||"").trim()||null});if(error)return toast("รีเซตข้อมูลกรรมการไม่สำเร็จ",error.message,"error");toast("รีเซตข้อมูลกรรมการแล้ว","บัญชีเดิมยังใช้ Login ได้ และกรรมการคนใหม่ต้องกรอกข้อมูลกับลายเซ็นอีกครั้ง","success");await loadPersonnelPaWorkspace();await renderDashboard();}));
+  const search=document.querySelector("#pa-teacher-search");if(search)search.addEventListener("input",e=>{state.personnelPaTeacherSearch=e.currentTarget.value||"";const q=state.personnelPaTeacherSearch.trim().toLowerCase();document.querySelectorAll("[data-pa-master-name]").forEach(el=>{el.hidden=!!q&&!String(el.dataset.paMasterName||"").includes(q);});});
+  document.querySelectorAll("[data-pa-select-teacher]").forEach(b=>b.addEventListener("click",()=>{state.personnelPaSelectedTeacherId=b.dataset.paSelectTeacher;renderDashboard();}));
+  document.querySelectorAll("[data-pa-dashboard-open]").forEach(b=>b.addEventListener("click",()=>personnelPaOpenDashboardSubmission(b.dataset.paDashboardOpen)));
+  document.querySelectorAll("[data-pa-report-dashboard-open]").forEach(b=>b.addEventListener("click",()=>personnelPaOpenDashboardReport(b.dataset.paReportDashboardOpen)));
+  document.querySelectorAll("[data-pa-report-file]").forEach(b=>b.addEventListener("click",()=>personnelPaOpenEvidenceFile(personnelPaEvidenceFiles()[Number(b.dataset.paReportFile)])));
+  document.querySelectorAll("[data-pa2-assess-member]").forEach(b=>b.addEventListener("click",()=>personnelPa2AssessmentModal(b.dataset.pa2AssessMember,{evaluateeUserId:b.dataset.pa2Evaluatee})));
+  document.querySelectorAll("[data-pa2-view-assessment]").forEach(b=>b.addEventListener("click",()=>personnelPa2AssessmentModal(b.dataset.pa2ViewAssessment,{readOnly:true,evaluateeUserId:b.dataset.pa2Evaluatee})));
+  document.querySelectorAll("[data-pa2-reset-assessment]").forEach(b=>b.addEventListener("click",()=>personnelPa2ResetAssessment(b.dataset.pa2ResetAssessment,b.dataset.pa2ResetName||"ผู้รับการประเมิน")));
+   document.querySelectorAll("[data-pa2-export-assessment]").forEach(b=>b.addEventListener("click",()=>personnelPa2OpenAssessmentPdf(b.dataset.pa2ExportAssessment,b.dataset.pa2Evaluatee)));
+   document.querySelectorAll("[data-pa2-export-teacher]").forEach(b=>b.addEventListener("click",()=>personnelPa2ExportTeacher(b.dataset.pa2ExportTeacher)));
+   document.querySelectorAll("[data-pa3-export-teacher]").forEach(b=>b.addEventListener("click",()=>personnelPa3ExportTeacher(b.dataset.pa3ExportTeacher)));
+   document.querySelector("#pa2-export-my-all")?.addEventListener("click",()=>personnelPa2ExportTeacher(state.user.id));
+   document.querySelector("#pa3-export-my")?.addEventListener("click",()=>personnelPa3ExportTeacher(state.user.id));
+   document.querySelector("#pa2-export-school")?.addEventListener("click",personnelPa2ExportSchool);
+   document.querySelector("#pa3-export-school")?.addEventListener("click",personnelPa3ExportSchool);
+}
+
 
 
 const LEAVE_STATUS_LABEL = {
@@ -9492,6 +10398,7 @@ const PROCUREMENT_DOCUMENTS = Object.freeze([
   {code:"inspection_notice",name:"แจ้งคณะกรรมการตรวจรับพัสดุ",group:"เอกสารหลังส่งมอบ",source:"sample_pdf",requires:["approval_number","post_delivery_memo_date","title","procurement_method","total_amount","vendor_name","purchase_order_number","purchase_order_date","delivery_due_date","delivery_document_number","delivery_date","inspection_appointment_date","inspection_location"]},
   {code:"inspection_report_memo",name:"รายงานผลการตรวจรับพัสดุ",group:"เอกสารหลังส่งมอบ",source:"sample_pdf",requires:["approval_number","post_delivery_memo_date","title","procurement_method","total_amount","vendor_name","purchase_order_number","purchase_order_date","delivery_due_date","delivery_document_number","delivery_date","inspection_date"]},
   {code:"payment_submission",name:"ส่งเบิกเงิน",group:"เอกสารหลังส่งมอบ",source:"sample_pdf",requires:["disbursement_no","post_delivery_memo_date","title","procurement_method","total_amount","vendor_name","purchase_order_number","purchase_order_date","delivery_due_date","inspection_date","vendor_code","finance_po_no","goods_receipt_document_no"]},
+  {code:"specific_characteristics",name:"รายละเอียดคุณลักษณะเฉพาะ",group:"เอกสารหลังส่งมอบ",source:"sample_pdf",requires:["title"]},
 ]);
 
 const PROCUREMENT_FIELD_GROUPS = Object.freeze([
@@ -9510,12 +10417,12 @@ const PROCUREMENT_FIELD_GROUPS = Object.freeze([
     ["tor_request_date","วันที่เสนอความต้องการ / ขอแต่งตั้ง TOR","date"],["demand_number","เลขที่เสนอความต้องการ"],["tor_appointment_request_number","เลขที่รายงานขอแต่งตั้งคณะกรรมการ TOR"],
     ["tor_appointment_order_number","เลขที่คำสั่งแต่งตั้งคณะกรรมการ TOR"],["tor_mode","รูปแบบผู้จัดทำรายละเอียด/TOR","select",[]],
     ["price_valid_days","ระยะเวลายืนราคา (วัน)","number"],["warranty_period","ระยะเวลารับประกันความชำรุดบกพร่อง","number"],["warranty_unit","หน่วยรับประกัน","select",["วัน","เดือน","ปี"]],
-    ["repair_days","ซ่อมแซมให้ดีภายใน (วัน)","number"],["tor_approval_date","วันที่ขอความเห็นชอบ TOR","date"],["tor_approval_number","เลขที่ขอความเห็นชอบ TOR"]
+    ["repair_days","ซ่อมแซมให้ดีภายใน (วัน)","number"],["specific_objective","วัตถุประสงค์สำหรับรายละเอียดคุณลักษณะเฉพาะ (ไม่บังคับ)","textarea"],["tor_approval_date","วันที่ขอความเห็นชอบ TOR","date"],["tor_approval_number","เลขที่ขอความเห็นชอบ TOR"]
   ]},
-  {title:"4. ร้านค้า / ผู้ขาย / เสนอราคา",hint:"ข้อมูลผู้ขายและราคาใช้ร่วมกันในเสนอราคา ใบสั่งซื้อ ส่งมอบ ตรวจรับ และเอกสารภาษี",fields:[
+  {title:"4. ร้านค้า / ผู้ขาย / เสนอราคา",hint:"ราคาที่กรอกถือเป็นราคารวม VAT แล้ว ระบบถอด VAT 7/107 และใช้ข้อมูลผู้ขายร่วมกันในเสนอราคา ใบสั่งซื้อ ส่งมอบ ตรวจรับ และเอกสารภาษี",fields:[
     ["vendor_name","ชื่อร้าน / ผู้ขาย"],["vendor_code","รหัสผู้ขาย","readonly"],["vendor_type","ประเภทผู้ขาย","select",["นิติบุคคล","บุคคลธรรมดา"]],["vendor_tax_id","เลขประจำตัวผู้เสียภาษี"],["vendor_address","ที่อยู่ร้าน / ผู้ขาย","textarea"],["vendor_phone","โทรศัพท์"],["vendor_contact","ผู้ติดต่อ"],
-    ["vendor_bank_account","เลขที่บัญชีธนาคาร"],["quote_date","วันที่เสนอราคา","date"],["quote_total","ยอดตามใบเสนอราคา (ถ้ามี)","number"],["vat_mode","การคำนวณ VAT","select",["อัตโนมัติ","พิมพ์มือ","ไม่มี VAT"]],
-    ["manual_vat","VAT กรณีพิมพ์มือ","number"],["discount","ส่วนลด (ถ้ามี)","number"],["quote_valid_days","ยืนราคา (วัน)","number"]
+    ["vendor_bank_account","เลขที่บัญชีธนาคาร"],["quote_date","วันที่เสนอราคา","date"],["quote_total","ยอดตามใบเสนอราคา (รวม VAT ถ้ามี)","number"],["vat_mode","การคำนวณ VAT","select",["รวม VAT แล้ว (ถอด 7/107)","พิมพ์ VAT เอง","ไม่มี VAT"]],
+    ["manual_vat","มูลค่า VAT ที่รวมอยู่ในยอด (กรณีพิมพ์เอง)","number"],["discount","ส่วนลด (ถ้ามี · รวม VAT)","number"],["quote_valid_days","ยืนราคา (วัน)","number"]
   ]},
   {title:"5. อนุมัติ / ใบสั่งซื้อ-จ้าง / e-GP",hint:"เลขที่และวันที่อนุมัติ ใบสั่งซื้อ และเลขจาก e-GP เชื่อมไปทั้งชุดเอกสาร",fields:[
     ["approval_date","วันที่อนุมัติและประกาศ","date"],["approval_number","เลขที่อนุมัติ"],["purchase_order_number","เลขที่ใบสั่งซื้อ/จ้าง"],["purchase_order_date","วันที่สั่งซื้อ/จ้าง","date"],
@@ -9539,7 +10446,7 @@ const PROCUREMENT_FIELD_GROUPS = Object.freeze([
   {title:"8. สำรองจ่าย / ใบสำคัญ / ภาษี / บก.28",hint:"กรอกเฉพาะกรณีสำรองจ่าย ใบสำคัญรับเงิน หนังสือรับรองหักภาษี และ บก.28",fields:[
     ["cash_advance_mode","กรณีสำรองจ่าย","select",["ไม่ใช้","ใช้สำรองจ่าย"]],["cash_advance_date","วันที่สำรองจ่าย","date"],["cash_advance_name","ผู้สำรองจ่าย"],["cash_advance_position","ตำแหน่งผู้สำรองจ่าย"],["cash_advance_id","เลขประจำตัวประชาชน"],
     ["cash_advance_address_no","เลขที่"],["cash_advance_moo","หมู่"],["cash_advance_road","ถนน"],["cash_advance_subdistrict","แขวง/ตำบล"],["cash_advance_district","อำเภอ/เขต"],["cash_advance_province","จังหวัด"],["cash_advance_postal_code","รหัสไปรษณีย์"],["cash_advance_address_extra","รายละเอียดที่อยู่เพิ่มเติม (ถ้ามี)","textarea"],["voucher_recipient","ผู้รับใบสำคัญ"],["voucher_no","เลขที่ใบสำคัญ"],["voucher_date","วันที่ใบสำคัญ","date"],
-    ["withholding_calc_basis","วิธีคำนวณภาษีหัก ณ ที่จ่าย","select",["หักภาษีหลังส่วนลด","หักภาษีก่อนส่วนลด"]],["withholding_tax_type","ประเภทภาษี","select",["ภาษีเงินได้นิติบุคคล","ภาษีเงินได้บุคคลธรรมดา"]],
+    ["withholding_calc_basis","ฐานคำนวณภาษีหัก ณ ที่จ่าย","select",["มูลค่าก่อน VAT หลังส่วนลด"]],["withholding_tax_type","ประเภทภาษี","select",["ภาษีเงินได้นิติบุคคล","ภาษีเงินได้บุคคลธรรมดา"]],
     ["withholding_certificate_no","เลขที่หนังสือรับรองหักภาษี ณ ที่จ่าย"],["tax_signer_position","ตำแหน่งผู้ลงนามหนังสือรับรองภาษี"],["bk28_no","เลขที่ บก.28"],["paid_date","วันที่จ่าย","date"]
   ]},
   {title:"9. หมายเหตุและข้อมูลประกอบ",hint:"ข้อมูลเสริมจากหน้า Excel และเงื่อนไขที่ต้องการเก็บไว้กับรายการเดียวกัน",fields:[
@@ -9549,15 +10456,39 @@ const PROCUREMENT_FIELD_GROUPS = Object.freeze([
 
 const PROCUREMENT_REQUIRED_MASTER_FIELDS = Object.freeze(["request_date","title","reason","plan_name","project_name"]);
 
+function procurementRoundWholeBaht(value){
+  const n=Number(value||0);
+  if(!Number.isFinite(n))return 0;
+  // BNK tax rule: เศษตั้งแต่ 0.50 บาทขึ้นไปปัดขึ้น 1 บาท, ต่ำกว่า 0.50 ปัดลง
+  return n>=0?Math.floor(n+0.5):Math.ceil(n-0.5);
+}
+function procurementVatModeNormalized(value){
+  const mode=String(value||"").trim();
+  if(["ไม่มี VAT"].includes(mode))return "none";
+  if(["พิมพ์มือ","พิมพ์ VAT เอง"].includes(mode))return "manual";
+  // ค่าเดิม “อัตโนมัติ” และค่าปัจจุบัน ใช้หลักเดียวกัน: ราคาที่กรอกเป็นราคารวม VAT แล้ว
+  return "included";
+}
 function procurementCalcSummary(items,form={}){
-  const subtotal=procurementCalcItems(items);
-  const discount=Math.max(0,Number(form.discount||0));
-  const base=Math.max(0,subtotal-discount);
-  const mode=String(form.vat_mode||"อัตโนมัติ");
-  const vat=mode==="ไม่มี VAT"?0:mode==="พิมพ์มือ"?Math.max(0,Number(form.manual_vat||0)):base*0.07;
-  const calculatedTotal=base+vat;
+  const subtotal=Math.max(0,procurementCalcItems(items));
+  const discount=Math.min(subtotal,Math.max(0,Number(form.discount||0)));
+  const calculatedTotal=Math.max(0,subtotal-discount);
   const quoteTotal=Math.max(0,Number(form.quote_total||0));
-  return {subtotal,discount,base,vat,calculatedTotal,total:quoteTotal||calculatedTotal||subtotal};
+  // ราคาต่อหน่วย/ยอดใบเสนอราคาที่ผู้ใช้กรอก = ราคารวม VAT แล้ว
+  const total=quoteTotal||calculatedTotal||subtotal;
+  const vatMode=procurementVatModeNormalized(form.vat_mode);
+  let rawBase=total,rawVat=0;
+  if(vatMode==="included"&&total>0){
+    rawVat=total*7/107;
+    rawBase=total-rawVat;
+  }else if(vatMode==="manual"&&total>0){
+    rawVat=Math.min(total,Math.max(0,Number(form.manual_vat||0)));
+    rawBase=Math.max(0,total-rawVat);
+  }
+  // ฐานก่อน VAT ใช้เงินบาทเต็มตามกติกาโรงเรียน; VAT เป็นส่วนต่างเพื่อให้รวมกลับเท่ากับยอดจริงเสมอ
+  const base=vatMode==="none"?total:procurementRoundWholeBaht(rawBase);
+  const vat=vatMode==="none"?0:Math.max(0,total-base);
+  return {subtotal,discount,base,vat,rawBase,rawVat,calculatedTotal,total,vatMode};
 }
 
 function procurementDepartmentId(){return state.departments.find(d=>d.code==="plan_budget")?.id||null;}
@@ -9593,8 +10524,9 @@ function procurementMissing(c,doc){
       if(!(Number(v)>0))missing.push(key);
     }else if(v===null||v===undefined||String(v).trim()==="")missing.push(key);
   }
-  const itemDocs=["purchase_request","purchase_request_attachment","needs_survey","tor","tor_attachment","quotation","purchase_order","purchase_order_attachment","delivery_note","inspection","inspection_alt","inspection_egp","inspection_attachment","goods_receipt","inventory_issue","inventory_issue_alt"];
+  const itemDocs=["purchase_request","purchase_request_attachment","needs_survey","tor","tor_attachment","quotation","purchase_order","purchase_order_attachment","delivery_note","inspection","inspection_alt","inspection_egp","inspection_attachment","goods_receipt","inventory_issue","inventory_issue_alt","specific_characteristics"];
   if(itemDocs.includes(doc.code)&&!procurementItems(c).length)missing.push("items");
+  if(doc.code==="specific_characteristics"&&procurementItems(c).length&&procurementItems(c).some(x=>!String(x.detail||"").trim()))missing.push("item_details");
   if(doc.code==="expense_cover"&&data.payment_method==="โอนเข้าบัญชี"&&!String(data.vendor_bank_account||"").trim())missing.push("vendor_bank_account");
   const inspectionMemberDocs=new Set(["purchase_request","tor_appointment_memo","tor_appointment_order","inspection_order","inspection","inspection_alt","inspection_egp","inspection_attachment","inspection_notice","inspection_report_memo"]);
   if(inspectionMemberDocs.has(doc.code)){
@@ -9615,7 +10547,51 @@ function procurementMissing(c,doc){
   return [...new Set(missing)];
 }
 function procurementReadyDocuments(c){return procurementApplicableDocuments(c).filter(d=>procurementMissing(c,d).length===0);}
-function procurementFieldLabel(key){for(const g of PROCUREMENT_FIELD_GROUPS){const f=g.fields.find(x=>x[0]===key);if(f)return f[1];}const extra={items:"รายการวัสดุ/งาน",total_amount:"ยอดเงินรวม",vendor_bank_account:"เลขที่บัญชีธนาคาร",inspection_member_1_name:"ประธานกรรมการ/ผู้ตรวจรับ",inspection_member_2_name:"กรรมการคนที่ 2",inspection_member_3_name:"กรรมการคนที่ 3",inspection_member_1_position:"ตำแหน่งประธานกรรมการ/ผู้ตรวจรับ",inspection_member_2_position:"ตำแหน่งกรรมการคนที่ 2",inspection_member_3_position:"ตำแหน่งกรรมการคนที่ 3",tor_member_1_name:"ผู้จัดทำ TOR คนที่ 1",tor_member_2_name:"ผู้จัดทำ TOR คนที่ 2",tor_member_3_name:"ผู้จัดทำ TOR คนที่ 3",tor_member_1_position:"ตำแหน่งผู้จัดทำ TOR คนที่ 1",tor_member_2_position:"ตำแหน่งผู้จัดทำ TOR คนที่ 2",tor_member_3_position:"ตำแหน่งผู้จัดทำ TOR คนที่ 3"};return extra[key]||key;}
+function procurementFieldLabel(key){for(const g of PROCUREMENT_FIELD_GROUPS){const f=g.fields.find(x=>x[0]===key);if(f)return f[1];}const extra={items:"รายการวัสดุ/งาน",item_details:"รายละเอียด/คุณลักษณะของทุกรายการ",total_amount:"ยอดเงินรวม",vendor_bank_account:"เลขที่บัญชีธนาคาร",inspection_member_1_name:"ประธานกรรมการ/ผู้ตรวจรับ",inspection_member_2_name:"กรรมการคนที่ 2",inspection_member_3_name:"กรรมการคนที่ 3",inspection_member_1_position:"ตำแหน่งประธานกรรมการ/ผู้ตรวจรับ",inspection_member_2_position:"ตำแหน่งกรรมการคนที่ 2",inspection_member_3_position:"ตำแหน่งกรรมการคนที่ 3",tor_member_1_name:"ผู้จัดทำ TOR คนที่ 1",tor_member_2_name:"ผู้จัดทำ TOR คนที่ 2",tor_member_3_name:"ผู้จัดทำ TOR คนที่ 3",tor_member_1_position:"ตำแหน่งผู้จัดทำ TOR คนที่ 1",tor_member_2_position:"ตำแหน่งผู้จัดทำ TOR คนที่ 2",tor_member_3_position:"ตำแหน่งผู้จัดทำ TOR คนที่ 3"};return extra[key]||key;}
+function procurementFieldSection(key){
+  for(let i=0;i<PROCUREMENT_FIELD_GROUPS.length;i++)if(PROCUREMENT_FIELD_GROUPS[i].fields.some(x=>x[0]===key))return i+1;
+  if(["items","item_details","total_amount"].includes(key))return 11;
+  if(/^tor_member_/.test(key)||/^inspection_member_/.test(key))return 12;
+  return 1;
+}
+function procurementMissingFieldControlSelector(key){
+  const controlMap={
+    request_number:"#procurement-control-request",
+    approval_number:"#procurement-control-request",
+    tor_appointment_request_number:"#procurement-control-request",
+    tor_appointment_order_number:"#procurement-control-request",
+    tor_approval_number:"#procurement-control-request",
+    inspection_order_number:"#procurement-control-request",
+    purchase_order_number:"#procurement-control-request",
+    disbursement_no:"#procurement-control-request",
+    issue_no:"#procurement-control-inventory"
+  };
+  return controlMap[key]||"";
+}
+function procurementFocusMasterField(modal,key){
+  if(!modal||!key)return;
+  const sectionNo=procurementFieldSection(key),section=modal.querySelector(`#procurement-section-${sectionNo}`);
+  let target=null;
+  if(key==="items"||key==="total_amount")target=modal.querySelector('[data-pi="name"]')||modal.querySelector("#procurement-item-add");
+  else if(key==="item_details")target=modal.querySelector('[data-pi="detail"]');
+  else if(/^tor_member_/.test(key)||/^inspection_member_/.test(key))target=modal.querySelector(`.procurement-person-search[data-target-name="${key}"]`)||modal.querySelector(`[name="${key}"]`);
+  else {
+    const controlSelector=procurementMissingFieldControlSelector(key);
+    target=(controlSelector?modal.querySelector(controlSelector):null)||modal.querySelector(`[name="${key}"]`);
+  }
+  (section||target)?.scrollIntoView({behavior:"smooth",block:"start"});
+  if(target){
+    target.classList.add("procurement-missing-focus");
+    setTimeout(()=>{try{target.focus({preventScroll:true});}catch{target.focus?.();}},360);
+    setTimeout(()=>target.classList.remove("procurement-missing-focus"),2400);
+  }
+}
+function procurementMissingSummaryHtml(c,missing=[]){
+  const rows=[...new Set(missing||[])];if(!rows.length)return "";
+  const editable=procurementCanEdit(c);
+  const chips=rows.map(key=>{const label=escapeHtml(procurementFieldLabel(key));return editable?`<button type="button" class="procurement-missing-field" data-procurement-missing-field="${escapeHtml(key)}" title="เปิด Master Form ที่ช่อง ${label}">${label}</button>`:`<span class="procurement-missing-field is-readonly">${label}</span>`;}).join("");
+  return `<div class="procurement-missing-summary"><small>ยังขาด ${academicRegThaiDigits(rows.length)} จุด · ต้องกรอกให้ครบก่อน Export</small><div class="procurement-missing-fields"><span class="procurement-missing-label">ขาด:</span>${chips}</div></div>`;
+}
 function procurementDocumentsReadyCount(c){return procurementApplicableDocuments(c).filter(d=>procurementMissing(c,d).length===0).length;}
 
 async function loadProcurementWorkspaceV44Legacy(){
@@ -9635,7 +10611,7 @@ function procurementWorkspaceHtmlV44Legacy(module){
   const rows=(state.procurementCases||[]).filter(c=>(status==="all"||c.status===status)&&(!q||[c.case_code,c.title,procurementFormData(c).project_name,procurementFormData(c).vendor_name].some(v=>String(v||"").toLowerCase().includes(q))));
   const total=(state.procurementCases||[]).reduce((s,c)=>s+Number(c.total_amount||0),0),ready=(state.procurementCases||[]).filter(c=>c.status==="ready"||c.status==="completed").length;
   return `<section class="procurement-workspace">
-    <section class="procurement-hero"><div><span class="eyebrow dark">กลุ่มงานบริหารแผนงานและงบประมาณ · Single Source of Truth</span><h2>ระบบจัดทำเอกสารจัดซื้อจัดจ้างและพัสดุ</h2><p>กรอกข้อมูลกลางเพียงครั้งเดียว แล้วใช้ข้อมูลชุดเดียวกันกับเอกสารปลายทาง 29 แบบจาก Excel + 4 แบบจาก PDF ตัวอย่าง</p></div><div class="procurement-hero-actions"><button class="btn btn-primary" id="procurement-create">＋ สร้างรายการใหม่</button></div></section>
+    <section class="procurement-hero"><div><span class="eyebrow dark">กลุ่มงานบริหารแผนงานและงบประมาณ · Single Source of Truth</span><h2>ระบบจัดทำเอกสารจัดซื้อจัดจ้างและพัสดุ</h2><p>กรอกข้อมูลกลางเพียงครั้งเดียว แล้วใช้ข้อมูลชุดเดียวกันกับเอกสารปลายทาง 29 แบบจาก Excel + 5 แบบจาก PDF ตัวอย่าง</p></div><div class="procurement-hero-actions"><button class="btn btn-primary" id="procurement-create">＋ สร้างรายการใหม่</button></div></section>
     <div class="procurement-kpis"><article><span>รายการปี ${escapeHtml(String(state.procurementAcademicYear))}</span><strong>${academicRegThaiDigits(state.procurementCases.length)}</strong></article><article><span>ข้อมูลพร้อม/เสร็จ</span><strong>${academicRegThaiDigits(ready)}</strong></article><article><span>วงเงินรวม</span><strong>${procurementMoney(total)}</strong><small>บาท</small></article><article><span>แม่แบบเอกสาร</span><strong>${academicRegThaiDigits(PROCUREMENT_DOCUMENTS.length)}</strong><small>แบบ</small></article></div>
     <section class="panel"><div class="panel-head"><div class="panel-title-wrap"><h3>รายการจัดซื้อจัดจ้าง</h3><p>ข้อมูลรายการเดียวจะเป็นต้นทางของเอกสารทุกใบ</p></div><div class="procurement-toolbar"><select class="select" id="procurement-year">${procurementAcademicYearOptions(state.procurementAcademicYear)}</select><select class="select" id="procurement-status"><option value="all">ทุกสถานะ</option>${["draft","ready","processing","completed","cancelled"].map(x=>`<option value="${x}" ${status===x?"selected":""}>${procurementStatusLabel(x)}</option>`).join("")}</select><input class="input" id="procurement-search" placeholder="ค้นหาเลขที่ / เรื่อง / โครงการ / ร้านค้า" value="${escapeHtml(state.procurementSearch||"")}"></div></div>
       ${rows.length?`<div class="procurement-case-grid">${rows.map(procurementCaseCardHtml).join("")}</div>`:`<div class="empty"><strong>ยังไม่มีรายการในปีนี้</strong><span>กด “สร้างรายการใหม่” แล้วกรอกข้อมูลกลางเพียงจุดเดียว</span></div>`}
@@ -9650,14 +10626,15 @@ function procurementCaseDetailHtml(c){const f=procurementFormData(c),items=procu
   <div class="procurement-detail-summary"><article><span>แผนงาน/โครงการ</span><strong>${escapeHtml(f.project_name||f.plan_name||"—")}</strong></article><article><span>ร้าน/ผู้ขาย</span><strong>${escapeHtml(f.vendor_name||"—")}</strong></article><article><span>รายการวัสดุ/งาน</span><strong>${academicRegThaiDigits(items.length)} รายการ</strong></article><article><span>วงเงินรวม</span><strong>${procurementMoney(c.total_amount)} บาท</strong></article><article><span>เอกสารพร้อม</span><strong>${academicRegThaiDigits(ready)}/${academicRegThaiDigits(procurementApplicableDocumentCount(c))}</strong></article></div>
   <section class="panel procurement-control-link-panel"><div class="panel-head"><div class="panel-title-wrap"><h3>เลขคุมที่เชื่อมกับรายการนี้</h3><p>เลือกจากทะเบียนเท่านั้น · PDF อ่านเลขจากฟิลด์ที่ Excel กำหนด</p></div></div><div class="procurement-control-link-grid">${[["ชุด 1",c.control_request_approval_id],["ชุด 2",c.control_order_id],["ชุด 3",c.control_purchase_order_id],["ชุด 4",c.control_disbursement_id],["ชุด 5",c.control_inventory_issue_id]].map(([label,id])=>{const r=procurementControlById(id);return `<div><span>${label}</span><strong>${r?escapeHtml(procurementControlDisplay(r)):"—"}</strong><small>${r?escapeHtml(r.subject||""):"ยังไม่ได้เลือก"}</small></div>`;}).join("")}</div></section>
   <section class="panel procurement-source-panel"><div class="panel-head"><div class="panel-title-wrap"><h3>ข้อมูลกลางของรายการ</h3><p>แก้ไขจุดนี้ครั้งเดียว เอกสารทั้งหมดจะอ่านข้อมูลชุดเดียวกัน</p></div></div><div class="procurement-source-grid">${[["เลขที่ขอซื้อ/ขอจ้าง",f.request_number],["วันที่",f.request_date?thaiDateCompact(f.request_date):"—"],["แผนงาน",f.plan_name],["โครงการ/งาน",f.project_name],["กิจกรรม",f.activity_name],["ผู้เสนอความต้องการ",f.requester_name],["ร้าน/ผู้ขาย",f.vendor_name],["รหัสผู้ขาย",f.vendor_code],["วิธีจัดซื้อจัดจ้าง",f.procurement_method],["เลขที่อนุมัติ",f.approval_number],["เลขที่ใบสั่งซื้อ/จ้าง",f.purchase_order_number],["วันที่ส่งมอบ",f.delivery_date?thaiDateCompact(f.delivery_date):"—"],["วันนัดตรวจรับ",f.inspection_appointment_date?thaiDateCompact(f.inspection_appointment_date):"—"],["สถานที่ตรวจรับ",f.inspection_location],["วิธีรับเงิน",f.payment_method],["เลขที่ใบ P/O",f.finance_po_no],["เลขที่เอกสารรับพัสดุ",f.goods_receipt_document_no],["เลขที่เบิกจ่าย",f.disbursement_no],["มีการเบิกพัสดุ",procurementInventoryIssueEnabled(f)?"มี":"ไม่มี"],["เลขที่เบิกพัสดุ",f.issue_no]].map(([k,v])=>`<div><span>${escapeHtml(k)}</span><strong>${escapeHtml(String(v||"—"))}</strong></div>`).join("")}</div></section>
-  <section class="panel"><div class="panel-head"><div class="panel-title-wrap"><h3>ศูนย์ชุดเอกสาร</h3><p>รายการด้านล่างประกอบด้วยเอกสาร 29 แบบจาก Excel ต้นฉบับ และ 4 แบบเพิ่มเติมจาก PDF ตัวอย่าง รวม ${PROCUREMENT_DOCUMENTS.length} แบบ</p></div></div>${groups.map(g=>`<div class="procurement-document-group"><h4>${escapeHtml(g)}</h4><div class="procurement-document-grid">${PROCUREMENT_DOCUMENTS.filter(d=>d.group===g).map(d=>procurementDocumentCardHtml(c,d)).join("")}</div></div>`).join("")}</section>
+  <section class="panel"><div class="panel-head"><div class="panel-title-wrap"><h3>ศูนย์ชุดเอกสาร</h3><p>รายการด้านล่างประกอบด้วยเอกสาร 29 แบบจาก Excel ต้นฉบับ และ 5 แบบเพิ่มเติมจาก PDF ตัวอย่าง รวม ${PROCUREMENT_DOCUMENTS.length} แบบ</p></div></div>${groups.map(g=>`<div class="procurement-document-group"><h4>${escapeHtml(g)}</h4><div class="procurement-document-grid">${PROCUREMENT_DOCUMENTS.filter(d=>d.group===g).map(d=>procurementDocumentCardHtml(c,d)).join("")}</div></div>`).join("")}</section>
 </section>`;}
 
 function procurementDocumentCardHtml(c,d){
   const enabled=procurementDocumentEnabled(c,d),missing=enabled?procurementMissing(c,d):[],ready=enabled&&!missing.length,garuda=PROCUREMENT_GARUDA_DOCUMENT_CODES.has(d.code),source=d.source==="sample_pdf"?"PDF ตัวอย่าง":"Excel ต้นฉบับ";
   if(c?.status==="deleted")return `<article class="procurement-document-card pending pdf-locked not-applicable"><div><span class="procurement-doc-state">รายการถูกลบแล้ว</span><strong>${escapeHtml(d.name)}</strong><small>เก็บไว้เพื่อประวัติและรักษาความสัมพันธ์เลขคุมเท่านั้น</small></div><button class="btn btn-ghost" disabled>ปิดการ Export</button></article>`;
   if(!enabled)return `<article class="procurement-document-card pending pdf-locked not-applicable"><div><span class="procurement-doc-state">ไม่ใช้ในรายการนี้</span><strong>${escapeHtml(d.name)}</strong><small>สวิตช์ “มีการเบิกพัสดุ” ถูกปิด จึงไม่บังคับเอกสารนี้</small></div><button class="btn btn-ghost" disabled>ไม่ใช้งาน</button></article>`;
-  return `<article class="procurement-document-card ${ready?"ready":"pending"} ${ready?"pdf-ready":"pdf-locked"}"><div><span class="procurement-doc-state">${ready?"PDF พร้อม":"รอข้อมูล"}</span><strong>${escapeHtml(d.name)}${garuda?` <span class="procurement-garuda-badge">ตราครุฑ</span>`:""}</strong><small>${ready?`ข้อมูลครบ · อ้างอิง ${source}`:`ยังขาด ${academicRegThaiDigits(missing.length)} จุด · ต้องกรอกให้ครบก่อน Export`}</small></div><button class="btn ${ready?"btn-secondary":"btn-ghost"}" data-procurement-doc="${d.code}" ${ready?"":"disabled"}>${ready?"Preview / PDF":"ยัง Export ไม่ได้"}</button></article>`;
+  const readiness=ready?`<small>ข้อมูลครบ · อ้างอิง ${source}</small>`:procurementMissingSummaryHtml(c,missing);
+  return `<article class="procurement-document-card ${ready?"ready":"pending"} ${ready?"pdf-ready":"pdf-locked"}"><div><span class="procurement-doc-state">${ready?"PDF พร้อม":"รอข้อมูล"}</span><strong>${escapeHtml(d.name)}${garuda?` <span class="procurement-garuda-badge">ตราครุฑ</span>`:""}</strong>${readiness}</div><button class="btn ${ready?"btn-secondary":"btn-ghost"}" data-procurement-doc="${d.code}" ${ready?"":"disabled"}>${ready?"Preview / PDF":"ยัง Export ไม่ได้"}</button></article>`;
 }
 
 
@@ -9668,7 +10645,7 @@ function procurementFormModalV44Legacy(c=null){
   if(!f.request_date)f.request_date=localDateInputValue();
   if(!f.requester_name)f.requester_name=state.profile?.full_name||"";
   if(!f.requester_position)f.requester_position=state.personnelOwnRecord?.position_title||"";
-  if(!f.vat_mode)f.vat_mode="อัตโนมัติ";
+  if(!f.vat_mode)f.vat_mode="รวม VAT แล้ว (ถอด 7/107)";
   if(!items.length)items.push({name:"",qty:1,unit:"",unit_price:0});
   const sectionNav=PROCUREMENT_FIELD_GROUPS.map((g,i)=>`<button type="button" class="procurement-section-tab" data-procurement-section-jump="${i+1}">${i+1}. ${escapeHtml(g.title.replace(/^\d+\.\s*/,""))}</button>`).join("");
   const m=document.createElement("div");m.className="modal-backdrop";
@@ -9677,15 +10654,27 @@ function procurementFormModalV44Legacy(c=null){
     <div class="procurement-form-livebar"><div><span>ความพร้อมข้อมูลหลัก</span><strong id="procurement-core-progress">0/${PROCUREMENT_REQUIRED_MASTER_FIELDS.length}</strong></div><div><span>เอกสารที่พร้อมจากข้อมูลปัจจุบัน</span><strong id="procurement-live-ready">0/${procurementApplicableDocumentCount({form_data:f})}</strong></div><div><span>ยอดจากรายการ</span><strong><span id="procurement-live-total">0.00</span> บาท</strong></div></div>
     <div class="procurement-section-nav">${sectionNav}<button type="button" class="procurement-section-tab" data-procurement-section-jump="10">10. รายการวัสดุ/งาน</button><button type="button" class="procurement-section-tab" data-procurement-section-jump="11">11. ผู้จัดทำ TOR/ตรวจรับ</button></div>
     <div class="procurement-master-form">${PROCUREMENT_FIELD_GROUPS.map((g,i)=>`<section class="procurement-form-section" id="procurement-section-${i+1}"><div class="procurement-form-section-head"><div><span class="procurement-section-no">${academicRegThaiDigits(i+1)}</span><div><h4>${escapeHtml(g.title.replace(/^\d+\.\s*/,""))}</h4><span>${escapeHtml(g.hint)}</span></div></div></div><div class="form-grid procurement-form-grid">${g.fields.map(x=>procurementFieldHtml(x,f)).join("")}</div></section>`).join("")}
-    <section class="procurement-form-section" id="procurement-section-10"><div class="procurement-form-section-head"><div><span class="procurement-section-no">๑๐</span><div><h4>รายการวัสดุ / งาน</h4><span>รายการเดียวใช้ร่วมกันในรายงานขอซื้อ TOR ใบสั่งซื้อ ส่งมอบ ตรวจรับ และเบิกพัสดุ</span></div></div></div><div class="table-wrap"><table class="table procurement-items-table"><thead><tr><th>#</th><th>รายการ</th><th>รายละเอียด/คุณลักษณะ</th><th>จำนวน</th><th>หน่วย</th><th>ราคาต่อหน่วย</th><th>รวม</th><th></th></tr></thead><tbody id="procurement-item-body"></tbody></table></div><div class="procurement-items-footer"><button type="button" class="btn btn-ghost" id="procurement-item-add">＋ เพิ่มรายการ</button><div class="procurement-calc-box"><span>รวมรายการ <strong id="procurement-items-subtotal">0.00</strong></span><span>ส่วนลด <strong id="procurement-items-discount">0.00</strong></span><span>VAT <strong id="procurement-items-vat">0.00</strong></span><span class="grand">ยอดคำนวณ <strong id="procurement-items-total">0.00</strong> บาท</span></div></div></section>
+    <section class="procurement-form-section" id="procurement-section-10"><div class="procurement-form-section-head"><div><span class="procurement-section-no">๑๐</span><div><h4>รายการวัสดุ / งาน</h4><span>รายการเดียวใช้ร่วมกันในรายงานขอซื้อ TOR ใบสั่งซื้อ ส่งมอบ ตรวจรับ และเบิกพัสดุ</span></div></div></div><div class="table-wrap"><table class="table procurement-items-table"><thead><tr><th>#</th><th>รายการ</th><th>รายละเอียด/คุณลักษณะ</th><th>จำนวน</th><th>หน่วย</th><th>ราคาต่อหน่วย (รวม VAT)</th><th>รวม (รวม VAT)</th><th></th></tr></thead><tbody id="procurement-item-body"></tbody></table></div><div class="procurement-items-footer"><button type="button" class="btn btn-ghost" id="procurement-item-add">＋ เพิ่มรายการ</button><div class="procurement-calc-box"><span>รวมรายการ (รวม VAT) <strong id="procurement-items-subtotal">0.00</strong></span><span>ส่วนลด <strong id="procurement-items-discount">0.00</strong></span><span>มูลค่าก่อน VAT <strong id="procurement-items-base">0.00</strong></span><span>VAT ที่รวมอยู่ <strong id="procurement-items-vat">0.00</strong></span><span>หัก ณ ที่จ่าย <strong id="procurement-items-wht">0.00</strong></span><span class="grand">ยอดจ่ายจริง <strong id="procurement-items-total">0.00</strong> บาท</span></div></div></section>
     <section class="procurement-form-section" id="procurement-section-11"><div class="procurement-form-section-head"><div><span class="procurement-section-no">๑๑</span><div><h4>ผู้จัดทำ TOR / คณะกรรมการตรวจรับ</h4><span>รองรับรูปแบบผู้จัดทำ 1 คนหรือคณะกรรมการ 3 คน และคณะกรรมการตรวจรับ 3 คน</span></div></div></div><div class="procurement-committee-grid"><div><h5>ผู้จัดทำ TOR</h5>${[1,2,3].map(i=>`<div class="form-row"><div class="field"><label>คนที่ ${i}</label><input class="input" name="tor_member_${i}_name" value="${escapeHtml(String(f[`tor_member_${i}_name`]||""))}"></div><div class="field"><label>ตำแหน่ง</label><input class="input" name="tor_member_${i}_position" value="${escapeHtml(String(f[`tor_member_${i}_position`]||""))}"></div></div>`).join("")}</div><div><h5>คณะกรรมการตรวจรับ</h5>${[[1,"ประธานกรรมการ"],[2,"กรรมการ"],[3,"กรรมการ"]].map(([i,role])=>`<div class="form-row"><div class="field"><label>${role}</label><input class="input" name="inspection_member_${i}_name" value="${escapeHtml(String(f[`inspection_member_${i}_name`]||""))}"></div><div class="field"><label>ตำแหน่ง</label><input class="input" name="inspection_member_${i}_position" value="${escapeHtml(String(f[`inspection_member_${i}_position`]||""))}"></div></div>`).join("")}</div></div></section>
     </div><div class="modal-actions"><span class="procurement-save-note" id="procurement-save-note">ข้อมูลที่ยังไม่ครบสามารถบันทึกเป็นฉบับร่างได้</span><button type="button" class="btn btn-ghost modal-cancel">ยกเลิก</button><button type="submit" class="btn btn-primary">${editing?"บันทึกข้อมูลกลาง":"สร้างรายการและชุดเอกสาร"}</button></div></form></div>`;
   document.body.appendChild(m);
   const close=()=>m.remove();m.querySelector(".modal-close").onclick=close;m.querySelector(".modal-cancel").onclick=close;
-  const formEl=m.querySelector("#procurement-form"),body=m.querySelector("#procurement-item-body"),subtotalEl=m.querySelector("#procurement-items-subtotal"),discountEl=m.querySelector("#procurement-items-discount"),vatEl=m.querySelector("#procurement-items-vat"),totalEl=m.querySelector("#procurement-items-total"),liveTotal=m.querySelector("#procurement-live-total"),readyEl=m.querySelector("#procurement-live-ready"),coreEl=m.querySelector("#procurement-core-progress"),saveNote=m.querySelector("#procurement-save-note");
+  const formEl=m.querySelector("#procurement-form"),body=m.querySelector("#procurement-item-body"),subtotalEl=m.querySelector("#procurement-items-subtotal"),discountEl=m.querySelector("#procurement-items-discount"),baseEl=m.querySelector("#procurement-items-base"),vatEl=m.querySelector("#procurement-items-vat"),whtEl=m.querySelector("#procurement-items-wht"),totalEl=m.querySelector("#procurement-items-total"),liveTotal=m.querySelector("#procurement-live-total"),readyEl=m.querySelector("#procurement-live-ready"),coreEl=m.querySelector("#procurement-core-progress"),saveNote=m.querySelector("#procurement-save-note");
   const currentForm=()=>{const fd=new FormData(formEl),out={};for(const [k,v] of fd.entries())out[k]=typeof v==="string"?v.trim():v;for(const g of PROCUREMENT_FIELD_GROUPS)for(const d of g.fields)if(d[2]==="number")out[d[0]]=out[d[0]]===""?null:Number(out[d[0]]);return out;};
   const cleanCurrentItems=()=>items.map((x,i)=>({name:String(x.name||"").trim(),detail:String(x.detail||"").trim(),qty:Number(x.qty||0),unit:String(x.unit||"").trim(),unit_price:Number(x.unit_price||0),sort_order:i+1})).filter(x=>x.name);
-  const refreshLive=()=>{const form=currentForm(),cleanItems=cleanCurrentItems(),sum=procurementCalcSummary(cleanItems,form),draft={title:form.title||"",total_amount:sum.total,form_data:form,items:cleanItems};subtotalEl.textContent=procurementMoney(sum.subtotal);discountEl.textContent=procurementMoney(sum.discount);vatEl.textContent=procurementMoney(sum.vat);totalEl.textContent=procurementMoney(sum.calculatedTotal);liveTotal.textContent=procurementMoney(sum.total);const coreDone=PROCUREMENT_REQUIRED_MASTER_FIELDS.filter(k=>String(form[k]??"").trim()).length;coreEl.textContent=`${academicRegThaiDigits(coreDone)}/${academicRegThaiDigits(PROCUREMENT_REQUIRED_MASTER_FIELDS.length)}`;const ready=procurementDocumentsReadyCount(draft),applicable=procurementApplicableDocumentCount(draft);readyEl.textContent=`${academicRegThaiDigits(ready)}/${academicRegThaiDigits(applicable)}`;const missing=PROCUREMENT_REQUIRED_MASTER_FIELDS.filter(k=>!String(form[k]??"").trim());saveNote.textContent=missing.length?`ยังขาดข้อมูลหลัก: ${missing.map(procurementFieldLabel).join(" · ")} · บันทึกเป็นฉบับร่างได้`:`ข้อมูลหลักครบแล้ว · ระบบจะตรวจเอกสารที่พร้อมให้อัตโนมัติ`;};
+  const refreshLive=()=>{
+    const form=currentForm(),cleanItems=cleanCurrentItems(),sum=procurementCalcSummary(cleanItems,form),tax=procurementWithholdingDecision(form,sum.total),financial=procurementMasterFinancialSnapshot(cleanItems,form),taxHidden=formEl.querySelector('[name="withholding_tax"]'),taxStatus=m.querySelector("#procurement-withholding-status");
+    if(taxHidden)taxHidden.value=tax.value;
+    if(taxStatus)taxStatus.textContent=`${tax.note} · ฐานก่อน VAT ${procurementMoney(financial.goods_or_service_amount)} บาท · ภาษีหัก ณ ที่จ่าย ${procurementMoney(financial.withholding_tax_amount)} บาท`;
+    if(!form.withholding_tax_type&&tax.taxType){const taxType=formEl.querySelector('[name="withholding_tax_type"]');if(taxType&&!taxType.value)taxType.value=tax.taxType;}
+    form.withholding_tax=tax.value;form.cash_advance_address=procurementCashAdvanceAddress(form);form.master_schema_version="5.2.0";form.financial_summary=financial;
+    const draft={title:form.title||"",total_amount:sum.total,form_data:form,items:cleanItems};
+    subtotalEl.textContent=procurementMoney(sum.subtotal);discountEl.textContent=procurementMoney(sum.discount);baseEl.textContent=procurementMoney(financial.goods_or_service_amount);vatEl.textContent=procurementMoney(financial.vat);whtEl.textContent=procurementMoney(financial.withholding_tax_amount);totalEl.textContent=procurementMoney(financial.net_payable_amount);liveTotal.textContent=procurementMoney(sum.total);
+    const coreDone=PROCUREMENT_REQUIRED_MASTER_FIELDS.filter(k=>String(form[k]??"").trim()).length;coreEl.textContent=`${academicRegThaiDigits(coreDone)}/${academicRegThaiDigits(PROCUREMENT_REQUIRED_MASTER_FIELDS.length)}`;
+    const ready=procurementDocumentsReadyCount(draft);readyEl.textContent=`${academicRegThaiDigits(ready)}/${academicRegThaiDigits(procurementApplicableDocumentCount(draft))}`;
+    const missing=PROCUREMENT_REQUIRED_MASTER_FIELDS.filter(k=>!String(form[k]??"").trim()),linkedWarnings=[];if(form.payment_method==="โอนเข้าบัญชี"&&!form.vendor_bank_account)linkedWarnings.push("เลือกโอนเข้าบัญชีแต่ทะเบียนผู้ขายยังไม่มีเลขบัญชี");if(form.inspection_appointment_date&&!form.inspection_location)linkedWarnings.push("มีวันนัดตรวจรับแต่ยังไม่ได้ระบุสถานที่ตรวจรับ");if(form.delivery_document_number&&!form.delivery_date)linkedWarnings.push("มีเลขเอกสารส่งมอบแต่ยังไม่ได้ระบุวันที่ส่งมอบ");
+    const baseNote=missing.length?`ยังขาดข้อมูลหลัก: ${missing.map(procurementFieldLabel).join(" · ")} · บันทึกเป็นฉบับร่างได้`:`ข้อมูลหลักครบแล้ว`;saveNote.textContent=linkedWarnings.length?`${baseNote} · ตรวจเพิ่ม: ${linkedWarnings.join(" · ")}`:baseNote;
+  };
   const renderItems=()=>{body.innerHTML=items.map((x,i)=>`<tr data-procurement-item-row="${i}"><td>${academicRegThaiDigits(i+1)}</td><td><input class="input" data-pi="name" value="${escapeHtml(String(x.name||""))}" placeholder="ชื่อวัสดุ/งาน"></td><td><input class="input" data-pi="detail" value="${escapeHtml(String(x.detail||""))}" placeholder="รายละเอียด/คุณลักษณะ"></td><td><input class="input" data-pi="qty" type="number" min="0" step="0.01" value="${Number(x.qty||0)}"></td><td><input class="input" data-pi="unit" value="${escapeHtml(String(x.unit||""))}" placeholder="ชุด/กล่อง/ชิ้น"></td><td><input class="input" data-pi="unit_price" type="number" min="0" step="0.01" value="${Number(x.unit_price||0)}"></td><td class="procurement-line-total">${procurementMoney((Number(x.qty)||0)*(Number(x.unit_price)||0))}</td><td><button type="button" class="btn btn-danger btn-small" data-pi-remove="${i}">ลบ</button></td></tr>`).join("");body.querySelectorAll("input[data-pi]").forEach(inp=>inp.oninput=()=>{const row=Number(inp.closest("tr").dataset.procurementItemRow),key=inp.dataset.pi;items[row][key]=["qty","unit_price"].includes(key)?Number(inp.value||0):inp.value;inp.closest("tr").querySelector(".procurement-line-total").textContent=procurementMoney((Number(items[row].qty)||0)*(Number(items[row].unit_price)||0));refreshLive();});body.querySelectorAll("[data-pi-remove]").forEach(btn=>btn.onclick=()=>{items.splice(Number(btn.dataset.piRemove),1);if(!items.length)items.push({name:"",detail:"",qty:1,unit:"",unit_price:0});renderItems();refreshLive();});refreshLive();};
   renderItems();
   m.querySelector("#procurement-item-add").onclick=()=>{items.push({name:"",detail:"",qty:1,unit:"",unit_price:0});renderItems();};
@@ -9699,9 +10688,9 @@ function procurementDocumentModal(c,code){
   const d=PROCUREMENT_DOCUMENTS.find(x=>x.code===code);if(!d)return;
   const missing=procurementMissing(c,d),f=procurementFormData(c),items=procurementItems(c),garuda=PROCUREMENT_GARUDA_DOCUMENT_CODES.has(code);
   const m=document.createElement("div");m.className="modal-backdrop";
-  m.innerHTML=`<div class="modal modal-wide"><div class="modal-head"><div><h3>${escapeHtml(d.name)}</h3><p>เอกสารลำดับ ${academicRegThaiDigits(PROCUREMENT_DOCUMENTS.findIndex(x=>x.code===code)+1)}/${academicRegThaiDigits(PROCUREMENT_DOCUMENTS.length)} · เชื่อมจาก ${escapeHtml(c.case_code||"")} โดยตรง</p></div><button class="modal-close">×</button></div>${missing.length?`<div class="project-paper-note warn"><strong>ยัง Export ไม่ได้</strong><span>กรอกข้อมูลให้ครบก่อน: ${missing.map(procurementFieldLabel).map(escapeHtml).join(" · ")}</span></div>`:`<div class="project-paper-note success"><strong>PDF พร้อมสร้าง</strong><span>${d.source==="sample_pdf"?"เอกสารเพิ่มเติมจาก PDF ตัวอย่าง":garuda?"เอกสารนี้ใช้ตราครุฑตามต้นฉบับ Excel":"เอกสารนี้เป็นแบบฟอร์มภายในตามต้นฉบับ Excel"}</span></div>`}<div class="procurement-doc-preview"><div><span>เรื่อง</span><strong>${escapeHtml(c.title||f.title||"—")}</strong></div><div><span>โครงการ</span><strong>${escapeHtml(f.project_name||"—")}</strong></div><div><span>ร้าน/ผู้ขาย</span><strong>${escapeHtml(f.vendor_name||"—")}</strong></div><div><span>วงเงิน</span><strong>${procurementMoney(c.total_amount)} บาท</strong></div><div><span>จำนวนรายการ</span><strong>${academicRegThaiDigits(items.length)} รายการ</strong></div><div><span>รูปแบบ</span><strong>${garuda?"เอกสารตราครุฑ":"แบบฟอร์มภายใน"}</strong></div></div><div class="modal-actions"><button class="btn btn-ghost modal-close-bottom">ปิด</button>${procurementCanEdit(c)?`<button class="btn btn-secondary" id="procurement-edit-from-doc">แก้ไขข้อมูลกลาง</button>`:""}${missing.length?`<button class="btn btn-primary" disabled>กรอกข้อมูลให้ครบก่อน Export</button>`:`<button class="btn btn-primary" id="procurement-any-doc-pdf">Preview PDF</button>`}</div></div>`;
+  m.innerHTML=`<div class="modal modal-wide"><div class="modal-head"><div><h3>${escapeHtml(d.name)}</h3><p>เอกสารลำดับ ${academicRegThaiDigits(PROCUREMENT_DOCUMENTS.findIndex(x=>x.code===code)+1)}/${academicRegThaiDigits(PROCUREMENT_DOCUMENTS.length)} · เชื่อมจาก ${escapeHtml(c.case_code||"")} โดยตรง</p></div><button class="modal-close">×</button></div>${missing.length?`<div class="project-paper-note warn"><strong>ยัง Export ไม่ได้</strong><span>กรอกข้อมูลให้ครบก่อน: ${missing.map(procurementFieldLabel).map(escapeHtml).join(" · ")}</span></div>`:`<div class="project-paper-note success"><strong>PDF พร้อมสร้าง</strong><span>${d.source==="sample_pdf"?"เอกสารเพิ่มเติมจาก PDF ตัวอย่าง":garuda?"เอกสารนี้ใช้ตราครุฑตามต้นฉบับ Excel":"เอกสารนี้เป็นแบบฟอร์มภายในตามต้นฉบับ Excel"}</span></div>`}<div class="procurement-doc-preview"><div><span>เรื่อง</span><strong>${escapeHtml(c.title||f.title||"—")}</strong></div><div><span>โครงการ</span><strong>${escapeHtml(f.project_name||"—")}</strong></div><div><span>ร้าน/ผู้ขาย</span><strong>${escapeHtml(f.vendor_name||"—")}</strong></div><div><span>วงเงิน</span><strong>${procurementMoney(c.total_amount)} บาท</strong></div><div><span>จำนวนรายการ</span><strong>${academicRegThaiDigits(items.length)} รายการ</strong></div><div><span>รูปแบบ</span><strong>${garuda?"เอกสารตราครุฑ":"แบบฟอร์มภายใน"}</strong></div></div><div class="modal-actions"><button class="btn btn-ghost modal-close-bottom">ปิด</button>${procurementCanEdit(c)?`<button class="btn btn-secondary" id="procurement-edit-from-doc">${missing.length?"แก้ไขจุดที่ขาด":"แก้ไขข้อมูลกลาง"}</button>`:""}${missing.length?`<button class="btn btn-primary" disabled>กรอกข้อมูลให้ครบก่อน Export</button>`:`<button class="btn btn-primary" id="procurement-any-doc-pdf">Preview PDF</button>`}</div></div>`;
   document.body.appendChild(m);const close=()=>m.remove();m.querySelector(".modal-close").onclick=close;m.querySelector(".modal-close-bottom").onclick=close;
-  m.querySelector("#procurement-edit-from-doc")?.addEventListener("click",()=>{close();procurementFormModal(c);});
+  m.querySelector("#procurement-edit-from-doc")?.addEventListener("click",()=>{close();procurementFormModal(c,missing[0]||"");});
   m.querySelector("#procurement-any-doc-pdf")?.addEventListener("click",async e=>{const btn=e.currentTarget;buttonLoading(btn,true,"กำลังสร้าง PDF...");try{close();await procurementOpenAnyDocumentPdf(c,code);}catch(err){console.error(err);toast("สร้าง PDF ไม่สำเร็จ",err?.message||String(err),"error");}finally{buttonLoading(btn,false);}});
 }
 
@@ -9843,7 +10832,7 @@ function procurementPackQuoteAnnexTable(items,startIndex=0){const rows=(items||[
 
 function procurementPackItemPages(items,renderer,chunkSize=18){const src=items.length?items:[{name:"",qty:"",unit:"",unit_price:0}],chunks=[];for(let i=0;i<src.length;i+=chunkSize)chunks.push(src.slice(i,i+chunkSize));return chunks.map((chunk,idx)=>renderer(chunk,idx,chunks.length));}
 function procurementPackVendorAddress(f){return String(f.vendor_address||"").trim()||"........................................................";}
-function procurementPackWithholding(c,f){const sum=procurementCalcSummary(procurementItems(c),f),decision=procurementWithholdingDecision(f,sum.total||c.total_amount),enabled=decision.required;const taxable=sum.base||Math.max(0,Number(c.total_amount||0)-sum.vat);const tax=enabled?taxable*0.01:0;const penalty=Math.max(0,Number(f.penalty||0));return {...sum,tax,penalty,net:Math.max(0,sum.total-tax-penalty),withholdingDecision:decision};}
+function procurementPackWithholding(c,f){const items=procurementItems(c),sum=procurementCalcSummary(items,f),decision=procurementWithholdingDecision(f,sum.total||c.total_amount),financial=procurementMasterFinancialSnapshot(items,f);return {...sum,tax:financial.withholding_tax_amount,penalty:financial.penalty_amount,net:financial.net_payable_amount,withholdingDecision:decision,financial};}
 function procurementPackDocumentPagesV44Legacy(c,code,signers){
   const d=PROCUREMENT_DOCUMENTS.find(x=>x.code===code);if(!d)throw new Error("ไม่พบแม่แบบเอกสาร");
   if(code==="purchase_request")return [procurementPurchaseRequestPdfHtml(c,signers)];
@@ -9906,7 +10895,20 @@ async function procurementUpdateReadiness(c){const ready=procurementDocumentsRea
 
 async function procurementCancelCase(c){if(!c||!procurementCanCancelCase(c))return toast("ไม่มีสิทธิ์ยกเลิกรายการ","บัญชีนี้ยังไม่ได้รับสิทธิ์ระบบจัดทำเอกสารจัดซื้อจัดจ้างและพัสดุ","error");if(!confirm(`ยืนยันยกเลิกรายการ ${c.case_code||c.title||"นี้"} ?\n\nรายการจะยังอยู่ในประวัติ และเลขคุมที่ผูกอยู่จะไม่ถูกคืนหรือเปลี่ยนแปลง`))return;const {error}=await supabase.rpc("cancel_procurement_document_case",{p_case_id:c.id});if(error)return toast("ยกเลิกรายการไม่สำเร็จ",error.message.includes("schema cache")?`${error.message} · กรุณารัน supabase-v5.0.15-procurement-shared-workspace.sql`:error.message,"error");toast("ยกเลิกรายการแล้ว","รายการยังเปิดดูย้อนหลังได้ และเลขคุมเดิมยังถูกสงวนไว้","success");await loadProcurementWorkspace();state.selectedProcurementCaseId=c.id;await renderDashboard();}
 
-async function procurementDeleteCase(c){if(!c||!procurementCanDeleteCase(c))return toast("ไม่มีสิทธิ์ลบรายการ","บัญชีนี้ยังไม่ได้รับสิทธิ์ระบบจัดทำเอกสารจัดซื้อจัดจ้างและพัสดุ","error");const hasControls=[c.control_request_approval_id,c.control_order_id,c.control_purchase_order_id,c.control_disbursement_id,c.control_inventory_issue_id].some(Boolean);if(!confirm(`ยืนยันลบรายการ ${c.case_code||c.title||"นี้"} ?\n\nระบบจะนำรายการออกจากรายการใช้งานปกติ แต่เก็บประวัติภายในเพื่อรักษาความสัมพันธ์เลขคุม${hasControls?" เลขคุมที่ผูกอยู่จะยังถูกสงวนและไม่ถูกนำกลับมาใช้ซ้ำ":""}`))return;const {error}=await supabase.rpc("delete_procurement_document_case",{p_case_id:c.id});if(error)return toast("ลบรายการไม่สำเร็จ",error.message.includes("schema cache")?`${error.message} · กรุณารัน supabase-v5.0.15-procurement-shared-workspace.sql`:error.message,"error");state.selectedProcurementCaseId=null;toast("ลบรายการแล้ว","นำออกจากรายการปกติแล้ว โดยยังรักษาประวัติเลขคุมไว้","success");await loadProcurementWorkspace();await renderDashboard();}
+async function procurementDeleteCase(c){
+  if(!c||!procurementCanDeleteCase(c))return toast("ไม่มีสิทธิ์ลบรายการ","บัญชีนี้ยังไม่ได้รับสิทธิ์ระบบจัดทำเอกสารจัดซื้อจัดจ้างและพัสดุ","error");
+  const controlIds=[c.control_request_approval_id,c.control_order_id,c.control_purchase_order_id,c.control_disbursement_id,c.control_inventory_issue_id].filter(Boolean),hasControls=controlIds.length>0;
+  const warning=hasControls
+    ?`\n\nรายการนี้ผูกเลขคุม ${controlIds.length} ชุด\nเมื่อลบ ระบบจะปลดเลขคุมออกจากรายการและเก็บประวัติเลขเดิมไว้ เลขดังกล่าวจะถูกพักสถานะ “รายการต้นทางถูกลบ” และจะไม่กลับมาให้รายการใหม่เลือกใช้เอง\nหลังจากนั้นให้ไปที่ระบบเลขคุมเพื่อเลือก “ยกเลิกเลข” หรือ “ลบเลข” ตามต้องการ`
+    :"";
+  if(!confirm(`ยืนยันลบรายการ ${c.case_code||c.title||"นี้"} ?${warning}`))return;
+  const {data,error}=await supabase.rpc("delete_procurement_document_case",{p_case_id:c.id});
+  if(error)return toast("ลบรายการไม่สำเร็จ",error.message.includes("schema cache")?`${error.message} · กรุณารัน supabase-v5.1.5-procurement-control-release.sql`:error.message,"error");
+  const result=Array.isArray(data)?data[0]:data,released=Number(result?.released_control_count||0);
+  state.selectedProcurementCaseId=null;
+  toast("ลบรายการแล้ว",released?`ปลดเลขคุม ${released} ชุดแล้ว · เลขถูกพักไว้และสามารถไปยกเลิกหรือลบต่อในระบบเลขคุมได้`:"นำรายการออกจากรายการใช้งานปกติแล้ว","success");
+  await loadProcurementWorkspace();await renderDashboard();
+}
 
 function bindProcurementEventsV44Legacy(){
   document.querySelector("#procurement-create")?.addEventListener("click",()=>procurementFormModal());
@@ -9919,6 +10921,7 @@ function bindProcurementEventsV44Legacy(){
   document.querySelector("#procurement-ready")?.addEventListener("click",()=>{const c=procurementCaseById(state.selectedProcurementCaseId);if(c)procurementUpdateReadiness(c);});
   document.querySelector("#procurement-pack-pdf")?.addEventListener("click",async e=>{const c=procurementCaseById(state.selectedProcurementCaseId);if(!c)return;const btn=e.currentTarget;buttonLoading(btn,true,"กำลังสร้างทั้งชุด...");try{await procurementOpenDocumentPackPdf(c);}catch(err){console.error(err);toast("สร้างชุด PDF ไม่สำเร็จ",err?.message||String(err),"error");}finally{buttonLoading(btn,false);}});
   document.querySelectorAll("[data-procurement-doc]").forEach(b=>b.addEventListener("click",()=>{const c=procurementCaseById(state.selectedProcurementCaseId);if(c)procurementDocumentModal(c,b.dataset.procurementDoc);}));
+  document.querySelectorAll("[data-procurement-missing-field]").forEach(b=>b.addEventListener("click",e=>{e.preventDefault();e.stopPropagation();const c=procurementCaseById(state.selectedProcurementCaseId);if(c)procurementFormModal(c,b.dataset.procurementMissingField||"");}));
 }
 
 
@@ -9959,7 +10962,7 @@ const PROCUREMENT_XLSB_AUDIT = Object.freeze({
   source:"431.2569วัสดุอุปกรณ์กิจกรรม Projcet Approach ปฐมวัย.xlsb",
   sheets:39,
   documentSheets:29,
-  samplePdfDocuments:4,
+  samplePdfDocuments:5,
   garudaSheets:Object.freeze(["purchase_request","needs_survey","tor_appointment_memo","tor_appointment_order","tor_approval_memo","inspection_order","announcement","approval","approval_alt","purchase_order","disbursement","disbursement_alt"]),
   masterSheets:Object.freeze(["MyData","Personal","shop","กรอกข้อมูล"])
 });
@@ -10031,14 +11034,14 @@ async function loadProcurementWorkspace(){
 
 function procurementWorkspaceHtml(module){
   if(!procurementCanAccessDocuments())return procurementAccessDeniedHtml("ระบบจัดทำเอกสารจัดซื้อจัดจ้างและพัสดุ");
-  if(state.procurementLoadError)return `<section class="panel"><div class="empty"><strong>ยังเปิดระบบจัดทำเอกสารจัดซื้อจัดจ้างไม่ได้</strong><span>${escapeHtml(state.procurementLoadError)}</span><small>หากเพิ่งอัปเดต ให้รัน SQL ตามลำดับจนถึง supabase-v5.0.15-procurement-shared-workspace.sql ก่อน</small></div></section>`;
+  if(state.procurementLoadError)return `<section class="panel"><div class="empty"><strong>ยังเปิดระบบจัดทำเอกสารจัดซื้อจัดจ้างไม่ได้</strong><span>${escapeHtml(state.procurementLoadError)}</span><small>หากเพิ่งอัปเดต ให้รัน SQL ตามลำดับจนถึง supabase-v5.1.5-procurement-control-release.sql ก่อน</small></div></section>`;
   const selected=procurementCaseById(state.selectedProcurementCaseId);if(selected)return procurementCaseDetailHtml(selected);
   const q=(state.procurementSearch||"").trim().toLowerCase(),status=state.procurementStatusFilter||"all",allCases=state.procurementCases||[],liveCases=allCases.filter(c=>c.status!=="deleted");
   const rows=allCases.filter(c=>{if(status==="deleted")return c.status==="deleted"&&(!q||[c.case_code,c.title,procurementFormData(c).project_name,procurementFormData(c).vendor_name].some(v=>String(v||"").toLowerCase().includes(q)));if(c.status==="deleted")return false;return (status==="all"||c.status===status)&&(!q||[c.case_code,c.title,procurementFormData(c).project_name,procurementFormData(c).vendor_name].some(v=>String(v||"").toLowerCase().includes(q)));});
   const total=liveCases.reduce((sum,c)=>sum+Number(c.total_amount||0),0),ready=liveCases.filter(c=>["ready","completed"].includes(c.status)).length;
   const masterNote=state.procurementMasterDataError?`<div class="project-paper-note warn"><strong>Master Data บางส่วนโหลดไม่ครบ</strong><span>${escapeHtml(state.procurementMasterDataError)}</span></div>`:"";
   return `<section class="procurement-workspace">
-    <section class="procurement-hero"><div><span class="eyebrow dark">กลุ่มงานบริหารแผนงานและงบประมาณ · Procurement v5.0.16</span><h2>ระบบจัดทำเอกสารจัดซื้อจัดจ้างและพัสดุ</h2><p>ข้อมูลกลาง 1 รายการ → Master Data + ระบบใหญ่ → PDF ตาม Excel ต้นฉบับ ${PROCUREMENT_DOCUMENTS.length} แบบ → พิมพ์และเซ็นสด</p></div><div class="procurement-hero-actions">${procurementCanManage()?`<button class="btn btn-secondary" id="procurement-settings">⚙ ตั้งค่าระบบ</button>`:""}<button class="btn btn-primary" id="procurement-create">＋ สร้างรายการใหม่</button></div></section>
+    <section class="procurement-hero"><div><span class="eyebrow dark">กลุ่มงานบริหารแผนงานและงบประมาณ · Procurement ${APP_BUILD}</span><h2>ระบบจัดทำเอกสารจัดซื้อจัดจ้างและพัสดุ</h2><p>ข้อมูลกลาง 1 รายการ → Master Data + ระบบใหญ่ → PDF ตาม Excel ต้นฉบับ ${PROCUREMENT_DOCUMENTS.length} แบบ → พิมพ์และเซ็นสด</p></div><div class="procurement-hero-actions">${procurementCanManage()?`<button class="btn btn-secondary" id="procurement-settings">⚙ ตั้งค่าระบบ</button>`:""}<button class="btn btn-primary" id="procurement-create">＋ สร้างรายการใหม่</button></div></section>
     ${masterNote}
     <div class="procurement-kpis"><article><span>รายการปี ${escapeHtml(String(state.procurementAcademicYear))}</span><strong>${academicRegThaiDigits(liveCases.length)}</strong></article><article><span>ข้อมูลพร้อม/เสร็จ</span><strong>${academicRegThaiDigits(ready)}</strong></article><article><span>ร้านค้าในทะเบียน</span><strong>${academicRegThaiDigits((state.procurementVendors||[]).filter(x=>x.is_active!==false).length)}</strong></article><article><span>วัสดุ/งานใน MyData</span><strong>${academicRegThaiDigits((state.procurementItemCatalog||[]).filter(x=>x.is_active!==false).length)}</strong></article></div>
     <section class="panel"><div class="panel-head"><div class="panel-title-wrap"><h3>รายการจัดซื้อจัดจ้าง</h3><p>ข้อมูลรายการเดียวเป็นต้นทางของเอกสารทุกใบ และ snapshot ค่าไว้ไม่ให้เอกสารเก่าเปลี่ยนย้อนหลัง</p></div><div class="procurement-toolbar"><select class="select" id="procurement-year">${procurementAcademicYearOptions(state.procurementAcademicYear)}</select><select class="select" id="procurement-status"><option value="all">ทุกสถานะ</option>${["draft","ready","processing","completed","cancelled","deleted"].map(x=>`<option value="${x}" ${status===x?"selected":""}>${procurementStatusLabel(x)}</option>`).join("")}</select><input class="input" id="procurement-search" placeholder="ค้นหาเลขที่ / เรื่อง / โครงการ / ร้านค้า" value="${escapeHtml(state.procurementSearch||"")}"></div></div>${rows.length?`<div class="procurement-case-grid">${rows.map(procurementCaseCardHtml).join("")}</div>`:`<div class="empty"><strong>ยังไม่มีรายการในปีนี้</strong><span>กด “สร้างรายการใหม่” แล้วเลือกข้อมูลจากระบบใหญ่ / shop / MyData</span></div>`}</section>
@@ -10071,8 +11074,22 @@ function procurementPriceSourceOptions(f={}){const hire=String(f.signing_documen
 function procurementMappedTorMode(f={},value=""){const current=String(value||"").trim(),opts=procurementTorModeOptions(f);if(!current)return "";if(opts.includes(current))return current;const count=current.includes("1 คน")?1:current.includes("2 คน")?2:current.includes("3 คน")?3:0;if(current.includes("คณะกรรมการ"))return opts.find(o=>o.includes("คณะกรรมการ"))||"";return count?opts.find(o=>o.includes(`${count} คน`))||"":"";}
 function procurementMappedPriceSource(f={},value=""){const current=String(value||"").trim(),opts=procurementPriceSourceOptions(f);if(!current)return "";if(opts.includes(current))return current;if(/ราคาที่เคย(ซื้อ|จ้าง)ครั้งหลังสุด/.test(current))return opts.find(o=>/ราคาที่เคย(ซื้อ|จ้าง)ครั้งหลังสุด/.test(o))||"";const clean=x=>String(x||"").replace(/\s*\(หน่วยละ\)\s*$/,'').trim();return opts.find(o=>clean(o)===clean(current))||"";}
 function procurementCashAdvanceAddress(f={}){const parts=[];if(f.cash_advance_address_no)parts.push(String(f.cash_advance_address_no).trim());if(f.cash_advance_moo)parts.push(`หมู่ ${String(f.cash_advance_moo).trim()}`);if(f.cash_advance_road)parts.push(`ถนน ${String(f.cash_advance_road).trim()}`);if(f.cash_advance_subdistrict)parts.push(`ตำบล ${String(f.cash_advance_subdistrict).trim()}`);if(f.cash_advance_district)parts.push(`อำเภอ ${String(f.cash_advance_district).trim()}`);if(f.cash_advance_province)parts.push(`จังหวัด ${String(f.cash_advance_province).trim()}`);if(f.cash_advance_postal_code)parts.push(String(f.cash_advance_postal_code).trim());if(f.cash_advance_address_extra)parts.push(String(f.cash_advance_address_extra).trim());return parts.filter(Boolean).join(" ")||String(f.cash_advance_address||"").trim();}
-function procurementWithholdingDecision(form={},totalAmount=0){const mode=String(form.withholding_tax_mode||"อัตโนมัติตาม Excel").trim();const vendor=procurementVendorById(form.vendor_id),vendorType=String(form.vendor_type||vendor?.vendor_type||"").trim();const total=Math.max(0,Number(totalAmount||0));let threshold=null;if(vendorType.includes("นิติบุคคล"))threshold=500;else if(vendorType.includes("บุคคลธรรมดา"))threshold=10000;let required;if(mode==="ต้องการ")required=true;else if(mode==="ไม่ต้องการ")required=false;else required=threshold!==null?total>=threshold:false;const taxType=vendorType.includes("นิติบุคคล")?"ภาษีเงินได้นิติบุคคล":vendorType.includes("บุคคลธรรมดา")?"ภาษีเงินได้บุคคลธรรมดา":"";const note=mode!=="อัตโนมัติตาม Excel"?`กำหนดเอง: ${required?"หัก":"ไม่หัก"}`:threshold===null?"อัตโนมัติ: ยังไม่พบประเภทผู้ขาย กรุณาเลือกประเภทหรือกำหนดเอง":`อัตโนมัติตาม Excel: ${vendorType} เกณฑ์ ${procurementMoney(threshold)} บาท → ${required?"หักภาษี":"ไม่หักภาษี"}`;return {required,value:required?"ต้องการ":"ไม่ต้องการ",vendorType,threshold,taxType,note};}
-function procurementMasterFinancialSnapshot(items=[],form={}){const sum=procurementCalcSummary(items,form),decision=procurementWithholdingDecision(form,sum.total),taxable=Math.max(0,Number(sum.base||0)),withholdingTax=decision.required?taxable*0.01:0,penalty=Math.max(0,Number(form.penalty||0));return {subtotal:Number(sum.subtotal||0),discount:Number(sum.discount||0),goods_or_service_amount:taxable,vat:Number(sum.vat||0),gross_total:Number(sum.total||0),withholding_tax_amount:withholdingTax,penalty_amount:penalty,net_payable_amount:Math.max(0,Number(sum.total||0)-withholdingTax-penalty),withholding_required:!!decision.required};}
+function procurementWithholdingDecision(form={},totalAmount=0){const mode=String(form.withholding_tax_mode||"อัตโนมัติตาม Excel").trim();const vendor=procurementVendorById(form.vendor_id),vendorType=String(form.vendor_type||vendor?.vendor_type||"").trim();const total=Math.max(0,Number(totalAmount||0));let threshold=null;if(vendorType.includes("นิติบุคคล"))threshold=500;else if(vendorType.includes("บุคคลธรรมดา"))threshold=10000;let required;if(mode==="ต้องการ")required=true;else if(mode==="ไม่ต้องการ")required=false;else required=threshold!==null?total>=threshold:false;const taxType=vendorType.includes("นิติบุคคล")?"ภาษีเงินได้นิติบุคคล":vendorType.includes("บุคคลธรรมดา")?"ภาษีเงินได้บุคคลธรรมดา":"";const note=mode!=="อัตโนมัติตาม Excel"?`กำหนดเอง: ${required?"หัก":"ไม่หัก"}`:threshold===null?"อัตโนมัติ: ยังไม่พบประเภทผู้ขาย กรุณาเลือกประเภทหรือกำหนดเอง":`อัตโนมัติตาม Excel: ${vendorType} เกณฑ์ ${procurementMoney(threshold)} บาท → ${required?"หักภาษี 1% จากมูลค่าก่อน VAT":"ไม่หักภาษี"}`;return {required,value:required?"ต้องการ":"ไม่ต้องการ",vendorType,threshold,taxType,note};}
+function procurementMasterFinancialSnapshot(items=[],form={}){
+  const sum=procurementCalcSummary(items,form),decision=procurementWithholdingDecision(form,sum.total);
+  const taxable=Math.max(0,Number(sum.base||0));
+  const withholdingRaw=decision.required?taxable*0.01:0;
+  const withholdingTax=decision.required?procurementRoundWholeBaht(withholdingRaw):0;
+  const penalty=Math.max(0,Number(form.penalty||0));
+  return {
+    subtotal:Number(sum.subtotal||0),discount:Number(sum.discount||0),
+    goods_or_service_amount:taxable,goods_or_service_amount_unrounded:Number(sum.rawBase||taxable),
+    vat:Number(sum.vat||0),vat_unrounded:Number(sum.rawVat||0),gross_total:Number(sum.total||0),
+    withholding_tax_rate:decision.required?0.01:0,withholding_tax_amount:withholdingTax,withholding_tax_unrounded:withholdingRaw,
+    penalty_amount:penalty,net_payable_amount:Math.max(0,Number(sum.total||0)-withholdingTax-penalty),
+    withholding_required:!!decision.required,rounding_rule:"เศษตั้งแต่ 0.50 บาทขึ้นไปปัดขึ้นเป็น 1 บาท; ต่ำกว่า 0.50 บาทปัดลง"
+  };
+}
 function procurementSinglePersonPicker(prefix,label,f={}){const uid=f[`${prefix}_user_id`]||"",p=procurementPersonnelById(uid),search=p?procurementPersonnelSearchLabel(p):String(f[`${prefix}_name`]||"");return `<div class="procurement-person-row procurement-single-person-row"><div class="field"><label>${escapeHtml(label)}</label><input class="input procurement-person-search" list="procurement-personnel-datalist" data-target-name="${prefix}_name" data-target-position="${prefix}_position" data-target-user="${prefix}_user_id" value="${escapeHtml(search)}" placeholder="พิมพ์ค้นหาชื่อบุคลากร"><input type="hidden" name="${prefix}_user_id" value="${escapeHtml(String(uid))}"><input type="hidden" name="${prefix}_name" value="${escapeHtml(String(f[`${prefix}_name`]||p?.full_name||""))}"></div><div class="field"><label>ตำแหน่ง</label><input class="input" name="${prefix}_position" value="${escapeHtml(String(f[`${prefix}_position`]||p?.position_title||p?.academic_rank||""))}"></div></div>`;}
 
 
@@ -10088,6 +11105,7 @@ function procurementControlById(id){return id?(state.procurementControlNumbers||
 function procurementControlDisplay(row){if(!row)return "";return row.secondary_number?`${row.primary_number} + ${row.secondary_number}`:row.primary_number||"";}
 function procurementControlOptionLabel(row){return `${procurementControlDisplay(row)} · ${row.subject||"ไม่ระบุเรื่อง"}`;}
 function procurementControlLinkedCase(row){return row?(state.procurementControlCases||[]).find(c=>[c.control_request_approval_id,c.control_order_id,c.control_purchase_order_id,c.control_disbursement_id,c.control_inventory_issue_id].includes(row.id))||null:null;}
+function procurementControlReleasedCaseLabel(row){if(!row)return "";const code=String(row.released_from_case_code||"").trim(),title=String(row.released_from_case_title||"").trim();return [code,title].filter(Boolean).join(" · ");}
 function procurementControlRowAvailable(row,selectedId=""){if(!row||row.status!=="active")return false;const linked=procurementControlLinkedCase(row);return !linked||row.id===selectedId;}
 function procurementControlRowsForSeries(series,parentId="",selectedId="",controlYear=null){
   const y=Number(controlYear||0);
@@ -10163,7 +11181,9 @@ function procurementFieldHtml(desc,f){
   if(personMap[key]){const [prefix,title]=personMap[key],uid=f[`${prefix}_user_id`]||"",p=procurementPersonnelById(uid),search=p?procurementPersonnelSearchLabel(p):String(val||"");return `<div class="field procurement-field-wide"><label>${escapeHtml(title)}</label><input class="input procurement-person-search" list="procurement-personnel-datalist" data-target-name="${key}" data-target-position="${prefix}_position" data-target-user="${prefix}_user_id" value="${escapeHtml(search)}" placeholder="พิมพ์ค้นหาชื่อบุคลากร"><input type="hidden" name="${prefix}_user_id" value="${escapeHtml(String(uid))}"><input type="hidden" name="${key}" value="${escapeHtml(String(val||p?.full_name||""))}"></div>`;}
   if(key==="tor_mode"){const opts=procurementTorModeOptions(f),selected=procurementMappedTorMode(f,val);return `<div class="field"><label>${escapeHtml(label)}</label><select class="select" id="procurement-tor-mode" name="tor_mode"><option value="">— เลือก —</option>${opts.map(o=>`<option value="${escapeHtml(o)}" ${selected===o?"selected":""}>${escapeHtml(o)}</option>`).join("")}</select><small class="helper" id="procurement-tor-mode-help">${escapeHtml(procurementTorLexicon(f).detail)}</small></div>`;}
   if(key==="price_source"){const opts=procurementPriceSourceOptions(f),selected=procurementMappedPriceSource(f,val);return `<div class="field"><label>${escapeHtml(label)}</label><select class="select" id="procurement-price-source" name="price_source"><option value="">— เลือก —</option>${opts.map(o=>`<option value="${escapeHtml(o)}" ${selected===o?"selected":""}>${escapeHtml(o)}</option>`).join("")}</select></div>`;}
+  if(key==="vat_mode"){const normalized=procurementVatModeNormalized(val||f.vat_mode);const selected=normalized==="none"?"ไม่มี VAT":normalized==="manual"?"พิมพ์ VAT เอง":"รวม VAT แล้ว (ถอด 7/107)";return `<div class="field procurement-tax-auto-field"><label>${escapeHtml(label)}</label><select class="select" name="vat_mode"><option value="รวม VAT แล้ว (ถอด 7/107)" ${selected==="รวม VAT แล้ว (ถอด 7/107)"?"selected":""}>รวม VAT แล้ว · ถอด VAT ด้วย 7/107</option><option value="พิมพ์ VAT เอง" ${selected==="พิมพ์ VAT เอง"?"selected":""}>พิมพ์มูลค่า VAT เอง (ยอดยังเป็นราคารวม VAT)</option><option value="ไม่มี VAT" ${selected==="ไม่มี VAT"?"selected":""}>ไม่มี VAT</option></select><small class="helper">ราคาต่อหน่วยและยอดใบเสนอราคาที่กรอกถือว่าเป็น “ราคารวม VAT แล้ว” ระบบจะไม่บวก VAT ซ้ำ</small></div>`;}
   if(key==="withholding_tax_mode"){const mode=String(val||f.withholding_tax_mode||"อัตโนมัติตาม Excel");return `<div class="field procurement-tax-auto-field"><label>${escapeHtml(label)}</label><select class="select" name="withholding_tax_mode"><option value="อัตโนมัติตาม Excel" ${mode==="อัตโนมัติตาม Excel"?"selected":""}>อัตโนมัติตาม Excel</option><option value="ไม่ต้องการ" ${mode==="ไม่ต้องการ"?"selected":""}>ไม่ต้องการ</option><option value="ต้องการ" ${mode==="ต้องการ"?"selected":""}>ต้องการ</option></select><input type="hidden" name="withholding_tax" value="${escapeHtml(String(f.withholding_tax||""))}"><small class="helper" id="procurement-withholding-status"></small></div>`;}
+  if(key==="withholding_calc_basis")return `<div class="field procurement-tax-auto-field"><label>${escapeHtml(label)}</label><input type="hidden" name="withholding_calc_basis" value="มูลค่าก่อน VAT หลังส่วนลด"><input class="input" readonly value="มูลค่าก่อน VAT × 1%"><small class="helper">ระบบไม่รวม VAT เป็นฐานภาษี และปัดภาษีเป็นเงินบาทเต็มตามกติกา 0.50 บาทขึ้นไปปัดขึ้น</small></div>`;
   if(key==="payment_method")return `<div class="field"><label>${escapeHtml(label)}</label><select class="select" name="payment_method"><option value="">— เลือก —</option>${options.map(o=>`<option value="${escapeHtml(o)}" ${String(val)===o?"selected":""}>${escapeHtml(o)}</option>`).join("")}</select><small class="helper">ถ้าเลือก “โอนเข้าบัญชี” ระบบใช้เลขบัญชีจากทะเบียนร้านค้า/ผู้ขาย ไม่ต้องกรอกซ้ำ</small></div>`;
   if(type==="readonly")return `<div class="field"><label>${escapeHtml(label)}</label><input class="input" name="${key}" readonly value="${escapeHtml(String(val))}" placeholder="มาจาก Master Data"><small class="helper">ข้อมูลจากทะเบียนร้านค้า/ผู้ขาย</small></div>`;
   if(type==="textarea")return `<div class="field procurement-field-wide"><label>${escapeHtml(label)}${req}</label><textarea class="input textarea" name="${key}" ${required?"required":""}>${escapeHtml(String(val))}</textarea></div>`;
@@ -10181,7 +11201,7 @@ function procurementQuotationRowsHtml(rows){
   return (rows.length?rows:[{vendor_id:"",vendor_name:"",quote_no:"",quote_date:"",amount:0,selected:true}]).map((q,i)=>`<tr data-pq-row="${i}"><td>${academicRegThaiDigits(i+1)}</td><td><select class="select" data-pq="vendor_id"><option value="">— ร้านค้า —</option>${vendors.map(v=>`<option value="${v.id}" ${q.vendor_id===v.id?"selected":""}>${escapeHtml(v.vendor_name)}</option>`).join("")}</select><input class="input" data-pq="vendor_name" value="${escapeHtml(String(q.vendor_name||""))}" placeholder="ชื่อร้าน"></td><td><input class="input" data-pq="quote_no" value="${escapeHtml(String(q.quote_no||""))}"></td><td><input class="input" type="date" data-pq="quote_date" value="${escapeHtml(String(q.quote_date||""))}"></td><td><input class="input" type="number" min="0" step="0.01" data-pq="amount" value="${Number(q.amount||0)}"></td><td><input type="radio" name="procurement-winner" data-pq="selected" ${q.selected?"checked":""}></td><td><button type="button" class="btn btn-danger btn-small" data-pq-remove="${i}">ลบ</button></td></tr>`).join("");
 }
 
-function procurementFormModal(c=null){
+function procurementFormModal(c=null,focusKey=""){
   const editing=!!c,f={...procurementFormData(c)},items=procurementItems(c).map(x=>({...x})),quotations=Array.isArray(f.quotations)?f.quotations.map(x=>({...x})):[];
   f.control_request_approval_id=c?.control_request_approval_id||f.control_request_approval_id||"";
   f.control_order_id=c?.control_order_id||f.control_order_id||"";
@@ -10194,29 +11214,42 @@ function procurementFormModal(c=null){
   if(!f.requester_name)f.requester_name=state.profile?.full_name||"";
   if(!f.requester_position)f.requester_position=state.personnelOwnRecord?.position_title||"";
   if(!f.requester_user_id)f.requester_user_id=state.user?.id||"";
-  if(!f.vat_mode)f.vat_mode="อัตโนมัติ";
+  if(!f.vat_mode)f.vat_mode="รวม VAT แล้ว (ถอด 7/107)";
   if(!f.withholding_tax_mode)f.withholding_tax_mode=f.withholding_tax==="ต้องการ"?"ต้องการ":f.withholding_tax==="ไม่ต้องการ"?"ไม่ต้องการ":"อัตโนมัติตาม Excel";
+  if(!f.withholding_calc_basis)f.withholding_calc_basis="มูลค่าก่อน VAT หลังส่วนลด";
   if(!f.signer_override_mode)f.signer_override_mode="default";
-  if(!f.master_schema_version)f.master_schema_version="5.0.16";
+  if(!f.master_schema_version)f.master_schema_version="5.2.0";
   if(f.cash_advance_address&&!f.cash_advance_address_no&&!f.cash_advance_subdistrict&&!f.cash_advance_address_extra)f.cash_advance_address_extra=f.cash_advance_address;
   if(!items.length)items.push({catalog_id:"",name:"",detail:"",qty:1,unit:"",unit_price:0});
   const sectionNav=PROCUREMENT_FIELD_GROUPS.map((g,i)=>`<button type="button" class="procurement-section-tab" data-procurement-section-jump="${i+1}">${i+1}. ${escapeHtml(g.title.replace(/^\d+\.\s*/,""))}</button>`).join("");
-  const m=document.createElement("div");m.className="modal-backdrop";
-  m.innerHTML=`<div class="modal modal-extra-wide procurement-modal"><div class="modal-head"><div><span class="eyebrow dark">Procurement Master Form · v5.0.16</span><h3>${editing?"แก้ไขข้อมูลกลาง":"สร้างรายการจัดซื้อจัดจ้างใหม่"}</h3><p>เลือกข้อมูลที่ระบบมีอยู่แล้วจากโครงการ บุคลากร shop และ MyData แล้วกรอกเฉพาะข้อมูลของงานนี้</p><div class="procurement-excel-map-note">Master Form v5.0.16 · ใช้ข้อมูลกลางชุดเดียวกับเอกสาร 29 แบบจาก Excel และเอกสารหลังส่งมอบเพิ่มเติม 4 แบบจาก PDF ตัวอย่าง · ระบบจะเปิด Export เฉพาะเอกสารที่ข้อมูลครบ</div></div><button class="modal-close">×</button></div>
+  const m=document.createElement("div");m.className="modal-backdrop procurement-master-backdrop";
+  m.innerHTML=`<div class="modal modal-extra-wide procurement-modal"><div class="modal-head"><div><span class="eyebrow dark">Procurement Master Form · v5.2.0</span><h3>${editing?"แก้ไขข้อมูลกลาง":"สร้างรายการจัดซื้อจัดจ้างใหม่"}</h3><p>เลือกข้อมูลที่ระบบมีอยู่แล้วจากโครงการ บุคลากร shop และ MyData แล้วกรอกเฉพาะข้อมูลของงานนี้</p><div class="procurement-excel-map-note">Master Form v5.2.0 · ราคาที่กรอกเป็นราคารวม VAT · ถอด VAT 7/107 · หัก ณ ที่จ่าย 1% จากมูลค่าก่อน VAT · ปัด 0.50 บาทขึ้นไปเป็น 1 บาท · ใช้ข้อมูลกลางชุดเดียวกับเอกสารทุกแบบ</div></div><button class="modal-close">×</button></div>
   <form id="procurement-form">${procurementPersonnelDatalistHtml()}${procurementCatalogDatalistHtml()}<div class="procurement-form-livebar"><div><span>ความพร้อมข้อมูลหลัก</span><strong id="procurement-core-progress">0/${PROCUREMENT_REQUIRED_MASTER_FIELDS.length}</strong></div><div><span>เอกสารที่พร้อม</span><strong id="procurement-live-ready">0/${procurementApplicableDocumentCount({form_data:f})}</strong></div><div><span>ยอดจากรายการ</span><strong><span id="procurement-live-total">0.00</span> บาท</strong></div></div>
   <div class="procurement-section-nav">${sectionNav}<button type="button" class="procurement-section-tab" data-procurement-section-jump="10">10. ชื่อผู้ลงนาม / เซ็นสด</button><button type="button" class="procurement-section-tab" data-procurement-section-jump="11">11. รายการวัสดุ/งาน</button><button type="button" class="procurement-section-tab" data-procurement-section-jump="12">12. TOR/ตรวจรับ</button><button type="button" class="procurement-section-tab" data-procurement-section-jump="13">13. ใบเสนอราคา</button></div>
   <div class="procurement-master-form">${PROCUREMENT_FIELD_GROUPS.map((g,i)=>`<section class="procurement-form-section" id="procurement-section-${i+1}"><div class="procurement-form-section-head"><div><span class="procurement-section-no">${academicRegThaiDigits(i+1)}</span><div><h4>${escapeHtml(g.title.replace(/^\d+\.\s*/,""))}</h4><span>${escapeHtml(g.hint)}</span></div></div></div><div class="form-grid procurement-form-grid">${g.fields.map(x=>procurementFieldHtml(x,f)).join("")}</div></section>`).join("")}
   <section class="procurement-form-section" id="procurement-section-10"><div class="procurement-form-section-head"><div><span class="procurement-section-no">๑๐</span><div><h4>ชื่อผู้ลงนามสำหรับพิมพ์และเซ็นสด</h4><span>ปกติใช้ชื่อและตำแหน่งจาก “ตั้งค่าระบบ” แต่สามารถกำหนดเฉพาะงานนี้ได้ · PDF จะเว้นช่องลายเซ็นสำหรับเซ็นด้วยปากกา</span></div></div></div><div class="field"><label>การเลือกผู้ลงนาม</label><select class="select" name="signer_override_mode" id="procurement-signer-override-mode"><option value="default" ${f.signer_override_mode!=="override"?"selected":""}>ใช้ค่ากลางของระบบ</option><option value="override" ${f.signer_override_mode==="override"?"selected":""}>กำหนดเฉพาะรายการนี้</option></select></div><div id="procurement-case-signer-grid" class="procurement-official-grid">${procurementSinglePersonPicker("case_director","ผู้อำนวยการ / ผู้ลงนามหลัก",f)}${procurementSinglePersonPicker("case_head","หัวหน้าเจ้าหน้าที่",f)}${procurementSinglePersonPicker("case_deputy","รองผู้อำนวยการ",f)}${procurementSinglePersonPicker("case_officer","เจ้าหน้าที่",f)}${procurementSinglePersonPicker("case_finance","เจ้าหน้าที่การเงิน",f)}${procurementSinglePersonPicker("case_finance_head","หัวหน้าการเงิน",f)}</div></section>
-  <section class="procurement-form-section" id="procurement-section-11"><div class="procurement-form-section-head"><div><span class="procurement-section-no">๑๑</span><div><h4>รายการวัสดุ / งาน (MyData)</h4><span>พิมพ์ค้นหาแบบ Autocomplete จาก MyData แล้วระบบเติมหน่วย/ราคามาตรฐานให้ แก้ค่าของงานนี้ได้โดยไม่เปลี่ยน Master</span></div></div></div><div class="table-wrap"><table class="table procurement-items-table"><thead><tr><th>#</th><th>ค้นหา MyData</th><th>รายการ</th><th>รายละเอียด</th><th>จำนวน</th><th>หน่วย</th><th>ราคาต่อหน่วย</th><th>รวม</th><th></th></tr></thead><tbody id="procurement-item-body"></tbody></table></div><div class="procurement-items-footer"><button type="button" class="btn btn-ghost" id="procurement-item-add">＋ เพิ่มรายการ</button><div class="procurement-calc-box"><span>รวมรายการ <strong id="procurement-items-subtotal">0.00</strong></span><span>ส่วนลด <strong id="procurement-items-discount">0.00</strong></span><span>VAT <strong id="procurement-items-vat">0.00</strong></span><span class="grand">ยอดคำนวณ <strong id="procurement-items-total">0.00</strong> บาท</span></div></div></section>
+  <section class="procurement-form-section" id="procurement-section-11"><div class="procurement-form-section-head"><div><span class="procurement-section-no">๑๑</span><div><h4>รายการวัสดุ / งาน (MyData)</h4><span>พิมพ์ค้นหาแบบ Autocomplete จาก MyData แล้วระบบเติมหน่วย/ราคามาตรฐานให้ · ราคาต่อหน่วยที่กรอกเป็นราคารวม VAT แล้ว</span></div></div></div><div class="table-wrap"><table class="table procurement-items-table"><thead><tr><th>#</th><th>ค้นหา MyData</th><th>รายการ</th><th>รายละเอียด</th><th>จำนวน</th><th>หน่วย</th><th>ราคาต่อหน่วย (รวม VAT)</th><th>รวม (รวม VAT)</th><th></th></tr></thead><tbody id="procurement-item-body"></tbody></table></div><div class="procurement-items-footer"><button type="button" class="btn btn-ghost" id="procurement-item-add">＋ เพิ่มรายการ</button><div class="procurement-calc-box"><span>รวมรายการ (รวม VAT) <strong id="procurement-items-subtotal">0.00</strong></span><span>ส่วนลด <strong id="procurement-items-discount">0.00</strong></span><span>มูลค่าก่อน VAT <strong id="procurement-items-base">0.00</strong></span><span>VAT ที่รวมอยู่ <strong id="procurement-items-vat">0.00</strong></span><span>หัก ณ ที่จ่าย <strong id="procurement-items-wht">0.00</strong></span><span class="grand">ยอดจ่ายจริง <strong id="procurement-items-total">0.00</strong> บาท</span></div></div></section>
   <section class="procurement-form-section" id="procurement-section-12"><div class="procurement-form-section-head"><div><span class="procurement-section-no">๑๒</span><div><h4 id="procurement-tor-section-title">ผู้จัดทำ TOR / คณะกรรมการตรวจรับ</h4><span>เลือกบุคลากรด้วย Autocomplete จาก Personal/ฐานบุคลากรกลาง · ซื้อใช้ “รายละเอียดคุณลักษณะเฉพาะ” และจ้างใช้ “ร่างขอบเขตของงาน” อัตโนมัติ</span></div></div></div><div class="procurement-committee-grid"><div><h5 id="procurement-tor-maker-title">ผู้จัดทำ TOR</h5>${[1,2,3].map(i=>procurementPersonRow("tor_member",i,`คนที่ ${i}`,f)).join("")}</div><div><h5>คณะกรรมการตรวจรับ</h5>${[[1,"ประธานกรรมการ"],[2,"กรรมการ"],[3,"กรรมการและเลขานุการ"]].map(([i,l])=>procurementPersonRow("inspection_member",i,l,f)).join("")}</div></div></section>
   <section class="procurement-form-section" id="procurement-section-13"><div class="procurement-form-section-head"><div><span class="procurement-section-no">๑๓</span><div><h4>ใบเสนอราคา / เปรียบเทียบร้านค้า</h4><span>ร้านค้าเป็น Master Data แต่ใบเสนอราคาเป็นข้อมูลของรายการนี้ เพิ่ม/ลดได้ และเลือกร้านที่ได้รับการคัดเลือก</span></div></div></div><div class="table-wrap"><table class="table procurement-quotation-table"><thead><tr><th>#</th><th>ร้านค้า</th><th>เลขที่เสนอราคา</th><th>วันที่</th><th>ยอดเสนอ</th><th>เลือก</th><th></th></tr></thead><tbody id="procurement-quotation-body"></tbody></table></div><button type="button" class="btn btn-ghost" id="procurement-quotation-add">＋ เพิ่มใบเสนอราคา</button></section>
   </div><div class="modal-actions"><span class="procurement-save-note" id="procurement-save-note">ข้อมูลที่ยังไม่ครบสามารถบันทึกเป็นฉบับร่างได้</span><button type="button" class="btn btn-ghost modal-cancel">ยกเลิก</button><button type="submit" class="btn btn-primary">${editing?"บันทึกข้อมูลกลาง":"สร้างรายการและชุดเอกสาร"}</button></div></form></div>`;
-  document.body.appendChild(m);const close=()=>m.remove();m.querySelector(".modal-close").onclick=close;m.querySelector(".modal-cancel").onclick=close;
-  const formEl=m.querySelector("#procurement-form"),body=m.querySelector("#procurement-item-body"),qbody=m.querySelector("#procurement-quotation-body"),subtotalEl=m.querySelector("#procurement-items-subtotal"),discountEl=m.querySelector("#procurement-items-discount"),vatEl=m.querySelector("#procurement-items-vat"),totalEl=m.querySelector("#procurement-items-total"),liveTotal=m.querySelector("#procurement-live-total"),readyEl=m.querySelector("#procurement-live-ready"),coreEl=m.querySelector("#procurement-core-progress"),saveNote=m.querySelector("#procurement-save-note");
+  document.body.appendChild(m);document.body.classList.add("procurement-master-open");const close=()=>{document.body.classList.remove("procurement-master-open");m.remove();};m.querySelector(".modal-close").onclick=close;m.querySelector(".modal-cancel").onclick=close;
+  const formEl=m.querySelector("#procurement-form"),body=m.querySelector("#procurement-item-body"),qbody=m.querySelector("#procurement-quotation-body"),subtotalEl=m.querySelector("#procurement-items-subtotal"),discountEl=m.querySelector("#procurement-items-discount"),baseEl=m.querySelector("#procurement-items-base"),vatEl=m.querySelector("#procurement-items-vat"),whtEl=m.querySelector("#procurement-items-wht"),totalEl=m.querySelector("#procurement-items-total"),liveTotal=m.querySelector("#procurement-live-total"),readyEl=m.querySelector("#procurement-live-ready"),coreEl=m.querySelector("#procurement-core-progress"),saveNote=m.querySelector("#procurement-save-note");
   const currentForm=()=>{const fd=new FormData(formEl),out={};for(const [k,v] of fd.entries())out[k]=typeof v==="string"?v.trim():v;for(const g of PROCUREMENT_FIELD_GROUPS)for(const d of g.fields)if(d[2]==="number")out[d[0]]=out[d[0]]===""?null:Number(out[d[0]]);return out;};
   const cleanCurrentItems=()=>items.map((x,i)=>({catalog_id:x.catalog_id||null,name:String(x.name||"").trim(),detail:String(x.detail||"").trim(),qty:Number(x.qty||0),unit:String(x.unit||"").trim(),unit_price:Number(x.unit_price||0),sort_order:i+1})).filter(x=>x.name);
   const cleanQuotations=()=>quotations.map((q,i)=>({vendor_id:q.vendor_id||null,vendor_name:String(q.vendor_name||"").trim(),quote_no:String(q.quote_no||"").trim(),quote_date:q.quote_date||null,amount:Number(q.amount||0),selected:!!q.selected,sort_order:i+1})).filter(x=>x.vendor_name||x.vendor_id);
-  const refreshLive=()=>{const form=currentForm(),cleanItems=cleanCurrentItems(),sum=procurementCalcSummary(cleanItems,form),tax=procurementWithholdingDecision(form,sum.total),taxHidden=formEl.querySelector('[name="withholding_tax"]'),taxStatus=m.querySelector("#procurement-withholding-status");if(taxHidden)taxHidden.value=tax.value;if(taxStatus)taxStatus.textContent=tax.note;if(!form.withholding_tax_type&&tax.taxType){const taxType=formEl.querySelector('[name="withholding_tax_type"]');if(taxType&&!taxType.value)taxType.value=tax.taxType;}form.withholding_tax=tax.value;form.cash_advance_address=procurementCashAdvanceAddress(form);form.master_schema_version="5.0.16";form.financial_summary=procurementMasterFinancialSnapshot(cleanItems,form);const draft={title:form.title||"",total_amount:sum.total,form_data:form,items:cleanItems};subtotalEl.textContent=procurementMoney(sum.subtotal);discountEl.textContent=procurementMoney(sum.discount);vatEl.textContent=procurementMoney(sum.vat);totalEl.textContent=procurementMoney(sum.calculatedTotal);liveTotal.textContent=procurementMoney(sum.total);const coreDone=PROCUREMENT_REQUIRED_MASTER_FIELDS.filter(k=>String(form[k]??"").trim()).length;coreEl.textContent=`${academicRegThaiDigits(coreDone)}/${academicRegThaiDigits(PROCUREMENT_REQUIRED_MASTER_FIELDS.length)}`;const ready=procurementDocumentsReadyCount(draft);readyEl.textContent=`${academicRegThaiDigits(ready)}/${academicRegThaiDigits(procurementApplicableDocumentCount(draft))}`;const missing=PROCUREMENT_REQUIRED_MASTER_FIELDS.filter(k=>!String(form[k]??"").trim()),linkedWarnings=[];if(form.payment_method==="โอนเข้าบัญชี"&&!form.vendor_bank_account)linkedWarnings.push("เลือกโอนเข้าบัญชีแต่ทะเบียนผู้ขายยังไม่มีเลขบัญชี");if(form.inspection_appointment_date&&!form.inspection_location)linkedWarnings.push("มีวันนัดตรวจรับแต่ยังไม่ได้ระบุสถานที่ตรวจรับ");if(form.delivery_document_number&&!form.delivery_date)linkedWarnings.push("มีเลขเอกสารส่งมอบแต่ยังไม่ได้ระบุวันที่ส่งมอบ");const baseNote=missing.length?`ยังขาดข้อมูลหลัก: ${missing.map(procurementFieldLabel).join(" · ")} · บันทึกเป็นฉบับร่างได้`:`ข้อมูลหลักครบแล้ว`;saveNote.textContent=linkedWarnings.length?`${baseNote} · ตรวจเพิ่ม: ${linkedWarnings.join(" · ")}`:baseNote;};
+  const refreshLive=()=>{
+    const form=currentForm(),cleanItems=cleanCurrentItems(),sum=procurementCalcSummary(cleanItems,form),tax=procurementWithholdingDecision(form,sum.total),financial=procurementMasterFinancialSnapshot(cleanItems,form),taxHidden=formEl.querySelector('[name="withholding_tax"]'),taxStatus=m.querySelector("#procurement-withholding-status");
+    if(taxHidden)taxHidden.value=tax.value;
+    if(taxStatus)taxStatus.textContent=`${tax.note} · ฐานก่อน VAT ${procurementMoney(financial.goods_or_service_amount)} บาท · ภาษีหัก ณ ที่จ่าย ${procurementMoney(financial.withholding_tax_amount)} บาท`;
+    if(!form.withholding_tax_type&&tax.taxType){const taxType=formEl.querySelector('[name="withholding_tax_type"]');if(taxType&&!taxType.value)taxType.value=tax.taxType;}
+    form.withholding_tax=tax.value;form.cash_advance_address=procurementCashAdvanceAddress(form);form.master_schema_version="5.2.0";form.financial_summary=financial;
+    const draft={title:form.title||"",total_amount:sum.total,form_data:form,items:cleanItems};
+    subtotalEl.textContent=procurementMoney(sum.subtotal);discountEl.textContent=procurementMoney(sum.discount);baseEl.textContent=procurementMoney(financial.goods_or_service_amount);vatEl.textContent=procurementMoney(financial.vat);whtEl.textContent=procurementMoney(financial.withholding_tax_amount);totalEl.textContent=procurementMoney(financial.net_payable_amount);liveTotal.textContent=procurementMoney(sum.total);
+    const coreDone=PROCUREMENT_REQUIRED_MASTER_FIELDS.filter(k=>String(form[k]??"").trim()).length;coreEl.textContent=`${academicRegThaiDigits(coreDone)}/${academicRegThaiDigits(PROCUREMENT_REQUIRED_MASTER_FIELDS.length)}`;
+    const ready=procurementDocumentsReadyCount(draft);readyEl.textContent=`${academicRegThaiDigits(ready)}/${academicRegThaiDigits(procurementApplicableDocumentCount(draft))}`;
+    const missing=PROCUREMENT_REQUIRED_MASTER_FIELDS.filter(k=>!String(form[k]??"").trim()),linkedWarnings=[];if(form.payment_method==="โอนเข้าบัญชี"&&!form.vendor_bank_account)linkedWarnings.push("เลือกโอนเข้าบัญชีแต่ทะเบียนผู้ขายยังไม่มีเลขบัญชี");if(form.inspection_appointment_date&&!form.inspection_location)linkedWarnings.push("มีวันนัดตรวจรับแต่ยังไม่ได้ระบุสถานที่ตรวจรับ");if(form.delivery_document_number&&!form.delivery_date)linkedWarnings.push("มีเลขเอกสารส่งมอบแต่ยังไม่ได้ระบุวันที่ส่งมอบ");
+    const baseNote=missing.length?`ยังขาดข้อมูลหลัก: ${missing.map(procurementFieldLabel).join(" · ")} · บันทึกเป็นฉบับร่างได้`:`ข้อมูลหลักครบแล้ว`;saveNote.textContent=linkedWarnings.length?`${baseNote} · ตรวจเพิ่ม: ${linkedWarnings.join(" · ")}`:baseNote;
+  };
   const renderItems=()=>{body.innerHTML=items.map((x,i)=>`<tr data-procurement-item-row="${i}"><td>${academicRegThaiDigits(i+1)}</td><td><input class="input procurement-catalog-search" list="procurement-catalog-datalist" data-pi-catalog-search value="${escapeHtml(procurementCatalogById(x.catalog_id)?procurementCatalogSearchLabel(procurementCatalogById(x.catalog_id)):String(x.name||""))}" placeholder="พิมพ์ค้นหา MyData"></td><td><input class="input" data-pi="name" value="${escapeHtml(String(x.name||""))}"></td><td><input class="input" data-pi="detail" value="${escapeHtml(String(x.detail||""))}"></td><td><input class="input" data-pi="qty" type="number" min="0" step="0.01" value="${Number(x.qty||0)}"></td><td><input class="input" data-pi="unit" value="${escapeHtml(String(x.unit||""))}"></td><td><input class="input" data-pi="unit_price" type="number" min="0" step="0.01" value="${Number(x.unit_price||0)}"></td><td class="procurement-line-total">${procurementMoney((Number(x.qty)||0)*(Number(x.unit_price)||0))}</td><td><button type="button" class="btn btn-danger btn-small" data-pi-remove="${i}">ลบ</button></td></tr>`).join("");body.querySelectorAll("[data-pi-catalog-search]").forEach((inp,i)=>inp.onchange=()=>{const cat=procurementFindCatalogBySearch(inp.value);items[i].catalog_id=cat?.id||null;if(cat){items[i].name=cat.item_name||"";items[i].unit=cat.unit||"";if(!Number(items[i].unit_price||0))items[i].unit_price=Number(cat.reference_price||0);items[i].detail=items[i].detail||cat.description||"";renderItems();}else refreshLive();});body.querySelectorAll("input[data-pi]").forEach(inp=>inp.oninput=()=>{const row=Number(inp.closest("tr").dataset.procurementItemRow),key=inp.dataset.pi;items[row][key]=["qty","unit_price"].includes(key)?Number(inp.value||0):inp.value;inp.closest("tr").querySelector(".procurement-line-total").textContent=procurementMoney((Number(items[row].qty)||0)*(Number(items[row].unit_price)||0));refreshLive();});body.querySelectorAll("[data-pi-remove]").forEach(btn=>btn.onclick=()=>{items.splice(Number(btn.dataset.piRemove),1);if(!items.length)items.push({catalog_id:"",name:"",detail:"",qty:1,unit:"",unit_price:0});renderItems();refreshLive();});procurementBindSmartAutocomplete(body);refreshLive();};
   const renderQuotations=()=>{qbody.innerHTML=procurementQuotationRowsHtml(quotations);qbody.querySelectorAll("[data-pq]").forEach(inp=>{const row=Number(inp.closest("tr").dataset.pqRow),key=inp.dataset.pq;const apply=()=>{if(key==="amount")quotations[row][key]=Number(inp.value||0);else if(key==="selected"){quotations.forEach((q,i)=>q.selected=i===row);}else quotations[row][key]=inp.value;if(key==="vendor_id"){const v=procurementVendorById(inp.value);if(v)quotations[row].vendor_name=v.vendor_name||"";}renderQuotations();refreshLive();};inp.onchange=apply;if(!["selected","vendor_id"].includes(key))inp.oninput=()=>{if(key==="amount")quotations[row][key]=Number(inp.value||0);else quotations[row][key]=inp.value;};});qbody.querySelectorAll("[data-pq-remove]").forEach(btn=>btn.onclick=()=>{quotations.splice(Number(btn.dataset.pqRemove),1);renderQuotations();});};
   renderItems();renderQuotations();
@@ -10234,7 +11267,8 @@ function procurementFormModal(c=null){
   const signerMode=formEl.querySelector("#procurement-signer-override-mode"),signerGrid=m.querySelector("#procurement-case-signer-grid");const syncSignerMode=()=>{if(signerGrid)signerGrid.classList.toggle("is-disabled",signerMode?.value!=="override");};signerMode?.addEventListener("change",syncSignerMode);syncSignerMode();
   procurementSyncControlSelectors(formEl,refreshLive,c?.id||"");
   formEl.addEventListener("input",refreshLive);formEl.addEventListener("change",refreshLive);m.querySelectorAll("[data-procurement-section-jump]").forEach(btn=>btn.onclick=()=>m.querySelector(`#procurement-section-${btn.dataset.procurementSectionJump}`)?.scrollIntoView({behavior:"smooth",block:"start"}));refreshLive();
-  formEl.onsubmit=async e=>{e.preventDefault();const btn=e.submitter,form=currentForm(),controlError=procurementValidateControlForm(form);if(controlError)return toast("เลขคุมเอกสารไม่สัมพันธ์กัน",controlError,"error");const cleanItems=cleanCurrentItems(),cleanQuotes=cleanQuotations();form.quotations=cleanQuotes;form.inventory_issue_enabled=procurementInventoryIssueEnabled(form);if(!form.inventory_issue_enabled){form.control_inventory_issue_id="";form.issue_no="";}const winner=cleanQuotes.find(x=>x.selected);if(winner){const vw=procurementVendorById(winner.vendor_id);form.vendor_id=winner.vendor_id||form.vendor_id||null;form.vendor_name=winner.vendor_name||vw?.vendor_name||form.vendor_name||"";form.vendor_type=vw?.vendor_type||form.vendor_type||"";form.quote_total=winner.amount||form.quote_total||0;form.quote_date=winner.quote_date||form.quote_date||null;form.quote_number=winner.quote_no||form.quote_number||"";}const sum=procurementCalcSummary(cleanItems,form),project=procurementProjectById(form.project_id),activity=procurementActivityById(form.activity_id),vendor=procurementVendorById(form.vendor_id);if(vendor&&!form.vendor_type)form.vendor_type=vendor.vendor_type||"";const taxDecision=procurementWithholdingDecision(form,sum.total);form.withholding_tax=taxDecision.value;if(!form.withholding_tax_type&&taxDecision.taxType)form.withholding_tax_type=taxDecision.taxType;form.cash_advance_address=procurementCashAdvanceAddress(form);form.master_schema_version="5.0.16";form.financial_summary=procurementMasterFinancialSnapshot(cleanItems,form);if(vendor?.vendor_code&&!form.vendor_code)form.vendor_code=vendor.vendor_code;const signerSnapshot={requester:procurementPersonnelById(form.requester_user_id),receiver:procurementPersonnelById(form.receiver_user_id),issuer:procurementPersonnelById(form.issuer_user_id),goods_requester:procurementPersonnelById(form.goods_requester_user_id),cash_advance:procurementPersonnelById(form.cash_advance_user_id),tor:[1,2,3].map(i=>procurementPersonnelById(form[`tor_member_${i}_user_id`])).filter(Boolean),inspection:[1,2,3].map(i=>procurementPersonnelById(form[`inspection_member_${i}_user_id`])).filter(Boolean),case_override:form.signer_override_mode==="override"?{director:procurementPersonnelById(form.case_director_user_id),head:procurementPersonnelById(form.case_head_user_id),deputy:procurementPersonnelById(form.case_deputy_user_id),officer:procurementPersonnelById(form.case_officer_user_id),finance:procurementPersonnelById(form.case_finance_user_id),financeHead:procurementPersonnelById(form.case_finance_head_user_id)}:null};const payload={academic_year:String(state.procurementAcademicYear||currentAcademicPeriod().academicYear),title:form.title||"รายการจัดซื้อจัดจ้าง",procurement_kind:String(form.signing_document||"").includes("จ้าง")?"hire":"purchase",total_amount:sum.total,project_id:form.project_id||null,activity_id:form.activity_id||null,vendor_id:form.vendor_id||null,control_request_approval_id:form.control_request_approval_id||null,control_order_id:form.control_order_id||null,control_purchase_order_id:form.control_purchase_order_id||null,control_disbursement_id:form.control_disbursement_id||null,control_inventory_issue_id:form.control_inventory_issue_id||null,form_data:form,items:cleanItems,master_snapshot:{project:project?{id:project.id,project_no:project.project_no,project_name:project.project_name,budget_amount:project.budget_amount,department_code:project.department_code,department_custom:project.department_custom}:null,activity:activity?{id:activity.id,activity_no:activity.activity_no,activity_name:activity.activity_name,budget_amount:activity.budget_amount}:null,vendor:vendor?{id:vendor.id,vendor_code:vendor.vendor_code,vendor_name:vendor.vendor_name,contact_name:vendor.contact_name,address:vendor.address,phone:vendor.phone,tax_id:vendor.tax_id,bank_account:vendor.bank_account,account_name:vendor.account_name,bank_name:vendor.bank_name,bank_branch:vendor.bank_branch}:null,items:cleanItems},signer_snapshot:signerSnapshot,updated_by:state.user.id};buttonLoading(btn,true,"กำลังบันทึก...");const res=editing?await supabase.from("procurement_document_cases").update(payload).eq("id",c.id).select().single():await supabase.from("procurement_document_cases").insert({...payload,created_by:state.user.id,status:"draft"}).select().single();buttonLoading(btn,false);if(res.error)return toast("บันทึกไม่สำเร็จ",res.error.message,"error");close();state.selectedProcurementCaseId=res.data.id;toast(editing?"บันทึกข้อมูลกลางแล้ว":"สร้างรายการแล้ว",`เอกสาร ${procurementDocumentsReadyCount(res.data)}/${procurementApplicableDocumentCount(res.data)} แบบพร้อมจากข้อมูลปัจจุบัน`,'success');await loadProcurementWorkspace();await renderDashboard();};
+  if(focusKey)requestAnimationFrame(()=>requestAnimationFrame(()=>procurementFocusMasterField(m,focusKey)));
+  formEl.onsubmit=async e=>{e.preventDefault();const btn=e.submitter,form=currentForm(),controlError=procurementValidateControlForm(form);if(controlError)return toast("เลขคุมเอกสารไม่สัมพันธ์กัน",controlError,"error");const cleanItems=cleanCurrentItems(),cleanQuotes=cleanQuotations();form.quotations=cleanQuotes;form.inventory_issue_enabled=procurementInventoryIssueEnabled(form);if(!form.inventory_issue_enabled){form.control_inventory_issue_id="";form.issue_no="";}const winner=cleanQuotes.find(x=>x.selected);if(winner){const vw=procurementVendorById(winner.vendor_id);form.vendor_id=winner.vendor_id||form.vendor_id||null;form.vendor_name=winner.vendor_name||vw?.vendor_name||form.vendor_name||"";form.vendor_type=vw?.vendor_type||form.vendor_type||"";form.quote_total=winner.amount||form.quote_total||0;form.quote_date=winner.quote_date||form.quote_date||null;form.quote_number=winner.quote_no||form.quote_number||"";}const sum=procurementCalcSummary(cleanItems,form),project=procurementProjectById(form.project_id),activity=procurementActivityById(form.activity_id),vendor=procurementVendorById(form.vendor_id);if(vendor&&!form.vendor_type)form.vendor_type=vendor.vendor_type||"";const taxDecision=procurementWithholdingDecision(form,sum.total);form.withholding_tax=taxDecision.value;if(!form.withholding_tax_type&&taxDecision.taxType)form.withholding_tax_type=taxDecision.taxType;form.cash_advance_address=procurementCashAdvanceAddress(form);form.master_schema_version="5.2.0";form.financial_summary=procurementMasterFinancialSnapshot(cleanItems,form);if(vendor?.vendor_code&&!form.vendor_code)form.vendor_code=vendor.vendor_code;const signerSnapshot={requester:procurementPersonnelById(form.requester_user_id),receiver:procurementPersonnelById(form.receiver_user_id),issuer:procurementPersonnelById(form.issuer_user_id),goods_requester:procurementPersonnelById(form.goods_requester_user_id),cash_advance:procurementPersonnelById(form.cash_advance_user_id),tor:[1,2,3].map(i=>procurementPersonnelById(form[`tor_member_${i}_user_id`])).filter(Boolean),inspection:[1,2,3].map(i=>procurementPersonnelById(form[`inspection_member_${i}_user_id`])).filter(Boolean),case_override:form.signer_override_mode==="override"?{director:procurementPersonnelById(form.case_director_user_id),head:procurementPersonnelById(form.case_head_user_id),deputy:procurementPersonnelById(form.case_deputy_user_id),officer:procurementPersonnelById(form.case_officer_user_id),finance:procurementPersonnelById(form.case_finance_user_id),financeHead:procurementPersonnelById(form.case_finance_head_user_id)}:null};const payload={academic_year:String(state.procurementAcademicYear||currentAcademicPeriod().academicYear),title:form.title||"รายการจัดซื้อจัดจ้าง",procurement_kind:String(form.signing_document||"").includes("จ้าง")?"hire":"purchase",total_amount:sum.total,project_id:form.project_id||null,activity_id:form.activity_id||null,vendor_id:form.vendor_id||null,control_request_approval_id:form.control_request_approval_id||null,control_order_id:form.control_order_id||null,control_purchase_order_id:form.control_purchase_order_id||null,control_disbursement_id:form.control_disbursement_id||null,control_inventory_issue_id:form.control_inventory_issue_id||null,form_data:form,items:cleanItems,master_snapshot:{project:project?{id:project.id,project_no:project.project_no,project_name:project.project_name,budget_amount:project.budget_amount,department_code:project.department_code,department_custom:project.department_custom}:null,activity:activity?{id:activity.id,activity_no:activity.activity_no,activity_name:activity.activity_name,budget_amount:activity.budget_amount}:null,vendor:vendor?{id:vendor.id,vendor_code:vendor.vendor_code,vendor_name:vendor.vendor_name,contact_name:vendor.contact_name,address:vendor.address,phone:vendor.phone,tax_id:vendor.tax_id,bank_account:vendor.bank_account,account_name:vendor.account_name,bank_name:vendor.bank_name,bank_branch:vendor.bank_branch}:null,items:cleanItems},signer_snapshot:signerSnapshot,updated_by:state.user.id};buttonLoading(btn,true,"กำลังบันทึก...");const res=editing?await supabase.from("procurement_document_cases").update(payload).eq("id",c.id).select().single():await supabase.from("procurement_document_cases").insert({...payload,created_by:state.user.id,status:"draft"}).select().single();buttonLoading(btn,false);if(res.error)return toast("บันทึกไม่สำเร็จ",res.error.message,"error");close();state.selectedProcurementCaseId=res.data.id;toast(editing?"บันทึกข้อมูลกลางแล้ว":"สร้างรายการแล้ว",`เอกสาร ${procurementDocumentsReadyCount(res.data)}/${procurementApplicableDocumentCount(res.data)} แบบพร้อมจากข้อมูลปัจจุบัน`,'success');await loadProcurementWorkspace();await renderDashboard();};
 }
 
 function procurementSettingsModal(){
@@ -10324,8 +11358,8 @@ function procurementPackRoleOnlySignatures(members){
 }
 function procurementPdfSignatureBox(label,name,position,dateValue){const img=procurementSignatureImage(name);return `<div class="procurement-memo-signbox"><strong>${escapeHtml(label)}</strong><div class="procurement-memo-sign-slot"><span class="procurement-memo-sign-prefix">ลงชื่อ</span><span class="procurement-memo-sign-mark">${img||`<span class="procurement-pack-sign-rule"></span>`}</span></div><div>( ${escapeHtml(name||"........................................................")} )</div><div>${escapeHtml(position||label)}</div><div>วันที่ ${escapeHtml(procurementPdfThaiDate(dateValue))}</div></div>`;}
 
-function procurementPackDocumentPages(c,code,signers){
-  const specialCodes=["inspection","inspection_alt","inspection_egp","expense_cover","inspection_notice","inspection_report_memo","payment_submission"];
+function procurementPackDocumentPagesBase(c,code,signers){
+  const specialCodes=["inspection","inspection_alt","inspection_egp","expense_cover","inspection_notice","inspection_report_memo","payment_submission","specific_characteristics"];
   if(!specialCodes.includes(code))return procurementPackDocumentPagesV44Legacy(c,code,signers);
   const f=procurementFormData(c),items=procurementItems(c),v=procurementPurchaseVerb(c,f),amount=Number(c.total_amount||0),title=c.title||f.title||"รายการจัดซื้อจัดจ้าง",vendor=f.vendor_name||"",poDate=f.purchase_order_date||f.approval_date||f.request_date,deliveryDate=f.delivery_date||f.inspection_date||poDate,inspectionDate=f.inspection_date||deliveryDate,sum=procurementPackWithholding(c,f),inspectionMode=String(f.inspection_member_count||"3 คน"),requestedCount=inspectionMode.startsWith("1")?1:inspectionMode.startsWith("2")?2:3,committee=procurementPackCommittee(f,"inspection_member",requestedCount);
   const committeeSigns=procurementPackDynamicSignatures(committee,inspectionDate);
@@ -10349,7 +11383,150 @@ function procurementPackDocumentPages(c,code,signers){
 
   if(code==="inspection_report_memo")return [procurementPackPage(`${procurementPackMemoHeader(f,{docNo:f.approval_number,date:f.post_delivery_memo_date,subject:"รายงานผลการตรวจรับพัสดุ",garuda:false})}<p class="procurement-pack-paragraph indent">ตามที่${escapeHtml(procurementAgencyName())} ${v.formal}${procurementPackText(title)} โดยวิธี${procurementPackText(f.procurement_method||"เฉพาะเจาะจง")} เป็นจำนวนเงินทั้งสิ้น ${procurementPackAmount(amount)} บาท (${escapeHtml(procurementThaiBahtText(amount))}) กับ ${procurementPackText(vendor)} ครบกำหนดส่งมอบวันที่ ${procurementPackDate(f.delivery_due_date)} นั้น ซึ่งได้เป็นราคารวมภาษีมูลค่าเพิ่มแล้ว ตามสัญญา/${procurementPackText(f.signing_document||"ใบสั่งซื้อสั่งจ้าง")} เลขที่ ${procurementPackText(f.purchase_order_number)} ลงวันที่ ${procurementPackDate(poDate)} นั้น</p><p class="procurement-pack-paragraph indent">บัดนี้ ${procurementPackText(vendor)} ได้ส่งมอบ${procurementPackText(title)} ${f.delivery_book_no?`งานเล่มที่ ${procurementPackText(f.delivery_book_no)} `:""}เลขที่ ${procurementPackText(f.delivery_document_number)} ลงวันที่ ${procurementPackDate(deliveryDate)}</p><p class="procurement-pack-paragraph">ผลการตรวจรับงานดังกล่าว ได้รับของครบถ้วนตามรายการสั่งซื้อสั่งจ้าง สามารถดำเนินการตามระเบียบกระทรวงการคลัง ว่าด้วยการจัดซื้อจัดจ้างและบริหารพัสดุภาครัฐ พ.ศ.2560 ต่อไป</p><p class="procurement-pack-paragraph">จึงเรียนมาเพื่อโปรดทราบ</p>${procurementPackRoleOnlySignatures(committee)}<h3 class="procurement-pack-minor-title">ความเห็นผู้อำนวยการโรงเรียน</h3><p class="procurement-pack-paragraph">ทราบ ให้บุคคลที่เกี่ยวข้องดำเนินการต่อไป</p>${procurementPackSign("",signers.director.name,signers.director.position,f.post_delivery_memo_date)}` )];
 
+  if(code==="specific_characteristics"){
+    const count=items.length, countText=academicRegThaiDigits(count), agency=procurementAgencyName();
+    const workTitle=`งาน${v.formal}${title}`;
+    const objective=String(f.specific_objective||"").trim()||`${title} จำนวน ${countText} รายการ สำหรับใช้ในการปฏิบัติงานของ ${agency}`;
+    return [procurementPackPage(`${procurementPackCenteredTitle("รายละเอียดคุณลักษณะเฉพาะ",`${workTitle} จำนวน ${countText} รายการ\nสำหรับใช้ในการปฏิบัติงานของ ${agency}`)}<div class="procurement-specific-section"><b>1. ความต้องการ</b><p>${procurementPackText(workTitle)}</p></div><div class="procurement-specific-section"><b>2. วัตถุประสงค์</b><p>${procurementPackText(objective)}</p></div><div class="procurement-specific-section"><b>3. คุณลักษณะทั่วไป</b></div>${procurementPackSpecTable(items)}`,"procurement-specific-characteristics")];
+  }
+
   return [procurementPackPage(`${procurementPackMemoHeader(f,{docNo:f.disbursement_no,date:f.disbursement_date||f.post_delivery_memo_date,subject:"ส่งเบิกเงิน",garuda:false})}<p class="procurement-pack-paragraph indent">ตามที่${escapeHtml(procurementAgencyName())} ${v.formal}${procurementPackText(title)} โดยวิธี${procurementPackText(f.procurement_method||"เฉพาะเจาะจง")} เป็นจำนวนเงินทั้งสิ้น ${procurementPackAmount(amount)} บาท (${escapeHtml(procurementThaiBahtText(amount))}) กับ ${procurementPackText(vendor)} ครบกำหนดส่งมอบวันที่ ${procurementPackDate(f.delivery_due_date)} นั้น ซึ่งได้เป็นราคารวมภาษีมูลค่าเพิ่มแล้ว ตามสัญญา/${procurementPackText(f.signing_document||"ใบสั่งซื้อสั่งจ้าง")} เลขที่ ${procurementPackText(f.purchase_order_number)} ลงวันที่ ${procurementPackDate(poDate)} นั้น</p><p class="procurement-pack-paragraph indent">คณะกรรมการตรวจรับได้ตรวจรับของถูกต้องแล้ว</p><p class="procurement-pack-paragraph indent">จึงเรียนมาเพื่อโปรดดำเนินการเบิกจ่ายเงินให้ต่อไป</p><div class="procurement-pack-source-grid"><div><span>รหัสผู้ขาย</span><strong>${procurementPackText(f.vendor_code)}</strong></div><div><span>เลขที่ใบ P/O</span><strong>${procurementPackText(f.finance_po_no)}</strong></div><div><span>เลขที่เอกสารรับพัสดุ</span><strong>${procurementPackText(f.goods_receipt_document_no)}</strong></div></div><div class="procurement-pack-sign-grid">${procurementPackSign("เจ้าหน้าที่",signers.officer.name,signers.officer.position,f.post_delivery_memo_date)}${procurementPackSign("หัวหน้าเจ้าหน้าที่",signers.head.name,signers.head.position,f.post_delivery_memo_date)}</div><div class="procurement-pack-director"><div>☐ - อนุมัติ</div><div>☐ - ไม่อนุมัติ</div>${procurementPackSign("",signers.director.name,signers.director.position,f.post_delivery_memo_date)}</div>` )];
+}
+
+
+// BNK v5.1.6 — Excel Master Text layer.
+// The official wording for the 29 original procurement documents comes from the
+// supplied XLSB workbook. Layout/tables/signature blocks remain dynamic; prose is
+// replaced from the source sheet cells and only variable values are substituted.
+const PROCUREMENT_EXCEL_PARAGRAPH_CELLS = Object.freeze({
+  purchase_request:["O9","O12","O16","O17","O18","O19","O20","O21","O27","O28","Q36","S37",null],
+  needs_survey:["I8","I19"],
+  tor_appointment_memo:["D11","D14","H17"],
+  tor_appointment_order:["H9","H11","H27","H29"],
+  tor_approval_memo:["H11","H14","H17","L19"],
+  tor:["E7","G8","G9","E38","E40","E42","E45","E48","E49"],
+  inspection_order:["G11","G21"],
+  quotation:["H3","H4","H8","I20","H21","H22"],
+  announcement:["H9","H12"],
+  approval:["F8","F11","I15","F16","F18","G23"],
+  approval_alt:["E8","E18","E20","E21","E22"],
+  purchase_order:["H16","H27"],
+  delivery_note:["K7"],
+  inspection:["H7","H10","H12","H13","H18","H27","H28"],
+  inspection_alt:["J6","J15",null,"J25","M29"],
+  inspection_egp:["K5","M8","K23","K24"],
+  goods_receipt:["K7"],
+  disbursement:["E9","E12","H23","H24","H25"],
+  disbursement_alt:["K9","M13","M14"],
+  inventory_issue:["J5","K33","K36",null],
+  inventory_issue_alt:["J5","K34","K37",null],
+  receipt_substitute:[null],
+  payment_voucher:["J7"],
+  bk28:["G10","I16"]
+});
+const PROCUREMENT_EXCEL_LIST_CELLS = Object.freeze({
+  tor:["G11","G12","G13","E14","E17","E20","E22","E23"],
+  purchase_order:["J28","J30","J31","J32","H33","J35"],
+  inspection_alt:["N8","N9","O10","N12","N13"]
+});
+function procurementExcelMasterLine(code,cell){
+  if(!code||!cell)return "";
+  const doc=PROCUREMENT_EXCEL_MASTER_TEXT?.[code];
+  return String(doc?.lines?.find(x=>x.cell===cell)?.text||"").trim();
+}
+function procurementExcelPlainDate(value,mode="short"){
+  const d=dateOnly(value);if(!d)return "........................................";
+  const months=["มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน","กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"],day=String(d.getDate()),month=months[d.getMonth()],year=String(d.getFullYear()+543);
+  if(mode==="long")return `${day} เดือน ${month} พ.ศ. ${year}`;
+  if(mode==="long_date")return `วันที่ ${day} เดือน ${month} พ.ศ. ${year}`;
+  return `${day} ${month} ${year}`;
+}
+function procurementExcelContextDate(code,f,kind){
+  if(kind==="delivery_due")return f.delivery_due_date||f.delivery_date||f.purchase_order_date||f.request_date;
+  if(kind==="delivery")return f.delivery_date||f.inspection_date||f.disbursement_date||f.purchase_order_date||f.request_date;
+  if(kind==="approval")return f.approval_date||f.tor_approval_date||f.request_date;
+  if(kind==="primary"){
+    if(["purchase_order","purchase_order_attachment"].includes(code))return f.purchase_order_date||f.approval_date||f.request_date;
+    if(["delivery_note","inspection","inspection_alt","inspection_egp","inspection_attachment","goods_receipt","disbursement","disbursement_alt","receipt_substitute","payment_voucher","bk28"].includes(code))return f.purchase_order_date||f.approval_date||f.request_date;
+    if(["quotation","quotation_attachment"].includes(code))return f.quote_date||f.request_date;
+    if(["announcement","approval","approval_alt"].includes(code))return f.approval_date||f.request_date;
+    if(["tor_approval_memo","tor_attachment"].includes(code))return f.tor_approval_date||f.tor_request_date||f.request_date;
+    if(["tor_appointment_memo","tor_appointment_order","inspection_order","needs_survey","tor"].includes(code))return f.tor_request_date||f.inspection_order_date||f.request_date;
+    return f.request_date||f.purchase_order_date||localDateInputValue();
+  }
+  return f.request_date||localDateInputValue();
+}
+function procurementExcelRenderLine(code,cell,c){
+  let text=procurementExcelMasterLine(code,cell);if(!text)return "";
+  const f=procurementFormData(c),items=procurementItems(c),v=procurementPurchaseVerb(c,f),amount=Number(c?.total_amount||0),sum=procurementPackWithholding(c,f);
+  const title=String(c?.title||f.title||"").trim(),activity=String(f.activity_name||"").trim(),plan=String(f.plan_name||"").trim(),reason=String(f.reason||"").trim(),vendor=String(f.vendor_name||"").trim();
+  const repl=(from,to)=>{if(from&&to!==undefined&&to!==null)text=text.split(from).join(String(to));};
+  // Protect legal phrase before adapting ซื้อ/จ้าง wording.
+  text=text.replaceAll("จัดซื้อจัดจ้าง","§§PROCUREMENT§§");
+  repl("โรงเรียนบ้านหนองเขียว สำนักงานเขตพื้นที่การศึกษาประถมศึกษาเชียงใหม่ เขต 3",[procurementAgencyName(),procurementAgencyOffice()].filter(Boolean).join(" "));
+  repl("สำนักงานเขตพื้นที่การศึกษาประถมศึกษาเชียงใหม่ เขต 3",procurementAgencyOffice());
+  repl("โรงเรียนบ้านหนองเขียว",procurementAgencyName());
+  repl("มีความจำเป็นต้องจัดซื้อวัสดุอุปกรณ์กิจกรรม Projcet Approach ปฐมวัย",reason||title);
+  repl("วัสดุอุปกรณ์กิจกรรม Projcet Approach ปฐมวัย",title);
+  repl("กิจกรรม Projcet Approach ปฐมวัย",activity?`กิจกรรม ${activity}`:"");
+  repl("แผนงานวิชาการ",`แผนงาน${plan}`);
+  repl("บริษัท นานาเชียงดาว จำกัด",vendor);
+  repl("นายอิศรา ถาวรรุ่งกิต",f.vendor_contact||f.voucher_recipient||vendor);
+  repl("0505559001207",f.vendor_tax_id||"");
+  repl("0-5055-59001-20-7",String(f.vendor_tax_id||"").replace(/^(\d)-(\d{4})-(\d{5})-(\d{2})-(\d)$/,"$1-$2-$3-$4-$5"));
+  repl("0858659678",f.vendor_phone||"");
+  repl("537 หมู่ที่ 4 ถนนโชตนา ตำบลเชียงดาว อำเภอเชียงดาว จังหวัดเชียงใหม่",procurementPackVendorAddress(f));
+  repl("537 หมู่ 4 ถนนโชตนา ต.เชียงดาว อ.เชียงดาว จ.เชียงใหม่",procurementPackVendorAddress(f));
+  repl("431/2569",f.request_number||"");
+  repl("215/2569",f.inspection_order_number||f.tor_appointment_order_number||f.tor_approval_number||"");
+  repl("265/2569",f.purchase_order_number||"");
+  repl("432/2569",f.disbursement_no||f.approval_number||"");
+  repl("จำนวน 48 รายการ",`จำนวน ${items.length} รายการ`);
+  repl("จำนวน 1 ชุด",`จำนวน ${Number(f.project_count||1)} ${f.project_unit||"ชุด"}`);
+  repl("5,000.00",procurementMoney(amount));
+  repl("4,672.90",procurementMoney(sum.base));
+  repl("327.10",procurementMoney(sum.vat));
+  repl("46.73",procurementMoney(sum.tax));
+  repl("ห้าพันบาทถ้วน",procurementThaiBahtText(amount));
+  repl("15 วัน",`${Number(f.price_valid_days||f.quote_valid_days||15)} วัน`);
+  repl("30 วัน",`${Number(f.delivery_days||30)} วัน`);
+  repl("1 เดือน",`${Number(f.warranty_period||f.po_warranty_period||1)} ${f.warranty_unit||f.po_warranty_unit||"เดือน"}`);
+  repl("7 วัน",`${Number(f.repair_days||7)} วัน`);
+  const primary=procurementExcelContextDate(code,f,"primary"),delivery=procurementExcelContextDate(code,f,"delivery"),due=procurementExcelContextDate(code,f,"delivery_due"),approval=procurementExcelContextDate(code,f,"approval");
+  const datePairs=[
+    ["วันที่ 8 เดือน กันยายน พ.ศ. 2569",procurementExcelPlainDate(primary,"long_date")],["8 เดือน กันยายน พ.ศ. 2569",procurementExcelPlainDate(primary,"long")],["8 กันยายน 2569",procurementExcelPlainDate(primary)],
+    ["วันที่ 8 เดือน สิงหาคม พ.ศ. 2569",procurementExcelPlainDate(approval,"long_date")],["8 เดือน สิงหาคม พ.ศ. 2569",procurementExcelPlainDate(approval,"long")],["8 สิงหาคม 2569",procurementExcelPlainDate(approval)],
+    ["วันที่ 11 เดือน สิงหาคม พ.ศ. 2569",procurementExcelPlainDate(delivery,"long_date")],["11 เดือน สิงหาคม พ.ศ. 2569",procurementExcelPlainDate(delivery,"long")],["11 สิงหาคม 2569",procurementExcelPlainDate(delivery)],
+    ["8 เดือน ตุลาคม พ.ศ. 2569",procurementExcelPlainDate(due,"long")],["8 ตุลาคม 2569",procurementExcelPlainDate(due)]
+  ];datePairs.forEach(([a,b])=>repl(a,b));
+  if(v.noun==="จ้าง"){
+    const verbPairs=[["รายงานขอซื้อ","รายงานขอจ้าง"],["ขอซื้อ","ขอจ้าง"],["สั่งซื้อ","สั่งจ้าง"],["ใบสั่งซื้อ","ใบสั่งจ้าง"],["ตกลงซื้อ","ตกลงจ้าง"],["จะซื้อ","จะจ้าง"],["ได้ซื้อ ","ได้จ้าง "],["จัดซื้อจาก","จัดจ้างจาก"],["การจัดซื้อ ","การจัดจ้าง "],["จัดซื้อวัสดุ","จัดจ้าง"],["ค่าจัดซื้อ ","ค่าจัดจ้าง "]];
+    verbPairs.forEach(([a,b])=>repl(a,b));
+  }
+  text=text.replaceAll("§§PROCUREMENT§§","จัดซื้อจัดจ้าง");
+  // Current record-specific fields that appear as punctuation placeholders in the workbook.
+  if(cell==="H12"&&code==="inspection")repl("คือ -",`คือ ${f.change_items||"-"}`);
+  if(["E12","H13","H28","J25","K24"].includes(cell)){
+    repl("- วัน",`${String(f.late_days||"-")} วัน`);
+    repl("- บาท",sum.penalty?`${procurementMoney(sum.penalty)} บาท`:"- บาท");
+  }
+  if(cell==="I16"&&code==="bk28"&&f.assignment_of_claim_name)repl("..................................................................................................",f.assignment_of_claim_name);
+  return text;
+}
+function procurementApplyExcelMasterText(c,code,pages){
+  const paragraphCells=PROCUREMENT_EXCEL_PARAGRAPH_CELLS[code]||[],listCells=PROCUREMENT_EXCEL_LIST_CELLS[code]||[];
+  if(!paragraphCells.length&&!listCells.length)return pages;
+  return (pages||[]).map(html=>{
+    const tpl=document.createElement("template");tpl.innerHTML=String(html||"");
+    const paragraphs=[...tpl.content.querySelectorAll(".procurement-pack-paragraph,.procurement-memo-body > p,.procurement-memo-footer-statement")];
+    paragraphCells.forEach((cell,i)=>{if(!cell||!paragraphs[i])return;const value=procurementExcelRenderLine(code,cell,c);if(value)paragraphs[i].textContent=value;});
+    const listItems=[...tpl.content.querySelectorAll("ol.procurement-pack-list > li")];
+    listCells.forEach((cell,i)=>{if(!cell||!listItems[i])return;const value=procurementExcelRenderLine(code,cell,c);if(value){listItems[i].textContent=value.replace(/^\s*[0-9๐-๙๒]+[.)]?\s*/,"");}});
+    return tpl.innerHTML;
+  });
+}
+function procurementPackDocumentPages(c,code,signers){
+  return procurementApplyExcelMasterText(c,code,procurementPackDocumentPagesBase(c,code,signers));
 }
 
 function procurementPackPageMetrics(page){
@@ -10369,7 +11546,7 @@ function procurementPackContinuationPage(page){
   const boundary=page.closest(".procurement-pack-doc-boundary"),code=boundary?.dataset?.doc||"",name=PROCUREMENT_DOCUMENTS.find(x=>x.code===code)?.name||"เอกสาร";
   const next=document.createElement("article");next.className=`${page.className} procurement-pack-continuation-page`;
   const inner=document.createElement("div");inner.className="procurement-pdf-inner procurement-pack-inner";
-  inner.innerHTML=`<div class="procurement-pack-continuation-title">${escapeHtml(name)} (ต่อ)</div>`;next.appendChild(inner);page.after(next);return next;
+  inner.innerHTML=code==="specific_characteristics"?"":`<div class="procurement-pack-continuation-title">${escapeHtml(name)} (ต่อ)</div>`;next.appendChild(inner);page.after(next);return next;
 }
 function procurementPackCloneTableShell(table){
   const clone=table.cloneNode(false);clone.removeAttribute("id");
@@ -10455,12 +11632,12 @@ function procurementControlSeriesLabel(series){return procurementControlMeta(ser
 function procurementControlKindLabel(kind){return kind==="hire"?"จ้าง":kind==="purchase"?"ซื้อ":"—";}
 function procurementControlWorkspaceHtml(){
   if(!procurementCanAccessControl())return procurementAccessDeniedHtml("ระบบเลขคุมเอกสารจัดซื้อจัดจ้างและพัสดุ");
-  if(state.procurementControlLoadError)return `<section class="panel"><div class="empty"><strong>ยังเปิดระบบเลขคุมเอกสารไม่ได้</strong><span>${escapeHtml(state.procurementControlLoadError)}</span><small>หากเพิ่งอัปเดต ให้รัน SQL ตามลำดับจนถึง supabase-v5.0.15-procurement-shared-workspace.sql ก่อน</small></div></section>`;
+  if(state.procurementControlLoadError)return `<section class="panel"><div class="empty"><strong>ยังเปิดระบบเลขคุมเอกสารไม่ได้</strong><span>${escapeHtml(state.procurementControlLoadError)}</span><small>หากเพิ่งอัปเดต ให้รัน SQL ตามลำดับจนถึง supabase-v5.1.5-procurement-control-release.sql ก่อน</small></div></section>`;
   const q=String(state.procurementControlSearch||"").trim().toLowerCase(),status=state.procurementControlStatusFilter||"active";
   const rows=(state.procurementControlNumbers||[]).filter(r=>(status==="all"||r.status===status)&&(!q||[r.primary_number,r.secondary_number,r.subject,procurementControlSeriesLabel(r.series)].some(v=>String(v||"").toLowerCase().includes(q))));
-  const cards=PROCUREMENT_CONTROL_SERIES.map(meta=>{const seriesRows=(state.procurementControlNumbers||[]).filter(r=>r.series===meta.series),count=seriesRows.filter(r=>r.status==="active").length,used=seriesRows.filter(r=>!!procurementControlLinkedCase(r)).length;return `<article class="procurement-control-card"><div><span>ชุด ${meta.set}</span><h3>${escapeHtml(meta.label.replace(/^ชุด \d+ · /,""))}</h3></div><strong>${escapeHtml(procurementControlNextText(meta))}</strong><small>เลขถัดไป · ออกแล้ว ${academicRegThaiDigits(count)} รายการ · ใช้แล้ว ${academicRegThaiDigits(used)}</small><div class="procurement-control-card-actions">${procurementCanOperateControl()?`<button class="btn btn-primary" data-procurement-control-issue="${meta.series}">ออกเลขชุด ${meta.set}</button>`:""}<button class="btn btn-secondary" data-procurement-control-register="${meta.series}">PDF ทะเบียนปีนี้</button></div></article>`;}).join("");
-  const table=rows.length?`<div class="table-wrap"><table class="table procurement-control-table"><thead><tr><th>ชุด</th><th>เลขคุม</th><th>เรื่องต้นทาง</th><th>ประเภท</th><th>เชื่อมรายการ</th><th>สถานะเลข</th><th>ออกเมื่อ</th><th>จัดการ</th></tr></thead><tbody>${rows.map(r=>{const c=procurementControlLinkedCase(r),stateLabel=r.status==="cancelled"?"ยกเลิก":c?"ใช้แล้ว":"ยังไม่ใช้",stateClass=r.status==="cancelled"?"danger":c?"success":"warn",actions=procurementCanOperateControl()&&!c?(r.status==="active"?`<div class="procurement-control-row-actions"><button class="btn btn-danger btn-small" data-procurement-control-delete="${r.id}">ลบเลข</button><button class="btn btn-ghost btn-small" data-procurement-control-cancel="${r.id}">ยกเลิกเลข</button></div>`:r.status==="cancelled"?`<div class="procurement-control-row-actions"><button class="btn btn-danger btn-small" data-procurement-control-delete="${r.id}">ลบเลข</button></div>`:""):"";return `<tr><td>${procurementControlMeta(r.series).set}</td><td><strong>${escapeHtml(procurementControlDisplay(r))}</strong></td><td>${escapeHtml(r.subject||"—")}</td><td>${escapeHtml(procurementControlKindLabel(r.procurement_kind))}</td><td>${c?`${escapeHtml(c.case_code||"")} · ${escapeHtml(c.title||"")}`:"—"}</td><td><span class="pill ${stateClass}">${stateLabel}</span></td><td>${formatDate(r.created_at)}</td><td>${actions}</td></tr>`;}).join("")}</tbody></table></div>`:`<div class="empty"><strong>ยังไม่มีเลขคุมในปีงบประมาณ พ.ศ. ${escapeHtml(String(state.procurementControlYear))}</strong><span>เริ่มจากตั้งค่าปีงบประมาณ แล้วออกเลขชุด 1 หรือชุด 5 ตามประเภททะเบียนที่ต้องการ</span></div>`;
-  return `<section class="procurement-control-workspace"><section class="procurement-control-hero"><div><span class="eyebrow">ทะเบียนเลขคุม · ประจำปีงบประมาณ</span><h2>ระบบเลขคุมเอกสารจัดซื้อจัดจ้างและพัสดุ</h2><p>5 ชุดเลขแยก Counter กัน · ชุด 1 เป็นเรื่องต้นทางของชุด 2–4 · ชุด 5 เบิกพัสดุรันเลขอิสระ</p></div><div class="procurement-control-hero-actions"><select class="select" id="procurement-control-year">${procurementControlYearOptions(state.procurementControlYear)}</select>${procurementCanManageControlSettings()?`<button class="btn procurement-control-action" id="procurement-control-fiscal-year-settings">ตั้งค่าปีงบประมาณ</button><button class="btn procurement-control-action" id="procurement-control-settings">ตั้งค่าเลขเริ่มต้น</button>`:""}</div></section><div class="procurement-control-cards">${cards}</div><section class="panel"><div class="panel-head"><div class="panel-title-wrap"><h3>ทะเบียนเลขคุม ปีงบประมาณ พ.ศ. ${escapeHtml(String(state.procurementControlYear))}</h3><p>เลขที่ผูกกับ Master Form แล้วจะไม่ให้รายการใหม่เลือกซ้ำ · “ลบเลข” ใช้ได้ทั้งเลขว่างและเลขที่ยกเลิก โดยคืน Counter จากเลขล่าสุดที่ยังเหลือ · “ยกเลิกเลข” เก็บประวัติไว้จนกว่าจะสั่งลบ</p></div><div class="procurement-toolbar"><select class="select" id="procurement-control-status"><option value="active" ${status==="active"?"selected":""}>ใช้งาน/ยังไม่ใช้</option><option value="cancelled" ${status==="cancelled"?"selected":""}>ยกเลิก</option><option value="all" ${status==="all"?"selected":""}>ทั้งหมด</option></select><input class="input" id="procurement-control-search" value="${escapeHtml(state.procurementControlSearch||"")}" placeholder="ค้นหาเลขคุม / เรื่อง"></div></div>${table}</section></section>`;
+  const cards=PROCUREMENT_CONTROL_SERIES.map(meta=>{const seriesRows=(state.procurementControlNumbers||[]).filter(r=>r.series===meta.series),issued=seriesRows.length,used=seriesRows.filter(r=>!!procurementControlLinkedCase(r)).length,released=seriesRows.filter(r=>r.status==="released").length;return `<article class="procurement-control-card"><div><span>ชุด ${meta.set}</span><h3>${escapeHtml(meta.label.replace(/^ชุด \d+ · /,""))}</h3></div><strong>${escapeHtml(procurementControlNextText(meta))}</strong><small>เลขถัดไป · ออกแล้ว ${academicRegThaiDigits(issued)} รายการ · ใช้แล้ว ${academicRegThaiDigits(used)}${released?` · รอจัดการ ${academicRegThaiDigits(released)}`:""}</small><div class="procurement-control-card-actions">${procurementCanOperateControl()?`<button class="btn btn-primary" data-procurement-control-issue="${meta.series}">ออกเลขชุด ${meta.set}</button>`:""}<button class="btn btn-secondary" data-procurement-control-register="${meta.series}">PDF ทะเบียนปีนี้</button></div></article>`;}).join("");
+  const table=rows.length?`<div class="table-wrap"><table class="table procurement-control-table"><thead><tr><th>ชุด</th><th>เลขคุม</th><th>เรื่องต้นทาง</th><th>ประเภท</th><th>เชื่อมรายการ</th><th>สถานะเลข</th><th>ออกเมื่อ</th><th>จัดการ</th></tr></thead><tbody>${rows.map(r=>{const c=procurementControlLinkedCase(r),releasedLabel=procurementControlReleasedCaseLabel(r),stateLabel=r.status==="cancelled"?"ยกเลิก":r.status==="released"?"รายการต้นทางถูกลบ":c?"ใช้แล้ว":"ยังไม่ใช้",stateClass=r.status==="cancelled"?"danger":r.status==="released"?"warn":c?"success":"warn",actions=procurementCanOperateControl()&&!c?(r.status==="active"||r.status==="released"?`<div class="procurement-control-row-actions"><button class="btn btn-danger btn-small" data-procurement-control-delete="${r.id}">ลบเลข</button><button class="btn btn-ghost btn-small" data-procurement-control-cancel="${r.id}">ยกเลิกเลข</button></div>`:r.status==="cancelled"?`<div class="procurement-control-row-actions"><button class="btn btn-danger btn-small" data-procurement-control-delete="${r.id}">ลบเลข</button></div>`:""):"";const linkedText=c?`${escapeHtml(c.case_code||"")} · ${escapeHtml(c.title||"")}`:releasedLabel?`<span title="เลขนี้ถูกปลดจากรายการที่ลบแล้ว">${escapeHtml(releasedLabel)}</span>`:"—";return `<tr><td>${procurementControlMeta(r.series).set}</td><td><strong>${escapeHtml(procurementControlDisplay(r))}</strong></td><td>${escapeHtml(r.subject||"—")}</td><td>${escapeHtml(procurementControlKindLabel(r.procurement_kind))}</td><td>${linkedText}</td><td><span class="pill ${stateClass}">${stateLabel}</span></td><td>${formatDate(r.created_at)}</td><td>${actions}</td></tr>`;}).join("")}</tbody></table></div>`:`<div class="empty"><strong>ยังไม่มีเลขคุมในปีงบประมาณ พ.ศ. ${escapeHtml(String(state.procurementControlYear))}</strong><span>เริ่มจากตั้งค่าปีงบประมาณ แล้วออกเลขชุด 1 หรือชุด 5 ตามประเภททะเบียนที่ต้องการ</span></div>`;
+  return `<section class="procurement-control-workspace"><section class="procurement-control-hero"><div><span class="eyebrow">ทะเบียนเลขคุม · ประจำปีงบประมาณ</span><h2>ระบบเลขคุมเอกสารจัดซื้อจัดจ้างและพัสดุ</h2><p>5 ชุดเลขแยก Counter กัน · ชุด 1 เป็นเรื่องต้นทางของชุด 2–4 · ชุด 5 เบิกพัสดุรันเลขอิสระ</p></div><div class="procurement-control-hero-actions"><select class="select" id="procurement-control-year">${procurementControlYearOptions(state.procurementControlYear)}</select>${procurementCanManageControlSettings()?`<button class="btn procurement-control-action" id="procurement-control-fiscal-year-settings">ตั้งค่าปีงบประมาณ</button><button class="btn procurement-control-action" id="procurement-control-settings">ตั้งค่าเลขเริ่มต้น</button>`:""}</div></section><div class="procurement-control-cards">${cards}</div><section class="panel"><div class="panel-head"><div class="panel-title-wrap"><h3>ทะเบียนเลขคุม ปีงบประมาณ พ.ศ. ${escapeHtml(String(state.procurementControlYear))}</h3><p>เลขที่ผูกกับ Master Form แล้วจะไม่ให้รายการใหม่เลือกซ้ำ · ถ้ารายการต้นทางถูกลบ เลขจะถูกพักสถานะ “รายการต้นทางถูกลบ” และไม่ถูกนำกลับมาใช้เอง · จากนั้นเลือกยกเลิกหรือลบเลขได้ตามต้องการ</p></div><div class="procurement-toolbar"><select class="select" id="procurement-control-status"><option value="active" ${status==="active"?"selected":""}>ใช้งาน/ยังไม่ใช้</option><option value="released" ${status==="released"?"selected":""}>รายการต้นทางถูกลบ / รอจัดการ</option><option value="cancelled" ${status==="cancelled"?"selected":""}>ยกเลิก</option><option value="all" ${status==="all"?"selected":""}>ทั้งหมด</option></select><input class="input" id="procurement-control-search" value="${escapeHtml(state.procurementControlSearch||"")}" placeholder="ค้นหาเลขคุม / เรื่อง"></div></div>${table}</section></section>`;
 }
 
 function procurementControlIssueModal(series){
@@ -10484,11 +11661,23 @@ function procurementControlFiscalYearModal(){
 function procurementControlSettingsModal(){
   const m=document.createElement("div");m.className="modal-backdrop";m.innerHTML=`<div class="modal"><div class="modal-head"><div><h3>ตั้งค่าเลขเริ่มต้น ปีงบประมาณ พ.ศ. ${escapeHtml(String(state.procurementControlYear))}</h3><p>เปลี่ยนได้เฉพาะชุดที่ยังไม่เคยออกเลขในปีนี้</p></div><button class="modal-close">×</button></div><form id="procurement-control-settings-form" class="form-grid">${PROCUREMENT_CONTROL_SERIES.map(meta=>{const setting=procurementControlSetting(meta.series),has=(state.procurementControlNumbers||[]).some(r=>r.series===meta.series&&Number(r.control_year)===Number(state.procurementControlYear));return `<div class="field"><label>${escapeHtml(meta.label)}</label><input class="input" type="number" min="1" name="${meta.series}" value="${Number(setting?.start_number||1)}" ${has?"disabled":""}><small class="helper">${has?"มีการออกเลขแล้วในปีงบประมาณนี้ จึงล็อกเลขเริ่มต้น":"กำหนดเลขแรกของชุดนี้"}</small></div>`;}).join("")}<div class="modal-actions"><button type="button" class="btn btn-ghost modal-cancel">ยกเลิก</button><button class="btn btn-primary" type="submit">บันทึก</button></div></form></div>`;document.body.appendChild(m);const close=()=>m.remove();m.querySelector(".modal-close").onclick=close;m.querySelector(".modal-cancel").onclick=close;m.querySelector("form").onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.currentTarget),btn=e.submitter;buttonLoading(btn,true,"กำลังบันทึก...");for(const meta of PROCUREMENT_CONTROL_SERIES){if(!fd.has(meta.series))continue;const {error}=await supabase.rpc("configure_procurement_control_series",{p_series:meta.series,p_control_year:Number(state.procurementControlYear),p_start_number:Number(fd.get(meta.series)||1)});if(error){buttonLoading(btn,false);return toast("บันทึกไม่สำเร็จ",error.message,"error");}}buttonLoading(btn,false);close();toast("บันทึกเลขเริ่มต้นแล้ว","","success");await loadProcurementControlWorkspace();renderDashboard();};
 }
-async function procurementControlDelete(id){const row=procurementControlById(id);if(!row)return;const linked=procurementControlLinkedCase(row);if(linked)return toast("ลบเลขไม่ได้","เลขนี้ถูกผูกกับรายการจัดซื้อจัดจ้างแล้ว","error");if(!confirm(`ยืนยันลบเลขคุม ${procurementControlDisplay(row)} ?\n\nระบบจะคำนวณ Counter ของชุด ${procurementControlMeta(row.series).set} ใหม่จากเลขล่าสุดที่ยังเหลืออยู่`))return;const {data,error}=await supabase.rpc("delete_procurement_control_number",{p_control_id:id});if(error)return toast("ลบเลขไม่สำเร็จ",error.message,"error");const result=Array.isArray(data)?data[0]:data;toast("ลบเลขคุมแล้ว",result?.next_number?`เลขถัดไป ${result.next_number}`:"Counter ถูกคำนวณใหม่แล้ว","success");await loadProcurementControlWorkspace();renderDashboard();}
-async function procurementControlCancel(id){const row=procurementControlById(id);if(!row||!confirm(`ยืนยันยกเลิกเลข ${procurementControlDisplay(row)} ?\nเลขยกเลิกจะคงอยู่ในทะเบียนและจะไม่ถูกนำกลับมาใช้`))return;const {error}=await supabase.rpc("cancel_procurement_control_number",{p_control_id:id});if(error)return toast("ยกเลิกเลขไม่สำเร็จ",error.message,"error");toast("ยกเลิกเลขคุมแล้ว","เลขเดิมยังคงอยู่ในประวัติทะเบียนและไม่วนกลับมาใช้","success");await loadProcurementControlWorkspace();renderDashboard();}
+async function procurementControlDelete(id){
+  const row=procurementControlById(id);if(!row)return;
+  const linked=procurementControlLinkedCase(row);if(linked)return toast("ลบเลขไม่ได้","เลขนี้ยังถูกผูกกับรายการจัดซื้อจัดจ้างที่ใช้งานอยู่","error");
+  const released=row.status==="released"?`\n\nเลขนี้เคยผูกกับ ${procurementControlReleasedCaseLabel(row)} ซึ่งถูกลบแล้ว การลบเลขครั้งนี้จะลบเลขออกจากทะเบียนจริงและคำนวณ Counter ใหม่`:"";
+  if(!confirm(`ยืนยันลบเลขคุม ${procurementControlDisplay(row)} ?${released}\n\nระบบจะคำนวณ Counter ของชุด ${procurementControlMeta(row.series).set} ใหม่จากเลขล่าสุดที่ยังเหลืออยู่`))return;
+  const {data,error}=await supabase.rpc("delete_procurement_control_number",{p_control_id:id});if(error)return toast("ลบเลขไม่สำเร็จ",error.message,"error");
+  const result=Array.isArray(data)?data[0]:data;toast("ลบเลขคุมแล้ว",result?.next_number?`เลขถัดไป ${result.next_number}`:"Counter ถูกคำนวณใหม่แล้ว","success");await loadProcurementControlWorkspace();renderDashboard();
+}
+async function procurementControlCancel(id){
+  const row=procurementControlById(id);if(!row)return;
+  const released=row.status==="released"?`\nเลขนี้เคยผูกกับ ${procurementControlReleasedCaseLabel(row)} ซึ่งถูกลบแล้ว`:"";
+  if(!confirm(`ยืนยันยกเลิกเลข ${procurementControlDisplay(row)} ?${released}\nเลขยกเลิกจะคงอยู่ในทะเบียนและจะไม่ถูกนำกลับมาใช้`))return;
+  const {error}=await supabase.rpc("cancel_procurement_control_number",{p_control_id:id});if(error)return toast("ยกเลิกเลขไม่สำเร็จ",error.message,"error");toast("ยกเลิกเลขคุมแล้ว","เลขเดิมยังคงอยู่ในประวัติทะเบียนและไม่วนกลับมาใช้","success");await loadProcurementControlWorkspace();renderDashboard();
+}
 function procurementControlRegistryDocumentText(series,secondary=false){if(series==="request_approval")return secondary?"อนุมัติ / อนุมัติแบบที่ 2 / แจ้งคณะกรรมการตรวจรับพัสดุ / รายงานผลการตรวจรับพัสดุ":"รายงานขอซื้อ/ขอจ้าง / แนบรายงานขอซื้อ/จ้าง / แบบสำรวจความต้องการ / แนบเสนอราคา";if(series==="order")return "บันทึกแต่งตั้ง TOR / คำสั่ง TOR / บันทึกเห็นชอบ TOR / แนบ TOR / แต่งตั้งตรวจรับ";if(series==="purchase_order")return "ใบสั่งซื้อ/ใบสั่งจ้าง / แนบใบสั่งซื้อ/ใบสั่งจ้าง";if(series==="disbursement")return "ส่งเบิกเงิน / เบิกจ่าย / เบิกจ่าย (2)";return "เบิกพัสดุ / เบิกพัสดุ (2)";}
 function procurementControlRegistryDate(row,c,secondary=false){const f=procurementFormData(c),fallback=String(row.created_at||"").slice(0,10);if(row.series==="request_approval")return secondary?(f.approval_date||f.post_delivery_memo_date||fallback):(f.request_date||fallback);if(row.series==="order")return f.inspection_order_date||f.tor_request_date||fallback;if(row.series==="purchase_order")return f.purchase_order_date||fallback;if(row.series==="disbursement")return f.disbursement_date||f.post_delivery_memo_date||fallback;if(row.series==="inventory_issue")return f.issue_date||fallback;return fallback;}
-function procurementControlRegistryRows(series){const base=(state.procurementControlNumbers||[]).filter(r=>r.series===series&&Number(r.control_year)===Number(state.procurementControlYear)).sort((a,b)=>Number(a.primary_sequence||0)-Number(b.primary_sequence||0)),rows=[];for(const r of base){const c=procurementControlLinkedCase(r),status=r.status==="cancelled"?"ยกเลิก":c?"ใช้แล้ว":"ยังไม่ใช้",subject=c?.title||r.subject||"—",note=c?.case_code||r.notes||"";rows.push({number:r.primary_number,documents:procurementControlRegistryDocumentText(series,false),subject,date:procurementControlRegistryDate(r,c,false),status,note});if(series==="request_approval"&&r.secondary_number)rows.push({number:r.secondary_number,documents:procurementControlRegistryDocumentText(series,true),subject,date:procurementControlRegistryDate(r,c,true),status,note});}return rows;}
+function procurementControlRegistryRows(series){const base=(state.procurementControlNumbers||[]).filter(r=>r.series===series&&Number(r.control_year)===Number(state.procurementControlYear)).sort((a,b)=>Number(a.primary_sequence||0)-Number(b.primary_sequence||0)),rows=[];for(const r of base){const c=procurementControlLinkedCase(r),releasedLabel=procurementControlReleasedCaseLabel(r),status=r.status==="cancelled"?"ยกเลิก":r.status==="released"?"รายการต้นทางถูกลบ":c?"ใช้แล้ว":"ยังไม่ใช้",subject=c?.title||r.released_from_case_title||r.subject||"—",note=c?.case_code||r.released_from_case_code||r.notes||"";rows.push({number:r.primary_number,documents:procurementControlRegistryDocumentText(series,false),subject,date:procurementControlRegistryDate(r,c,false),status,note});if(series==="request_approval"&&r.secondary_number)rows.push({number:r.secondary_number,documents:procurementControlRegistryDocumentText(series,true),subject,date:procurementControlRegistryDate(r,c,true),status,note});}return rows;}
 async function procurementBuildControlRegistryPdf(series){const meta=procurementControlMeta(series),rows=procurementControlRegistryRows(series);if(!rows.length)throw new Error(`ยังไม่มีเลขคุมชุด ${meta.set} ในปีงบประมาณนี้`);await ensureOfficialPdfFont("16pt");const logo=await schoolLogoDataUrl(),chunks=[];for(let i=0;i<rows.length;i+=12)chunks.push(rows.slice(i,i+12));const host=document.createElement("div");host.className="procurement-control-register-host";host.innerHTML=chunks.map((chunk,pageIndex)=>`<article class="procurement-control-register-page"><header><div class="procurement-control-register-logo">${logo?`<img src="${logo}" alt="โลโก้โรงเรียน">`:""}</div><div><h1>ทะเบียนคุมเลขที่เอกสารจัดซื้อจัดจ้าง</h1><h2>${escapeHtml(schoolName())}</h2><h3>${escapeHtml(meta.label)}</h3><p>ประจำปีงบประมาณ พ.ศ. ${escapeHtml(String(state.procurementControlYear))}</p></div></header><table><thead><tr><th class="no">ลำดับ</th><th class="number">เลขคุม</th><th class="docs">ใช้กับเอกสาร</th><th>เรื่อง / รายการ</th><th class="date">วันที่</th><th class="status">สถานะ</th><th class="note">หมายเหตุ</th></tr></thead><tbody>${chunk.map((r,i)=>`<tr><td>${academicRegThaiDigits(pageIndex*12+i+1)}</td><td><strong>${escapeHtml(r.number||"—")}</strong></td><td>${escapeHtml(r.documents)}</td><td>${escapeHtml(r.subject)}</td><td>${r.date?escapeHtml(thaiDateOnly(r.date)):"—"}</td><td>${escapeHtml(r.status)}</td><td>${escapeHtml(r.note||"")}</td></tr>`).join("")}</tbody></table><footer><span>${escapeHtml(schoolName())}</span><span>หน้า ${academicRegThaiDigits(pageIndex+1)} / ${academicRegThaiDigits(chunks.length)}</span></footer></article>`).join("");document.body.appendChild(host);try{await Promise.all([...host.querySelectorAll("img")].map(img=>img.complete?Promise.resolve():new Promise(r=>{img.onload=img.onerror=r;})));await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const pages=[...host.querySelectorAll(".procurement-control-register-page")],pdf=new jsPDF({orientation:"landscape",unit:"mm",format:"a4",compress:true});for(let i=0;i<pages.length;i++){if(i)pdf.addPage("a4","landscape");const canvas=await html2canvas(pages[i],{scale:2.15,useCORS:true,backgroundColor:"#fff",logging:false});pdf.addImage(canvas.toDataURL("image/jpeg",.97),"JPEG",0,0,297,210,undefined,"FAST");}return {blob:pdf.output("blob"),filename:`ทะเบียนเลขคุมชุด${meta.set}_ปีงบประมาณ_${state.procurementControlYear}.pdf`,rowCount:rows.length,pageCount:pages.length};}finally{host.remove();}}
 async function procurementOpenControlRegistryPdf(series){const meta=procurementControlMeta(series);try{const built=await procurementBuildControlRegistryPdf(series);openPdfPreviewModal({title:`ทะเบียนเลขคุมชุด ${meta.set} — ปีงบประมาณ พ.ศ. ${state.procurementControlYear}`,subtitle:`เอกสารทางการ ${built.rowCount} รายการ · ${built.pageCount} หน้า · มีโลโก้โรงเรียน`,blob:built.blob,filename:built.filename});}catch(err){console.error(err);toast("สร้างทะเบียน PDF ไม่สำเร็จ",err.message||String(err),"error");}}
 
@@ -10505,6 +11694,529 @@ function bindProcurementControlEvents(){
 }
 
 
+// BNK v5.1.4 — Procurement specific-characteristics document + Academic Examination Management
+const EXAM_MODULE_CODE = "exam_management";
+const EXAM_DEFAULT_GENERAL_INSTRUCTIONS = [
+  "อ่านคำชี้แจงให้เข้าใจ",
+  "ระมัดระวังการเขียนคำตอบให้ตรงกับข้อคำถาม",
+  "ระมัดระวังมิให้ผู้อื่นมีโอกาสคัดลอกคำตอบของตน",
+  "ถ้าพบข้อยากอย่าท้อใจ ให้ข้ามไปทำข้ออื่นก่อน เมื่อมีเวลาเหลือจึงกลับมาทำใหม่",
+  "ไม่เปิดข้อสอบจนกว่าผู้กำกับห้องสอบจะอนุญาต",
+  "เมื่อมีปัญหาขณะดำเนินการสอบ ให้ยกมือถามผู้กำกับห้องสอบ",
+].join("\n");
+const EXAM_THAI_CHOICE_LETTERS = ["ก","ข","ค","ง","จ","ฉ","ช","ซ","ฌ","ญ","ฎ","ฏ","ฐ","ฑ","ฒ","ณ","ด","ต","ถ","ท","ธ","น","บ","ป","ผ","ฝ","พ","ฟ","ภ","ม","ย","ร","ล","ว","ศ","ษ","ส","ห","ฬ","อ","ฮ"];
+
+function examCanReviewAll(){
+  return state.profile?.role === "super_admin" || state.profile?.role === "director" || isAcademicHead();
+}
+function examCurrentPeriod(){
+  const p=currentAcademicPeriod();
+  return {academicYear:Number(state.examAcademicYear||p.academicYear),semester:Number(state.examSemester||p.semester)};
+}
+function examSetById(id=state.selectedExamSetId){return (state.examSets||[]).find(x=>x.id===id)||null;}
+function examItemsForSet(id=state.selectedExamSetId){return (state.examItems||[]).filter(x=>x.exam_set_id===id).sort((a,b)=>Number(a.item_no||0)-Number(b.item_no||0)||String(a.created_at||"").localeCompare(String(b.created_at||"")));}
+function examClassById(id){return (state.examClasses||[]).find(x=>x.id===id)||null;}
+function examSubjectById(id){return (state.examSubjects||[]).find(x=>x.id===id)||null;}
+function examAssignmentById(id){return (state.examTeachingAssignments||[]).find(x=>x.id===id)||null;}
+function examPeriodLabel(v){return ({midterm:"กลางภาคเรียน",final:"ปลายภาคเรียน",unit:"ประจำหน่วย/หน่วยการเรียนรู้",other:"การสอบอื่น"})[v]||v||"—";}
+function examPeriodDocumentLabel(v){return ({midterm:"ข้อสอบกลางภาคเรียน",final:"ข้อสอบปลายภาคเรียน",unit:"แบบทดสอบประจำหน่วย",other:"ชุดข้อสอบ"})[v]||"ชุดข้อสอบ";}
+function examSchoolCoverHeading(){const address=String(schoolAddress()||"").replace(/^ตำบล[^\s]+\s*/,"").trim();return [schoolName(),address].filter(Boolean).join(" ");}
+function examKindLabel(v){return ({objective:"ปรนัย",subjective:"อัตนัย",mixed:"ปรนัย + อัตนัย"})[v]||v||"—";}
+function examChoiceStyleLabel(v){return ({thai_letters:"ก ข ค ง",arabic_numbers:"1 2 3 4",thai_numbers:"๑ ๒ ๓ ๔"})[v]||v||"—";}
+function examNumber(value,style="arabic"){
+  return style==="thai"?academicRegThaiDigits(String(value??"")):String(value??"");
+}
+function examChoiceMarker(index,style="thai_letters"){
+  if(style==="thai_letters") return EXAM_THAI_CHOICE_LETTERS[index]||String(index+1);
+  if(style==="thai_numbers") return academicRegThaiDigits(String(index+1));
+  return String(index+1);
+}
+function examDefaultSectionInstruction(type){
+  return type==="objective"
+    ? "ให้นักเรียนเลือกคำตอบที่ถูกต้องที่สุดเพียงคำตอบเดียว ลงในกระดาษคำตอบ"
+    : "ให้นักเรียนเขียนคำตอบหรือแสดงวิธีทำลงในกระดาษคำตอบ";
+}
+function examDefaultSections(set){
+  const rows=[];
+  const objective=Number(set?.objective_count||0),subjective=Number(set?.subjective_count||0);
+  if(objective>0)rows.push({no:rows.length+1,item_type:"objective",title:"ข้อสอบปรนัย",count:objective,instruction:examDefaultSectionInstruction("objective")});
+  if(subjective>0)rows.push({no:rows.length+1,item_type:"subjective",title:"ข้อสอบอัตนัย",count:subjective,instruction:examDefaultSectionInstruction("subjective")});
+  return rows;
+}
+function examSections(set){
+  const raw=Array.isArray(set?.sections)?set.sections:[];
+  const source=raw.length?raw:examDefaultSections(set);
+  return source.map((row,index)=>({
+    no:index+1,
+    item_type:row?.item_type==="subjective"?"subjective":"objective",
+    title:String(row?.title|| (row?.item_type==="subjective"?"ข้อสอบอัตนัย":"ข้อสอบปรนัย")),
+    count:Math.max(0,Number(row?.count||0)),
+    instruction:String(row?.instruction||examDefaultSectionInstruction(row?.item_type==="subjective"?"subjective":"objective")),
+  })).filter(x=>x.count>0);
+}
+function examSectionForType(set,type){return examSections(set).find(x=>x.item_type===type)||null;}
+function examLearningOutcomes(set){
+  return (Array.isArray(set?.learning_outcomes)?set.learning_outcomes:[]).map((row,index)=>({
+    id:String(row?.id||`outcome-${index+1}`),
+    outcome_type:row?.outcome_type==="indicator"?"indicator":"learning_outcome",
+    section_no:Math.max(1,Number(row?.section_no||1)),
+    item_range:String(row?.item_range||""),
+    text:String(row?.text||""),
+  })).filter(row=>row.text.trim()||row.item_range.trim());
+}
+function examAutoInstruction(set){
+  const sections=examSections(set);
+  if(!sections.length)return "";
+  const detail=sections.map(section=>`ตอนที่ ${examNumber(section.no,set?.number_style)} ${section.title} จำนวน ${examNumber(section.count,set?.number_style)} ข้อ ${section.instruction}`).join(" และ ");
+  return `ข้อสอบฉบับนี้ มี ${examNumber(sections.length,set?.number_style)} ตอน ได้แก่ ${detail}`;
+}
+function examSetCounts(set){
+  const items=examItemsForSet(set?.id),objective=items.filter(x=>x.item_type==="objective"),subjective=items.filter(x=>x.item_type==="subjective"),sections=examSections(set);
+  const plannedObjective=sections.filter(x=>x.item_type==="objective").reduce((sum,x)=>sum+Number(x.count||0),0);
+  const plannedSubjective=sections.filter(x=>x.item_type==="subjective").reduce((sum,x)=>sum+Number(x.count||0),0);
+  return {items,objective,subjective,sections,plannedObjective,plannedSubjective};
+}
+function examSetReadiness(set){
+  if(!set)return {ready:false,issues:["ยังไม่ได้เลือกชุดข้อสอบ"]};
+  const c=examSetCounts(set),issues=[];
+  if(c.objective.length!==c.plannedObjective)issues.push(`ปรนัย ${c.objective.length}/${c.plannedObjective} ข้อ`);
+  if(c.subjective.length!==c.plannedSubjective)issues.push(`อัตนัย ${c.subjective.length}/${c.plannedSubjective} ข้อ`);
+  c.objective.forEach((item,idx)=>{
+    const opts=Array.isArray(item.options)?item.options:[];
+    if(!String(item.question_text||"").trim())issues.push(`ข้อ ${idx+1} ยังไม่มีโจทย์`);
+    if(!opts.length)issues.push(`ข้อ ${idx+1} ยังไม่มีตัวเลือก`);
+    if(!opts.some(o=>o&&o.correct===true))issues.push(`ข้อ ${idx+1} ยังไม่ได้กำหนดเฉลย`);
+  });
+  c.subjective.forEach((item,idx)=>{if(!String(item.question_text||"").trim())issues.push(`อัตนัยข้อ ${idx+1} ยังไม่มีโจทย์`);});
+  const plannedTotal=c.plannedObjective+c.plannedSubjective;
+  if(c.items.length===plannedTotal){
+    const itemScore=c.items.reduce((sum,item)=>sum+Number(item.score||0),0),fullScore=Number(set?.full_score||0);
+    if(Math.abs(itemScore-fullScore)>0.001)issues.push(`คะแนนรายข้อรวม ${itemScore} ไม่เท่าคะแนนเต็ม ${fullScore}`);
+  }
+  return {ready:issues.length===0,issues};
+}
+function examAssignmentOptionLabel(a){
+  const c=examClassById(a.class_id),s=examSubjectById(a.subject_id),teacher=a.teacher_name||"";
+  return `${s?.subject_code?`${s.subject_code} · `:""}${s?.subject_name||"รายวิชา"} · ${c?schoolClassLabel(c):"ชั้น/ห้อง"}${examCanReviewAll()&&teacher?` · ${teacher}`:""}`;
+}
+function examDefaultName(period,semester,year){
+  if(period==="midterm")return `ข้อสอบกลางภาคเรียนที่ ${semester} ปีการศึกษา ${year}`;
+  if(period==="final")return `ข้อสอบปลายภาคเรียนที่ ${semester} ปีการศึกษา ${year}`;
+  if(period==="unit")return `แบบทดสอบประจำหน่วย ภาคเรียนที่ ${semester} ปีการศึกษา ${year}`;
+  return `ชุดข้อสอบ ภาคเรียนที่ ${semester} ปีการศึกษา ${year}`;
+}
+async function loadExamWorkspace(){
+  const p=examCurrentPeriod();
+  state.examAcademicYear=p.academicYear;state.examSemester=p.semester;state.examLoadError="";
+  let assignmentQuery=supabase.from("teaching_assignments").select("*").eq("is_active",true).order("created_at");
+  if(!examCanReviewAll())assignmentQuery=assignmentQuery.eq("teacher_id",state.user.id);
+  const [setsRes,classesRes,subjectsRes,assignmentsRes]=await Promise.all([
+    supabase.from("academic_exam_sets").select("id,academic_year,semester,exam_period,exam_name,teaching_assignment_id,class_id,subject_id,teacher_id,subject_code_snapshot,subject_name_snapshot,class_label_snapshot,teacher_name_snapshot,duration_minutes,full_score,objective_count,subjective_count,number_style,default_choice_style,default_choice_count,instructions,general_instructions,sections,learning_outcomes,created_by,updated_by,created_at,updated_at").eq("academic_year",String(p.academicYear)).eq("semester",p.semester).order("updated_at",{ascending:false}),
+    supabase.from("school_classes").select("id,academic_year,semester,stage_code,level_name,room_name,sort_order,is_active").eq("academic_year",String(p.academicYear)).eq("semester",p.semester).eq("is_active",true).order("sort_order"),
+    supabase.from("academic_subjects").select("id,subject_code,subject_name,is_active").eq("is_active",true).order("subject_name"),
+    assignmentQuery,
+  ]);
+  if(setsRes.error){state.examLoadError=setsRes.error.message||String(setsRes.error);state.examSets=[];}else state.examSets=setsRes.data||[];
+  state.examClasses=classesRes.error?[]:(classesRes.data||[]);
+  state.examSubjects=subjectsRes.error?[]:(subjectsRes.data||[]);
+  state.examTeachingAssignments=assignmentsRes.error?[]:(assignmentsRes.data||[]).filter(a=>state.examClasses.some(c=>c.id===a.class_id));
+  const ids=state.examSets.map(x=>x.id);
+  if(ids.length){const itemsRes=await supabase.from("academic_exam_items").select("id,exam_set_id,item_no,item_type,section_no,question_text,score,choice_style,options,created_by,updated_by,created_at,updated_at").in("exam_set_id",ids).order("item_no");state.examItems=itemsRes.error?[]:(itemsRes.data||[]);if(itemsRes.error&&!state.examLoadError)state.examLoadError=itemsRes.error.message||String(itemsRes.error);}else state.examItems=[];
+  if(!state.selectedExamSetId||!state.examSets.some(x=>x.id===state.selectedExamSetId))state.selectedExamSetId=state.examSets[0]?.id||null;
+  if(state.examSection==="analysis"&&state.selectedExamSetId)await loadExamAnalysisData(state.selectedExamSetId);
+  else{state.examAttempts=[];state.examResponses=[];state.examAnalysisLoadError="";}
+}
+
+async function loadExamAnalysisData(examSetId=state.selectedExamSetId){
+  state.examAttempts=[];state.examResponses=[];state.examAnalysisLoadError="";
+  if(!examSetId)return;
+  const attemptsRes=await supabase.from("academic_exam_attempts").select("id,exam_set_id,student_id,student_number_snapshot,student_code_snapshot,student_name_snapshot,attendance_status,objective_score,subjective_score,total_score,created_by,updated_by,created_at,updated_at").eq("exam_set_id",examSetId).order("student_number_snapshot",{ascending:true,nullsFirst:false}).order("student_name_snapshot");
+  if(attemptsRes.error){state.examAnalysisLoadError=attemptsRes.error.message||String(attemptsRes.error);return;}
+  state.examAttempts=attemptsRes.data||[];
+  const ids=state.examAttempts.map(x=>x.id);
+  if(!ids.length)return;
+  const responsesRes=await supabase.from("academic_exam_responses").select("id,attempt_id,exam_item_id,selected_option_index,awarded_score,is_correct,created_by,updated_by,created_at,updated_at").in("attempt_id",ids);
+  if(responsesRes.error){state.examAnalysisLoadError=responsesRes.error.message||String(responsesRes.error);return;}
+  state.examResponses=responsesRes.data||[];
+}
+function examAnalysisTablesMissing(){return /academic_exam_attempts|academic_exam_responses|Could not find|relation .* does not exist/i.test(String(state.examAnalysisLoadError||""));}
+function examAnalysisAttempts(){return (state.examAttempts||[]).slice().sort((a,b)=>(Number(a.student_number_snapshot||9999)-Number(b.student_number_snapshot||9999))||String(a.student_name_snapshot||"").localeCompare(String(b.student_name_snapshot||""),'th'));}
+function examAnalysisPresentAttempts(){return examAnalysisAttempts().filter(x=>x.attendance_status!=="absent");}
+function examAnalysisResponse(attemptId,itemId){return (state.examResponses||[]).find(x=>x.attempt_id===attemptId&&x.exam_item_id===itemId)||null;}
+function examAnalysisItemScore(attemptId,item){return Number(examAnalysisResponse(attemptId,item.id)?.awarded_score||0);}
+function examAnalysisAttemptScores(attemptId){
+  const items=examItemsForSet(),objective=items.filter(x=>x.item_type==="objective"),subjective=items.filter(x=>x.item_type==="subjective");
+  const o=objective.reduce((sum,item)=>sum+examAnalysisItemScore(attemptId,item),0),u=subjective.reduce((sum,item)=>sum+examAnalysisItemScore(attemptId,item),0);
+  return {objective:o,subjective:u,total:o+u};
+}
+function examAnalysisMean(values){const a=values.map(Number).filter(Number.isFinite);return a.length?a.reduce((x,y)=>x+y,0)/a.length:0;}
+function examAnalysisMedian(values){const a=values.map(Number).filter(Number.isFinite).sort((x,y)=>x-y);if(!a.length)return 0;const m=Math.floor(a.length/2);return a.length%2?a[m]:(a[m-1]+a[m])/2;}
+function examAnalysisVariance(values,sample=false){const a=values.map(Number).filter(Number.isFinite);if(a.length<(sample?2:1))return 0;const mean=examAnalysisMean(a),sum=a.reduce((v,x)=>v+(x-mean)**2,0);return sum/(sample?a.length-1:a.length);}
+function examAnalysisStdDev(values){return Math.sqrt(examAnalysisVariance(values,false));}
+function examAnalysisNum(v,digits=2){const n=Number(v);return Number.isFinite(n)?n.toLocaleString("th-TH",{minimumFractionDigits:digits,maximumFractionDigits:digits}):"—";}
+function examDifficultyLabel(p){if(!Number.isFinite(p))return "—";if(p<.20)return "ยากมาก";if(p<.40)return "ค่อนข้างยาก";if(p<.60)return "ปานกลาง";if(p<.80)return "ค่อนข้างง่าย";return "ง่ายมาก";}
+function examDiscriminationLabel(r){if(!Number.isFinite(r))return "ข้อมูลยังไม่พอ";if(r<0)return "ควรตรวจสอบ";if(r<.20)return "ควรปรับ";if(r<.30)return "พอใช้";if(r<.40)return "ดี";return "ดีมาก";}
+function examAnalysisMetrics(set=examSetById()){
+  const present=examAnalysisPresentAttempts(),items=examItemsForSet(set?.id),objective=items.filter(x=>x.item_type==="objective"),subjective=items.filter(x=>x.item_type==="subjective");
+  const totalScores=present.map(a=>examAnalysisAttemptScores(a.id).total),objectiveTotals=present.map(a=>examAnalysisAttemptScores(a.id).objective),n=present.length;
+  const ranked=present.map(a=>({a,score:examAnalysisAttemptScores(a.id).total})).sort((x,y)=>y.score-x.score||Number(x.a.student_number_snapshot||0)-Number(y.a.student_number_snapshot||0));
+  const groupSize=n>=4?Math.min(Math.floor(n/2),Math.max(1,Math.round(n*.27))):0,upper=new Set(ranked.slice(0,groupSize).map(x=>x.a.id)),lower=new Set(ranked.slice(Math.max(0,n-groupSize)).map(x=>x.a.id));
+  const objectiveRows=objective.map(item=>{
+    const opts=Array.isArray(item.options)?item.options:[],counts=opts.map(()=>0);let correct=0,blank=0,ru=0,rl=0;
+    present.forEach(a=>{const r=examAnalysisResponse(a.id,item.id);if(r?.selected_option_index===null||r?.selected_option_index===undefined){blank++;return;}const idx=Number(r.selected_option_index);if(Number.isInteger(idx)&&idx>=0&&idx<counts.length)counts[idx]++;if(r?.is_correct===true){correct++;if(upper.has(a.id))ru++;if(lower.has(a.id))rl++;}});
+    const p=n?correct/n:null,r=groupSize?(ru-rl)/groupSize:null;
+    return {item,p,r,correct,blank,counts,groupSize,ru,rl};
+  });
+  const subjectiveRows=subjective.map(item=>{const vals=present.map(a=>examAnalysisItemScore(a.id,item)),mean=examAnalysisMean(vals),max=Number(item.score||0);return {item,mean,p:max>0?mean/max:null,min:vals.length?Math.min(...vals):0,maxObserved:vals.length?Math.max(...vals):0};});
+  let kr20=null;if(n>=2&&objective.length>=2){const variance=examAnalysisVariance(objectiveTotals,true),sumPQ=objectiveRows.reduce((sum,row)=>Number.isFinite(row.p)?sum+row.p*(1-row.p):sum,0),k=objective.length;if(variance>0)kr20=(k/(k-1))*(1-sumPQ/variance);}
+  return {n,present,totalScores,objectiveTotals,objectiveRows,subjectiveRows,groupSize,mean:examAnalysisMean(totalScores),median:examAnalysisMedian(totalScores),sd:examAnalysisStdDev(totalScores),min:totalScores.length?Math.min(...totalScores):0,max:totalScores.length?Math.max(...totalScores):0,kr20};
+}
+function examAnalysisOptionDistribution(row,set){
+  const opts=Array.isArray(row.item.options)?row.item.options:[],n=Math.max(1,examAnalysisPresentAttempts().length);
+  const parts=opts.map((o,i)=>{const pct=row.counts[i]/n*100,mark=examChoiceMarker(i,row.item.choice_style||set.default_choice_style),correct=o?.correct===true;return `<span class="${correct?"correct":""}"><b>${escapeHtml(mark)}</b> ${row.counts[i]} (${examAnalysisNum(pct,0)}%)</span>`;});
+  if(row.blank)parts.push(`<span><b>ว่าง</b> ${row.blank} (${examAnalysisNum(row.blank/n*100,0)}%)</span>`);
+  return parts.join("");
+}
+function examAnalysisSummaryHtml(set){
+  const m=examAnalysisMetrics(set),absent=examAnalysisAttempts().filter(x=>x.attendance_status==="absent").length;
+  return `<div class="exam-analysis-summary"><article><span>เข้าสอบ</span><strong>${m.n}</strong><small>คน · ขาด ${absent}</small></article><article><span>คะแนนเฉลี่ย</span><strong>${examAnalysisNum(m.mean)}</strong><small>จาก ${examAnalysisNum(set.full_score)}</small></article><article><span>ส่วนเบี่ยงเบนมาตรฐาน</span><strong>${examAnalysisNum(m.sd)}</strong><small>SD ของคะแนนรวม</small></article><article><span>KR-20</span><strong>${m.kr20===null?"—":examAnalysisNum(m.kr20,3)}</strong><small>เฉพาะข้อปรนัย</small></article></div>`;
+}
+function examAnalysisEntryCellHtml(attempt,item,set){
+  const r=examAnalysisResponse(attempt.id,item.id),disabled=attempt.attendance_status==="absent"?"disabled":"";
+  if(item.item_type==="objective"){const opts=Array.isArray(item.options)?item.options:[],value=r?.selected_option_index;return `<td class="exam-analysis-answer-cell ${r?(r.is_correct===true?"correct":"wrong"):""}"><select class="select exam-analysis-answer-select" data-exam-analysis-answer data-attempt-id="${attempt.id}" data-item-id="${item.id}" ${disabled}><option value="">—</option>${opts.map((o,i)=>`<option value="${i}" ${Number(value)===i?"selected":""}>${escapeHtml(examChoiceMarker(i,item.choice_style||set.default_choice_style))}</option>`).join("")}</select></td>`;}
+  const score=r?Number(r.awarded_score||0):"";return `<td class="exam-analysis-answer-cell subjective"><input class="input exam-analysis-score-input" data-exam-analysis-score data-attempt-id="${attempt.id}" data-item-id="${item.id}" type="number" min="0" max="${Number(item.score||0)}" step="0.5" value="${score}" ${disabled}></td>`;
+}
+function examAnalysisEntryHtml(set){
+  const attempts=examAnalysisAttempts(),items=examItemsForSet(set.id),ready=examSetReadiness(set);
+  if(!attempts.length)return `<section class="panel exam-analysis-empty"><div class="empty"><strong>ยังไม่มีรายชื่อนักเรียนสำหรับบันทึกผลสอบ</strong><span>ระบบจะดึงนักเรียนสถานะกำลังเรียนจากห้อง ${escapeHtml(set.class_label_snapshot||"")} โดยใช้ชุดข้อสอบและเฉลยเดิมทันที</span><button class="btn btn-primary" id="exam-analysis-init-roster" ${ready.ready?"":"disabled"}>ดึงรายชื่อนักเรียนและเริ่มบันทึกผลสอบ</button>${ready.ready?"":`<small>ต้องจัดทำข้อสอบให้ครบก่อน · ${escapeHtml(ready.issues.slice(0,4).join(" · "))}</small>`}</div></section>`;
+  return `<section class="panel exam-analysis-entry"><div class="panel-head"><div class="panel-title-wrap"><h3>บันทึกผลสอบรายคน</h3><p>บันทึกอัตโนมัติทุกช่อง · ปรนัยตรวจตามเฉลยในชุดข้อสอบ · อัตนัยกรอกคะแนนที่ได้</p></div><div class="panel-actions"><span class="helper" id="exam-analysis-autosave">พร้อมบันทึก</span><button class="btn btn-ghost danger" id="exam-analysis-clear">ล้างผลสอบทั้งหมด</button></div></div><div class="exam-analysis-grid-wrap"><table class="exam-analysis-grid"><thead><tr><th class="sticky-no">เลขที่</th><th class="sticky-name">ชื่อ-สกุล</th><th class="sticky-status">สถานะ</th>${items.map((item,i)=>`<th title="${escapeHtml(item.question_text||"")}"><b>${examNumber(i+1,set.number_style)}</b><small>${item.item_type==="objective"?"ปรนัย":"อัตนัย"} · ${examAnalysisNum(item.score,1)}</small></th>`).join("")}<th class="sticky-score">รวม</th></tr></thead><tbody>${attempts.map(a=>{const sc=examAnalysisAttemptScores(a.id);return `<tr data-exam-attempt-row="${a.id}" class="${a.attendance_status==="absent"?"absent":""}"><td class="sticky-no">${a.student_number_snapshot??"—"}</td><td class="sticky-name"><strong>${escapeHtml(a.student_name_snapshot||"")}</strong><small>${escapeHtml(a.student_code_snapshot||"")}</small></td><td class="sticky-status"><select class="select exam-analysis-status" data-exam-analysis-status data-attempt-id="${a.id}"><option value="present" ${a.attendance_status!=="absent"?"selected":""}>เข้าสอบ</option><option value="absent" ${a.attendance_status==="absent"?"selected":""}>ขาดสอบ</option></select></td>${items.map(item=>examAnalysisEntryCellHtml(a,item,set)).join("")}<td class="sticky-score"><strong data-exam-attempt-score="${a.id}">${examAnalysisNum(sc.total)}</strong><small>/ ${examAnalysisNum(set.full_score)}</small></td></tr>`;}).join("")}</tbody></table></div><div class="exam-analysis-entry-note"><strong>การคิดคะแนน</strong><span>ปรนัย: ระบบให้คะแนนเต็มของข้อนั้นเมื่อคำตอบตรงเฉลย และ 0 เมื่อผิด/เว้นว่าง · อัตนัย: ครูกรอกคะแนนตั้งแต่ 0 ถึงคะแนนเต็มของข้อ</span></div></section>`;
+}
+function examAnalysisReportHtml(set){
+  const m=examAnalysisMetrics(set);if(!examAnalysisAttempts().length)return examAnalysisEntryHtml(set);
+  if(!m.n)return `<section class="panel"><div class="empty"><strong>ยังไม่มีผู้เข้าสอบ</strong><span>รายชื่อทั้งหมดถูกตั้งเป็น “ขาดสอบ” จึงยังวิเคราะห์คุณภาพข้อสอบไม่ได้</span></div></section>`;
+  return `${examAnalysisSummaryHtml(set)}<section class="panel"><div class="panel-head"><div class="panel-title-wrap"><h3>วิเคราะห์ข้อปรนัยรายข้อ</h3><p>p = สัดส่วนตอบถูก · r = อำนาจจำแนกจากกลุ่มคะแนนสูง/ต่ำ 27% · กลุ่มละ ${m.groupSize||"—"} คน</p></div><button class="btn btn-primary" id="exam-analysis-export">Export PDF รายงานวิเคราะห์</button></div>${m.objectiveRows.length?`<div class="table-wrap"><table class="table exam-item-analysis-table"><thead><tr><th>ข้อ</th><th>p</th><th>ความยาก</th><th>r</th><th>อำนาจจำแนก</th><th>การเลือกคำตอบ</th></tr></thead><tbody>${m.objectiveRows.map((row,i)=>`<tr><td><strong>${examNumber(examItemsForSet(set.id).findIndex(x=>x.id===row.item.id)+1,set.number_style)}</strong><br><small>${examAnalysisNum(row.item.score,1)} คะแนน</small></td><td><strong>${row.p===null?"—":examAnalysisNum(row.p,2)}</strong><br><small>${row.correct}/${m.n} คน</small></td><td><span class="pill neutral">${escapeHtml(examDifficultyLabel(row.p))}</span></td><td><strong>${row.r===null?"—":examAnalysisNum(row.r,2)}</strong>${row.groupSize?`<br><small>สูง ${row.ru} · ต่ำ ${row.rl}</small>`:""}</td><td><span class="pill ${Number.isFinite(row.r)&&row.r>=.30?"active":Number.isFinite(row.r)&&row.r<.20?"pending":"neutral"}">${escapeHtml(examDiscriminationLabel(row.r))}</span></td><td><div class="exam-analysis-options">${examAnalysisOptionDistribution(row,set)}</div></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty"><strong>ชุดนี้ไม่มีข้อปรนัย</strong><span>จะแสดงสรุปข้ออัตนัยด้านล่างแทน</span></div>`}</section>${m.subjectiveRows.length?`<section class="panel"><div class="panel-head"><div class="panel-title-wrap"><h3>สรุปข้ออัตนัย</h3><p>แสดงค่าเฉลี่ยรายข้อและสัดส่วนคะแนนเฉลี่ยต่อคะแนนเต็ม</p></div></div><div class="table-wrap"><table class="table"><thead><tr><th>ข้อ</th><th>คะแนนเต็ม</th><th>เฉลี่ย</th><th>สัดส่วนเฉลี่ย</th><th>ต่ำสุด–สูงสุด</th></tr></thead><tbody>${m.subjectiveRows.map(row=>`<tr><td><strong>${examNumber(examItemsForSet(set.id).findIndex(x=>x.id===row.item.id)+1,set.number_style)}</strong></td><td>${examAnalysisNum(row.item.score,1)}</td><td>${examAnalysisNum(row.mean,2)}</td><td>${row.p===null?"—":examAnalysisNum(row.p*100,1)+"%"}</td><td>${examAnalysisNum(row.min,1)} – ${examAnalysisNum(row.maxObserved,1)}</td></tr>`).join("")}</tbody></table></div></section>`:""}<section class="exam-analysis-method-note"><strong>เกณฑ์ที่ระบบใช้ในระยะนี้</strong><span>ความยาก: p &lt; .20 ยากมาก, .20–.39 ค่อนข้างยาก, .40–.59 ปานกลาง, .60–.79 ค่อนข้างง่าย, ≥ .80 ง่ายมาก · อำนาจจำแนก: r ≥ .40 ดีมาก, .30–.39 ดี, .20–.29 พอใช้, 0–.19 ควรปรับ, ค่าติดลบควรตรวจสอบเฉลย/ข้อคำถาม · KR-20 คำนวณเฉพาะข้อปรนัย</span></section>`;
+}
+function examAnalysisWorkspaceHtml(){
+  const set=examSetById();if(!set)return `<section class="panel"><div class="empty"><strong>ยังไม่มีชุดข้อสอบ</strong><span>สร้างชุดข้อสอบในหน้าที่ 1 ก่อน</span></div></section>`;
+  if(state.examAnalysisLoadError&&examAnalysisTablesMissing())return `<section class="panel"><div class="empty"><strong>ฐานข้อมูลระบบที่ 4 ยังไม่พร้อม</strong><span>${escapeHtml(state.examAnalysisLoadError)}</span><code>supabase-v5.3.0-academic-exam-item-analysis.sql</code></div></section>`;
+  const r=examSetReadiness(set);
+  return `<section class="panel exam-analysis-head"><div class="panel-head"><div class="panel-title-wrap"><h3>ระบบที่ 4 · วิเคราะห์คุณภาพข้อสอบ</h3><p>${escapeHtml(set.subject_code_snapshot||"")} ${escapeHtml(set.subject_name_snapshot||"")} · ${escapeHtml(set.class_label_snapshot||"")} · ${escapeHtml(set.exam_name||"")}</p></div><div class="field exam-set-picker"><label>ชุดข้อสอบ</label>${examSetSelectHtml()}</div></div><div class="exam-analysis-subtabs"><button class="btn ${state.examAnalysisView!=="report"?"btn-primary":"btn-ghost"}" data-exam-analysis-view="entry">1 · บันทึกผลสอบ</button><button class="btn ${state.examAnalysisView==="report"?"btn-primary":"btn-ghost"}" data-exam-analysis-view="report" ${r.ready?"":"disabled"}>2 · วิเคราะห์คุณภาพ</button></div>${state.examAnalysisLoadError?`<div class="exam-readiness warning"><strong>โหลดข้อมูลวิเคราะห์ไม่ครบ</strong><span>${escapeHtml(state.examAnalysisLoadError)}</span></div>`:""}</section>${state.examAnalysisView==="report"?examAnalysisReportHtml(set):examAnalysisEntryHtml(set)}`;
+}
+async function examAnalysisInitialize(){const set=examSetById();if(!set)return;const ready=examSetReadiness(set);if(!ready.ready)return toast("ข้อสอบยังไม่พร้อม",ready.issues.slice(0,5).join(" · "),"error");const btn=document.querySelector("#exam-analysis-init-roster");buttonLoading(btn,true,"กำลังดึงรายชื่อ...");const {data,error}=await supabase.rpc("initialize_academic_exam_attempts",{p_exam_set_id:set.id});buttonLoading(btn,false);if(error)return toast("ดึงรายชื่อนักเรียนไม่สำเร็จ",error.message,"error");toast("เตรียมรายชื่อผลสอบแล้ว",`เพิ่ม ${Number(data||0)} คน · ถ้ามีรายชื่อเดิมระบบจะไม่สร้างซ้ำ`,"success");await loadExamAnalysisData(set.id);renderDashboard();}
+async function examAnalysisClear(){const set=examSetById();if(!set||!state.examAttempts.length)return;if(!confirm(`ล้างผลสอบของ ${set.subject_name_snapshot||set.exam_name} ทั้งหมดหรือไม่?\n\nคำตอบ คะแนน และผลวิเคราะห์จะถูกลบ แต่ชุดข้อสอบจะยังอยู่ครบ`))return;const btn=document.querySelector("#exam-analysis-clear");buttonLoading(btn,true,"กำลังล้าง...");const {error}=await supabase.from("academic_exam_attempts").delete().eq("exam_set_id",set.id);buttonLoading(btn,false);if(error)return toast("ล้างผลสอบไม่สำเร็จ",error.message,"error");state.examAttempts=[];state.examResponses=[];toast("ล้างผลสอบแล้ว","สามารถกลับไปแก้โครงสร้างข้อสอบ/เฉลยได้ตามปกติ","success");renderDashboard();}
+function examAnalysisSyncLocalScore(attemptId){const a=(state.examAttempts||[]).find(x=>x.id===attemptId);if(!a)return;const sc=examAnalysisAttemptScores(attemptId);a.objective_score=sc.objective;a.subjective_score=sc.subjective;a.total_score=sc.total;const el=document.querySelector(`[data-exam-attempt-score="${attemptId}"]`);if(el)el.textContent=examAnalysisNum(sc.total);}
+function examAnalysisSetSaveText(text){const el=document.querySelector("#exam-analysis-autosave");if(el)el.textContent=text;}
+async function examAnalysisSaveResponse(el,type){
+  const attemptId=el.dataset.attemptId,itemId=el.dataset.itemId,raw=String(el.value??"").trim(),existing=examAnalysisResponse(attemptId,itemId),cell=el.closest("td");el.disabled=true;examAnalysisSetSaveText("กำลังบันทึก...");
+  try{
+    if(raw===""){if(existing){const {error}=await supabase.from("academic_exam_responses").delete().eq("id",existing.id);if(error)throw error;state.examResponses=state.examResponses.filter(x=>x.id!==existing.id);}cell?.classList.remove("correct","wrong");examAnalysisSyncLocalScore(attemptId);examAnalysisSetSaveText("บันทึกแล้ว");return;}
+    const payload=type==="objective"?{selected_option_index:Number(raw),updated_by:state.user.id}:{awarded_score:Number(raw),updated_by:state.user.id};let res;if(existing)res=await supabase.from("academic_exam_responses").update(payload).eq("id",existing.id).select().single();else res=await supabase.from("academic_exam_responses").insert({attempt_id:attemptId,exam_item_id:itemId,...payload,created_by:state.user.id}).select().single();if(res.error)throw res.error;
+    const row=res.data;const idx=state.examResponses.findIndex(x=>x.id===row.id);if(idx>=0)state.examResponses[idx]=row;else state.examResponses.push(row);cell?.classList.toggle("correct",row.is_correct===true);cell?.classList.toggle("wrong",type==="objective"&&row.is_correct!==true);examAnalysisSyncLocalScore(attemptId);examAnalysisSetSaveText("บันทึกแล้ว");
+  }catch(err){console.error(err);toast("บันทึกผลสอบไม่สำเร็จ",err.message||String(err),"error");examAnalysisSetSaveText("บันทึกไม่สำเร็จ");}
+  finally{const a=state.examAttempts.find(x=>x.id===attemptId);el.disabled=a?.attendance_status==="absent";}
+}
+async function examAnalysisSaveStatus(el){const id=el.dataset.attemptId,status=el.value,a=state.examAttempts.find(x=>x.id===id);if(!a)return;el.disabled=true;const {data,error}=await supabase.from("academic_exam_attempts").update({attendance_status:status,updated_by:state.user.id}).eq("id",id).select().single();el.disabled=false;if(error){el.value=a.attendance_status;return toast("บันทึกสถานะไม่สำเร็จ",error.message,"error");}Object.assign(a,data);const row=document.querySelector(`[data-exam-attempt-row="${id}"]`);row?.classList.toggle("absent",status==="absent");row?.querySelectorAll("[data-exam-analysis-answer],[data-exam-analysis-score]").forEach(x=>x.disabled=status==="absent");examAnalysisSetSaveText("บันทึกสถานะแล้ว");}
+function examAnalysisPdfHeader(set,pageNo){return `<header class="exam-analysis-pdf-head"><h1>รายงานวิเคราะห์คุณภาพข้อสอบ</h1><strong>${escapeHtml(schoolName())}</strong><span>${escapeHtml(set.subject_code_snapshot||"")} ${escapeHtml(set.subject_name_snapshot||"")} · ${escapeHtml(set.class_label_snapshot||"")}</span><small>${escapeHtml(set.exam_name||"")} · หน้า ${pageNo}</small></header>`;}
+async function examBuildAnalysisPdf(set){
+  const m=examAnalysisMetrics(set);if(!m.n)throw new Error("ยังไม่มีข้อมูลผู้เข้าสอบสำหรับวิเคราะห์");await ensureOfficialPdfFont("16pt");const host=document.createElement("div");host.className="exam-pdf-host exam-analysis-pdf-host";document.body.appendChild(host);
+  try{const rows=m.objectiveRows,chunkSize=12,chunks=rows.length?Array.from({length:Math.ceil(rows.length/chunkSize)},(_,i)=>rows.slice(i*chunkSize,(i+1)*chunkSize)):[[]];chunks.forEach((chunk,pi)=>{const page=document.createElement("article");page.className="exam-pdf-page exam-pdf-standard exam-analysis-report-page";page.innerHTML=`${examAnalysisPdfHeader(set,pi+1)}${pi===0?`<div class="exam-analysis-pdf-summary"><span>เข้าสอบ <b>${m.n}</b> คน</span><span>เฉลี่ย <b>${examAnalysisNum(m.mean)}</b> / ${examAnalysisNum(set.full_score)}</span><span>SD <b>${examAnalysisNum(m.sd)}</b></span><span>KR-20 <b>${m.kr20===null?"—":examAnalysisNum(m.kr20,3)}</b></span></div><p class="exam-analysis-pdf-method">p = สัดส่วนตอบถูก · r = กลุ่มสูง–ต่ำ 27% (กลุ่มละ ${m.groupSize||"—"} คน)</p>`:""}<table class="exam-analysis-pdf-table"><thead><tr><th>ข้อ</th><th>p</th><th>ความยาก</th><th>r</th><th>อำนาจจำแนก</th><th>ตอบถูก</th></tr></thead><tbody>${chunk.map(row=>`<tr><td>${examNumber(examItemsForSet(set.id).findIndex(x=>x.id===row.item.id)+1,set.number_style)}</td><td>${row.p===null?"—":examAnalysisNum(row.p,2)}</td><td>${escapeHtml(examDifficultyLabel(row.p))}</td><td>${row.r===null?"—":examAnalysisNum(row.r,2)}</td><td>${escapeHtml(examDiscriminationLabel(row.r))}</td><td>${row.correct}/${m.n}</td></tr>`).join("")}</tbody></table>${pi===chunks.length-1&&m.subjectiveRows.length?`<div class="exam-analysis-pdf-subjective"><strong>ข้ออัตนัย</strong>${m.subjectiveRows.map(row=>`<span>ข้อ ${examNumber(examItemsForSet(set.id).findIndex(x=>x.id===row.item.id)+1,set.number_style)} เฉลี่ย ${examAnalysisNum(row.mean,2)} / ${examAnalysisNum(row.item.score,1)}</span>`).join("")}</div>`:""}`;host.appendChild(page);});
+    const pages=[...host.querySelectorAll(".exam-analysis-report-page")],pdf=new jsPDF({orientation:"portrait",unit:"mm",format:"a4",compress:true});for(let i=0;i<pages.length;i++){if(i)pdf.addPage("a4","portrait");const canvas=await html2canvas(pages[i],{scale:2,useCORS:true,backgroundColor:"#fff",logging:false});pdf.addImage(canvas.toDataURL("image/jpeg",.96),"JPEG",0,0,210,297,undefined,"FAST");}return {blob:pdf.output("blob"),filename:`วิเคราะห์คุณภาพข้อสอบ_${academicRegSafeFileBase(set.subject_name_snapshot||set.exam_name)}_${set.academic_year}_ภาคเรียน${set.semester}.pdf`,pageCount:pages.length};
+  }finally{host.remove();}
+}
+async function examOpenAnalysisPdf(){const set=examSetById();if(!set)return;const btn=document.querySelector("#exam-analysis-export");buttonLoading(btn,true,"กำลังสร้าง PDF...");try{const built=await examBuildAnalysisPdf(set);openPdfPreviewModal({title:`รายงานวิเคราะห์คุณภาพข้อสอบ · ${set.subject_name_snapshot||set.exam_name}`,subtitle:`A4 · ${built.pageCount} หน้า · ${OFFICIAL_PDF_FONT}`,blob:built.blob,filename:built.filename});}catch(err){console.error(err);toast("สร้างรายงานไม่สำเร็จ",err.message||String(err),"error");}finally{buttonLoading(btn,false);}}
+
+function examSetupRequiredHtml(){
+  return `<section class="lesson-hero exam-hero"><div><span class="eyebrow dark">Academic Examination Management · Phase 2</span><h2>ระบบบริหารจัดการข้อสอบและวิเคราะห์คุณภาพข้อสอบ</h2><p>จัดทำชุดข้อสอบ ปกข้อสอบ กระดาษคำตอบ บันทึกผลสอบ และวิเคราะห์คุณภาพ โดยเชื่อมข้อมูลชุดเดียวกันตลอด Workflow</p></div></section><section class="panel"><div class="empty"><strong>ยังไม่พร้อมใช้งานฐานข้อมูลระบบข้อสอบ</strong><span>${escapeHtml(state.examLoadError||"กรุณารัน SQL สำหรับ v5.1.0 และ v5.1.1 ใน Supabase ก่อน")}</span><code>supabase-v5.1.1-academic-exam-layout-workflow.sql</code></div></section>`;
+}
+function examTabsHtml(){
+  const tabs=[["sets","1 · จัดทำชุดข้อสอบ"],["cover","2 · ปก / ใบปะหน้า"],["documents","3 · ข้อสอบและกระดาษคำตอบ"],["analysis","4 · วิเคราะห์คุณภาพ"]];
+  return `<div class="lesson-view-tabs exam-tabs">${tabs.map(([k,t])=>`<button class="lesson-view-tab ${state.examSection===k?"active":""}" data-exam-section="${k}">${t}</button>`).join("")}</div>`;
+}
+function examHeroHtml(){
+  return `<section class="lesson-hero exam-hero"><div><span class="eyebrow dark">กลุ่มงานบริหารวิชาการ · Examination Management</span><h2>ระบบบริหารจัดการข้อสอบและวิเคราะห์คุณภาพข้อสอบ</h2><p>ตารางสอน → ชุดข้อสอบ → ใบปะหน้า → ข้อสอบ/กระดาษคำตอบ → ผลสอบ → วิเคราะห์ p / r / KR-20 → Export PDF</p></div><div class="lesson-hero-actions">${state.examSection==="sets"?`<button class="btn btn-primary" id="exam-create-set">＋ เพิ่มชุดข้อสอบ</button>`:""}</div></section>`;
+}
+function examPeriodFiltersHtml(){
+  const years=[...new Set([...(state.academicTerms||[]).map(t=>Number(t.academic_year)).filter(Boolean),Number(currentAcademicPeriod().academicYear),Number(state.examAcademicYear)].filter(Boolean))].sort((a,b)=>b-a);
+  return `<div class="exam-toolbar"><div class="field"><label>ปีการศึกษา</label><select class="select" id="exam-year">${years.map(y=>`<option value="${y}" ${y===Number(state.examAcademicYear)?"selected":""}>${y}</option>`).join("")}</select></div><div class="field"><label>ภาคเรียน</label><select class="select" id="exam-semester">${[1,2,3].map(s=>`<option value="${s}" ${s===Number(state.examSemester)?"selected":""}>${s}</option>`).join("")}</select></div><div class="field exam-search-field"><label>ค้นหา</label><input class="input" id="exam-search" placeholder="ชื่อวิชา ชั้น หรือชื่อชุดข้อสอบ" value="${escapeHtml(state.examSearch||"")}"></div></div>`;
+}
+function examSectionChipsHtml(set){
+  return examSections(set).map(section=>`<span class="exam-section-chip"><b>ตอนที่ ${examNumber(section.no,set.number_style)}</b> ${escapeHtml(section.title)} · ${examNumber(section.count,set.number_style)} ข้อ</span>`).join("");
+}
+function examSetCardHtml(set){
+  const c=examSetCounts(set),ready=examSetReadiness(set);
+  return `<article class="exam-set-card"><div class="exam-set-card-main"><div><div class="exam-set-meta"><span class="pill ${ready.ready?"active":"pending"}">${ready.ready?"พร้อม Export":"กำลังจัดทำ"}</span><span>${escapeHtml(examPeriodLabel(set.exam_period))}</span></div><h3>${escapeHtml(set.subject_code_snapshot?`${set.subject_code_snapshot} ${set.subject_name_snapshot}`:set.subject_name_snapshot||set.exam_name)}</h3><p>${escapeHtml(set.class_label_snapshot||"—")} · ${escapeHtml(set.exam_name||"")} · ${examNumber(Number(set.duration_minutes||0),set.number_style)} นาที</p><div class="exam-set-sections">${examSectionChipsHtml(set)}</div><small>บันทึกแล้ว ${examNumber(c.items.length,set.number_style)} / ${examNumber(c.plannedObjective+c.plannedSubjective,set.number_style)} ข้อ</small></div><div class="exam-set-actions"><button class="btn btn-primary btn-sm" data-exam-open="${set.id}">เปิดชุดข้อสอบ</button><button class="btn btn-secondary btn-sm" data-exam-cover="${set.id}">ปกข้อสอบ</button><button class="btn btn-secondary btn-sm" data-exam-documents="${set.id}">PDF</button>${ready.ready?`<button class="btn btn-secondary btn-sm" data-exam-analysis="${set.id}">วิเคราะห์</button>`:""}<button class="btn btn-ghost btn-sm danger" data-exam-delete-set="${set.id}">ลบ</button></div></div><div class="exam-progress"><i style="width:${Math.min(100,c.items.length/Math.max(1,c.plannedObjective+c.plannedSubjective)*100)}%"></i></div></article>`;
+}
+function examQuestionCardHtml(item,index,set){
+  const opts=Array.isArray(item.options)?item.options:[],section=examSections(set).find(x=>x.no===Number(item.section_no||examSectionForType(set,item.item_type)?.no||1));
+  return `<article class="exam-question-card"><div class="exam-question-head"><div><span class="exam-question-no">ข้อ ${examNumber(index+1,set.number_style)}</span><span class="pill neutral">ตอนที่ ${examNumber(section?.no||1,set.number_style)} · ${item.item_type==="objective"?"ปรนัย":"อัตนัย"}</span><span class="exam-question-score">${Number(item.score||0)} คะแนน</span></div><div><button class="btn btn-ghost btn-sm" data-exam-edit-item="${item.id}">แก้ไข</button><button class="btn btn-ghost btn-sm danger" data-exam-delete-item="${item.id}">ลบ</button></div></div><p class="exam-question-text">${escapeHtml(item.question_text||"ยังไม่มีโจทย์")}</p>${item.item_type==="objective"?`<div class="exam-option-preview">${opts.map((o,i)=>`<span class="${o?.correct?"correct":""}"><b>${escapeHtml(examChoiceMarker(i,item.choice_style||set.default_choice_style))}.</b> ${escapeHtml(o?.text||"")}${o?.correct?" ✓":""}</span>`).join("")}</div>`:"<small class=\"helper\">กระดาษคำตอบอัตนัยจะแยกพื้นที่เขียน 2 ข้อต่อ A4 หนึ่งหน้า</small>"}</article>`;
+}
+function examBuilderHtml(set){
+  if(!set)return `<div class="empty"><strong>เลือกชุดข้อสอบ</strong><span>กด “เปิดชุดข้อสอบ” จากรายการ</span></div>`;
+  const c=examSetCounts(set),ready=examSetReadiness(set),objectiveRemaining=Math.max(0,c.plannedObjective-c.objective.length),subjectiveRemaining=Math.max(0,c.plannedSubjective-c.subjective.length),allowSubjective=c.objective.length>=c.plannedObjective;
+  return `<section class="panel exam-builder"><div class="panel-head"><div class="panel-title-wrap"><h3>ข้อคำถามในชุดข้อสอบ</h3><p>เพิ่มคำถามตามจำนวนที่กำหนดในแต่ละตอน · รูปแบบเลข ${set.number_style==="thai"?"เลขไทย":"เลขอารบิก"}</p></div><div class="panel-actions">${objectiveRemaining?`<button class="btn btn-primary" data-exam-add-type="objective">＋ เพิ่มข้อปรนัย (${objectiveRemaining})</button>`:""}${subjectiveRemaining?`<button class="btn btn-primary" data-exam-add-type="subjective" ${allowSubjective?"":"disabled"}>＋ เพิ่มข้ออัตนัย (${subjectiveRemaining})</button>`:""}</div></div><div class="exam-readiness ${ready.ready?"ready":"warning"}"><strong>${ready.ready?"✓ ข้อสอบครบตามโครงสร้าง":"กำลังจัดทำข้อสอบ"}</strong><span>${ready.ready?"พร้อมไปหน้าปกและ Export PDF":escapeHtml(ready.issues.slice(0,4).join(" · "))}</span></div><div class="exam-question-list">${c.items.length?c.items.map((x,i)=>examQuestionCardHtml(x,i,set)).join(""):`<div class="empty"><strong>ยังไม่มีข้อสอบ</strong><span>เริ่มเพิ่มข้อคำถามตามตอนที่กำหนดไว้</span></div>`}</div></section>`;
+}
+function examFullEditorHtml(set){
+  if(!set)return `<section class="panel"><div class="empty"><strong>ไม่พบชุดข้อสอบ</strong><button class="btn btn-secondary" id="exam-close-editor">กลับรายการ</button></div></section>`;
+  const c=examSetCounts(set),r=examSetReadiness(set);
+  return `<section class="exam-editor-page"><div class="exam-editor-topbar"><div class="exam-editor-heading"><button class="type-back-link" id="exam-close-editor">← กลับรายการชุดข้อสอบ</button><span class="eyebrow dark">Full Page Exam Editor</span><h2>${escapeHtml(set.subject_code_snapshot?`${set.subject_code_snapshot} ${set.subject_name_snapshot}`:set.subject_name_snapshot||set.exam_name)}</h2><p>${escapeHtml(set.class_label_snapshot||"")} · ${escapeHtml(set.exam_name||"")} · ${examNumber(set.duration_minutes,set.number_style)} นาที · ${examNumber(set.full_score,set.number_style)} คะแนน</p></div><div class="exam-editor-actions"><button class="btn btn-secondary" id="exam-edit-set">⚙ โครงสร้าง/ตอน</button><button class="btn btn-secondary" data-exam-editor-cover>ปก / ใบปะหน้า</button><button class="btn btn-secondary" data-exam-editor-analysis>ผลสอบ / วิเคราะห์</button><button class="btn btn-primary" data-exam-editor-documents>PDF / กระดาษคำตอบ</button></div></div><div class="exam-editor-overview"><div>${examSectionChipsHtml(set)}</div><span class="pill ${r.ready?"active":"pending"}">${r.ready?"พร้อม Export":"บันทึกแล้ว "+examNumber(c.items.length,set.number_style)+" ข้อ"}</span></div>${examBuilderHtml(set)}</section>`;
+}
+function examSetsWorkspaceHtml(){
+  if(state.examEditorOpen)return examFullEditorHtml(examSetById());
+  const q=String(state.examSearch||"").trim().toLowerCase();
+  const rows=(state.examSets||[]).filter(x=>!q||[x.exam_name,x.subject_name_snapshot,x.subject_code_snapshot,x.class_label_snapshot,x.teacher_name_snapshot].some(v=>String(v||"").toLowerCase().includes(q)));
+  return `${examPeriodFiltersHtml()}<section class="exam-set-list">${rows.length?rows.map(examSetCardHtml).join(""):`<div class="panel"><div class="empty"><strong>ยังไม่มีชุดข้อสอบในภาคเรียนนี้</strong><span>กด “เพิ่มชุดข้อสอบ” แล้วเลือกรายวิชาจากตารางสอนของคุณ</span></div></div>`}</section>`;
+}
+function examSetSelectHtml(id="exam-selected-set"){
+  return `<select class="select" id="${id}">${(state.examSets||[]).map(x=>`<option value="${x.id}" ${x.id===state.selectedExamSetId?"selected":""}>${escapeHtml(`${x.subject_name_snapshot||x.exam_name} · ${x.class_label_snapshot||""}`)}</option>`).join("")}</select>`;
+}
+function examOutcomeRowHtml(row,set,index){
+  const sections=examSections(set),sectionNo=Number(row?.section_no||sections[0]?.no||1),type=row?.outcome_type==="indicator"?"indicator":"learning_outcome";
+  return `<div class="exam-outcome-row" data-exam-outcome-row="${index}"><div class="field"><label>ประเภท</label><select class="select" data-exam-outcome-type><option value="learning_outcome" ${type==="learning_outcome"?"selected":""}>ผลลัพธ์การเรียนรู้</option><option value="indicator" ${type==="indicator"?"selected":""}>ตัวชี้วัด</option></select></div><div class="field"><label>ตอนที่</label><select class="select" data-exam-outcome-section>${sections.map(s=>`<option value="${s.no}" ${s.no===sectionNo?"selected":""}>ตอนที่ ${examNumber(s.no,set.number_style)} · ${escapeHtml(s.title)}</option>`).join("")}</select></div><div class="field"><label>ข้อสอบข้อที่</label><input class="input" data-exam-outcome-range value="${escapeHtml(row?.item_range||"")}" placeholder="เช่น 1-10 หรือ 1, 3, 5"></div><div class="field exam-outcome-text-field"><label>ข้อความตัวชี้วัด / ผลลัพธ์การเรียนรู้</label><textarea class="input textarea" data-exam-outcome-text placeholder="กรอกเมื่อใช้ส่วนนี้ในใบปะหน้า">${escapeHtml(row?.text||"")}</textarea></div><button type="button" class="btn btn-ghost danger exam-outcome-remove" data-exam-outcome-remove>ลบ</button></div>`;
+}
+function examCoverWorkspaceHtml(){
+  const set=examSetById();if(!set)return `<section class="panel"><div class="empty"><strong>ยังไม่มีชุดข้อสอบ</strong><span>สร้างชุดข้อสอบในหน้าที่ 1 ก่อน</span></div></section>`;
+  const instruction=set.instructions||examAutoInstruction(set),general=set.general_instructions||EXAM_DEFAULT_GENERAL_INSTRUCTIONS,outcomes=examLearningOutcomes(set),rows=outcomes.length?outcomes:[{section_no:examSections(set)[0]?.no||1,item_range:"",text:"",outcome_type:"learning_outcome"}];
+  return `<section class="panel"><div class="panel-head"><div class="panel-title-wrap"><h3>ปก / ใบปะหน้าข้อสอบ</h3><p>ยึดรูปแบบต้นฉบับโรงเรียน · ส่วนตัวชี้วัด/ผลลัพธ์การเรียนรู้มีฟอร์มให้กรอก แต่ไม่บังคับ</p></div><div class="field exam-set-picker"><label>ชุดข้อสอบ</label>${examSetSelectHtml()}</div></div><div class="exam-cover-editor"><div class="exam-cover-summary"><strong>${escapeHtml(set.subject_code_snapshot||"")} ${escapeHtml(set.subject_name_snapshot||"")}</strong><span>${escapeHtml(set.class_label_snapshot||"")} · ${escapeHtml(set.exam_name||"")}</span><small>${examSectionChipsHtml(set)}</small></div><div class="field"><label>คำชี้แจง</label><textarea class="input textarea" id="exam-cover-instructions">${escapeHtml(instruction)}</textarea><small class="helper">ระบบสร้างข้อความ “มี ... ตอน / ตอนที่ ...” จากโครงสร้างข้อสอบให้อัตโนมัติ และแก้ข้อความได้</small></div><div class="field"><label>คำแนะนำทั่วไป</label><textarea class="input textarea exam-general-instructions" id="exam-cover-general">${escapeHtml(general)}</textarea><small class="helper">หนึ่งบรรทัด = หนึ่งข้อ ระบบจะจัดเลขลำดับใน PDF ให้เอง</small></div><section class="exam-learning-outcomes-editor"><div class="panel-head compact"><div><strong>ตัวชี้วัด / ผลลัพธ์การเรียนรู้ (ไม่บังคับ)</strong><small>ถ้ากรอก ระบบจะแสดงเป็นตารางในใบปะหน้าตามต้นฉบับ หากไม่กรอกจะไม่บล็อกการ Export</small></div><button type="button" class="btn btn-secondary btn-sm" id="exam-add-outcome">＋ เพิ่มรายการ</button></div><div id="exam-outcome-rows">${rows.map((row,i)=>examOutcomeRowHtml(row,set,i)).join("")}</div></section><div class="panel-actions"><button class="btn btn-primary" id="exam-save-cover">บันทึกปกข้อสอบ</button><button class="btn btn-secondary" id="exam-preview-cover">ดู PDF ปก</button></div></div></section>`;
+}
+function examDocumentsWorkspaceHtml(){
+  const set=examSetById();if(!set)return `<section class="panel"><div class="empty"><strong>ยังไม่มีชุดข้อสอบ</strong><span>สร้างชุดข้อสอบในหน้าที่ 1 ก่อน</span></div></section>`;
+  const r=examSetReadiness(set),c=examSetCounts(set);
+  return `<section class="panel"><div class="panel-head"><div class="panel-title-wrap"><h3>ข้อสอบ · กระดาษคำตอบ · Export PDF</h3><p>PDF ใช้ฟอนต์ ${escapeHtml(OFFICIAL_PDF_FONT)} ตามมาตรฐาน BNK School OS และคง A4 ทุกอุปกรณ์</p></div><div class="field exam-set-picker"><label>ชุดข้อสอบ</label>${examSetSelectHtml()}</div></div><div class="exam-document-summary"><article><span>ปรนัย</span><strong>${examNumber(c.objective.length,set.number_style)}/${examNumber(c.plannedObjective,set.number_style)}</strong><small>ข้อ</small></article><article><span>อัตนัย</span><strong>${examNumber(c.subjective.length,set.number_style)}/${examNumber(c.plannedSubjective,set.number_style)}</strong><small>ข้อ</small></article><article><span>เวลา</span><strong>${examNumber(set.duration_minutes,set.number_style)}</strong><small>นาที</small></article><article><span>สถานะ</span><strong>${r.ready?"พร้อม":"ยังไม่ครบ"}</strong><small>${r.ready?"Export ได้":"กลับไปเติมข้อสอบ"}</small></article></div>${r.ready?`<div class="exam-export-grid"><button class="btn btn-secondary" data-exam-export="cover">PDF ปก / ใบปะหน้า</button><button class="btn btn-secondary" data-exam-export="questions">PDF ตัวข้อสอบ</button><button class="btn btn-secondary" data-exam-export="answers">PDF กระดาษคำตอบ</button><button class="btn btn-primary" data-exam-export="full">PDF ชุดข้อสอบฉบับสมบูรณ์</button></div>`:`<div class="exam-readiness warning"><strong>ยัง Export ชุดสมบูรณ์ไม่ได้</strong><span>${escapeHtml(r.issues.slice(0,8).join(" · "))}</span><button class="btn btn-secondary" id="exam-back-builder">กลับไปจัดทำข้อสอบ</button></div>`}<div class="exam-document-note"><strong>รูปแบบกระดาษคำตอบ</strong><span>ปรนัยใช้กล่องสี่เหลี่ยม □ ตามจำนวนตัวเลือกจริง และจัดสองฝั่งเมื่อจำนวนข้อมาก · อัตนัยแยกหน้า 2 ข้อต่อ A4 พร้อมเส้นบรรทัดจุด</span></div></section>`;
+}
+function examWorkspaceHtml(){
+  if(state.examLoadError&&/academic_exam_sets|academic_exam_items|relation .* does not exist|Could not find/i.test(state.examLoadError))return examSetupRequiredHtml();
+  if(state.examSection==="sets"&&state.examEditorOpen)return `<section class="exam-page exam-editor-mode">${examFullEditorHtml(examSetById())}</section>`;
+  return `<section class="exam-page">${examHeroHtml()}${examTabsHtml()}${state.examSection==="cover"?examCoverWorkspaceHtml():state.examSection==="documents"?examDocumentsWorkspaceHtml():state.examSection==="analysis"?examAnalysisWorkspaceHtml():examSetsWorkspaceHtml()}</section>`;
+}
+function examSetModal(set=null){
+  const editing=!!set,p=examCurrentPeriod(),assignments=state.examTeachingAssignments||[];
+  if(!editing&&!assignments.length)return toast("ไม่พบรายวิชาจากตารางสอน","ต้องมีการกำหนดรายวิชา/ครูในระบบจัดตารางสอนก่อนสร้างข้อสอบ","error");
+  const d=set||{academic_year:String(p.academicYear),semester:p.semester,exam_period:"final",duration_minutes:60,full_score:30,objective_count:30,subjective_count:0,number_style:"arabic",default_choice_style:"thai_letters",default_choice_count:4};
+  const ds=examSections(d),objectiveSection=ds.find(x=>x.item_type==="objective")||{title:"ข้อสอบปรนัย",instruction:examDefaultSectionInstruction("objective")},subjectiveSection=ds.find(x=>x.item_type==="subjective")||{title:"ข้อสอบอัตนัย",instruction:examDefaultSectionInstruction("subjective")};
+  const m=document.createElement("div");m.className="modal-backdrop";m.innerHTML=`<div class="modal modal-wide"><div class="modal-head"><div><span class="eyebrow dark">Examination Setup</span><h3>${editing?"แก้ไขโครงสร้างชุดข้อสอบ":"เพิ่มชุดข้อสอบ"}</h3><p>เลือกรายวิชาจากตารางสอน แล้วกำหนดโครงสร้าง “ตอน” ก่อนเปิด Full Page Editor</p></div><button class="modal-close">×</button></div><form id="exam-set-form" class="form-grid"><div class="field form-wide"><label>รายวิชาจากตารางสอน</label><select class="select" name="teaching_assignment_id" required ${editing?"disabled":""}><option value="">เลือกรายวิชา / ชั้น</option>${assignments.map(a=>`<option value="${a.id}" ${a.id===d.teaching_assignment_id?"selected":""}>${escapeHtml(examAssignmentOptionLabel(a))}</option>`).join("")}</select></div><div class="form-row"><div class="field"><label>ปีการศึกษา</label><input class="input" value="${escapeHtml(String(d.academic_year||p.academicYear))}" readonly></div><div class="field"><label>ภาคเรียน</label><input class="input" value="${escapeHtml(String(d.semester||p.semester))}" readonly></div></div><div class="form-row"><div class="field"><label>ประเภทการสอบ</label><select class="select" name="exam_period">${[["midterm","กลางภาคเรียน"],["final","ปลายภาคเรียน"],["unit","ประจำหน่วย"],["other","อื่น ๆ"]].map(([v,t])=>`<option value="${v}" ${d.exam_period===v?"selected":""}>${t}</option>`).join("")}</select></div><div class="field"><label>ชื่อชุดข้อสอบ</label><input class="input" name="exam_name" value="${escapeHtml(d.exam_name||examDefaultName(d.exam_period||"final",d.semester||p.semester,d.academic_year||p.academicYear))}"></div></div><div class="exam-section-setup-grid form-wide"><section class="exam-section-setup-card"><div><span class="eyebrow dark">Objective Section</span><strong>ส่วนข้อสอบปรนัย</strong><small>เมื่อจำนวนมากกว่า 0 ระบบจะจัดเป็น “ตอน” อัตโนมัติ</small></div><div class="form-row"><div class="field"><label>จำนวนข้อ</label><input class="input" type="number" min="0" max="200" name="objective_count" value="${Number(d.objective_count||0)}"></div><div class="field"><label>ชื่อตอน</label><input class="input" name="objective_section_title" value="${escapeHtml(objectiveSection.title)}"></div></div><div class="field"><label>คำชี้แจงของตอน</label><input class="input" name="objective_section_instruction" value="${escapeHtml(objectiveSection.instruction)}"></div></section><section class="exam-section-setup-card"><div><span class="eyebrow dark">Subjective Section</span><strong>ส่วนข้อสอบอัตนัย</strong><small>ถ้ามีปรนัยด้วย ระบบจะจัดอัตนัยเป็นตอนถัดไป</small></div><div class="form-row"><div class="field"><label>จำนวนข้อ</label><input class="input" type="number" min="0" max="100" name="subjective_count" value="${Number(d.subjective_count||0)}"></div><div class="field"><label>ชื่อตอน</label><input class="input" name="subjective_section_title" value="${escapeHtml(subjectiveSection.title)}"></div></div><div class="field"><label>คำชี้แจงของตอน</label><input class="input" name="subjective_section_instruction" value="${escapeHtml(subjectiveSection.instruction)}"></div></section></div><div class="form-row"><div class="field"><label>เวลา (นาที)</label><input class="input" type="number" min="1" name="duration_minutes" value="${Number(d.duration_minutes||60)}"></div><div class="field"><label>คะแนนเต็ม</label><input class="input" type="number" min="0" step="0.5" name="full_score" value="${Number(d.full_score||30)}"></div></div><div class="form-row"><div class="field"><label>รูปแบบเลข</label><select class="select" name="number_style"><option value="arabic" ${d.number_style!=="thai"?"selected":""}>เลขอารบิก 1 2 3</option><option value="thai" ${d.number_style==="thai"?"selected":""}>เลขไทย ๑ ๒ ๓</option></select></div><div class="field"><label>รูปแบบตัวเลือกเริ่มต้น</label><select class="select" name="default_choice_style">${[["thai_letters","ก ข ค ง"],["arabic_numbers","1 2 3 4"],["thai_numbers","๑ ๒ ๓ ๔"]].map(([v,t])=>`<option value="${v}" ${d.default_choice_style===v?"selected":""}>${t}</option>`).join("")}</select></div></div><div class="field"><label>จำนวนตัวเลือกเริ่มต้นต่อข้อ</label><input class="input" type="number" min="1" max="12" name="default_choice_count" value="${Number(d.default_choice_count||4)}"><small class="helper">แต่ละข้อสามารถเพิ่ม/ลดตัวเลือกภายหลังได้</small></div><div class="modal-actions"><button type="button" class="btn btn-ghost modal-cancel">ยกเลิก</button><button class="btn btn-primary" type="submit">${editing?"บันทึกโครงสร้าง":"สร้างและเปิดชุดข้อสอบ"}</button></div></form></div>`;document.body.appendChild(m);
+  const close=()=>m.remove();m.querySelector(".modal-close").onclick=close;m.querySelector(".modal-cancel").onclick=close;
+  m.querySelector('[name="exam_period"]')?.addEventListener("change",e=>{if(editing)return;const name=m.querySelector('[name="exam_name"]');if(name)name.value=examDefaultName(e.currentTarget.value,p.semester,p.academicYear);});
+  m.querySelector("form").onsubmit=async e=>{
+    e.preventDefault();const f=e.currentTarget,fd=new FormData(f),objective=Number(fd.get("objective_count")||0),subjective=Number(fd.get("subjective_count")||0);
+    if(objective+subjective<1)return toast("จำนวนข้อไม่ถูกต้อง","ต้องมีข้อสอบอย่างน้อย 1 ข้อ","error");
+    if(editing){const current=examSetCounts(set);if(objective<current.objective.length||subjective<current.subjective.length)return toast("ลดจำนวนข้อน้อยกว่าที่บันทึกไว้ไม่ได้",`ปัจจุบันมีปรนัย ${current.objective.length} ข้อ และอัตนัย ${current.subjective.length} ข้อ กรุณาลบข้อที่ไม่ใช้ก่อน`,"error");}
+    const sections=[];
+    if(objective>0)sections.push({no:sections.length+1,item_type:"objective",title:String(fd.get("objective_section_title")||"ข้อสอบปรนัย").trim()||"ข้อสอบปรนัย",count:objective,instruction:String(fd.get("objective_section_instruction")||examDefaultSectionInstruction("objective")).trim()||examDefaultSectionInstruction("objective")});
+    if(subjective>0)sections.push({no:sections.length+1,item_type:"subjective",title:String(fd.get("subjective_section_title")||"ข้อสอบอัตนัย").trim()||"ข้อสอบอัตนัย",count:subjective,instruction:String(fd.get("subjective_section_instruction")||examDefaultSectionInstruction("subjective")).trim()||examDefaultSectionInstruction("subjective")});
+    const btn=e.submitter;buttonLoading(btn,true,"กำลังบันทึก...");
+    let res;const common={exam_period:String(fd.get("exam_period")),exam_name:String(fd.get("exam_name")||"").trim(),objective_count:objective,subjective_count:subjective,sections,duration_minutes:Number(fd.get("duration_minutes")||60),full_score:Number(fd.get("full_score")||0),number_style:String(fd.get("number_style")||"arabic"),default_choice_style:String(fd.get("default_choice_style")||"thai_letters"),default_choice_count:Number(fd.get("default_choice_count")||4),updated_by:state.user.id};
+    if(editing){res=await supabase.from("academic_exam_sets").update(common).eq("id",set.id).select().single();}
+    else{
+      const assignment=examAssignmentById(String(fd.get("teaching_assignment_id")||"")),cls=assignment?examClassById(assignment.class_id):null,subject=assignment?examSubjectById(assignment.subject_id):null;
+      if(!assignment||!cls||!subject){buttonLoading(btn,false);return toast("ไม่พบข้อมูลตารางสอน","กรุณาเลือกรายวิชาจากตารางสอนอีกครั้ง","error");}
+      const payload={...common,academic_year:String(p.academicYear),semester:p.semester,teaching_assignment_id:assignment.id,class_id:assignment.class_id,subject_id:assignment.subject_id,teacher_id:assignment.teacher_id||state.user.id,subject_code_snapshot:subject.subject_code||"",subject_name_snapshot:subject.subject_name||"",class_label_snapshot:schoolClassLabel(cls),teacher_name_snapshot:assignment.teacher_name||state.profile?.full_name||"",instructions:"",general_instructions:EXAM_DEFAULT_GENERAL_INSTRUCTIONS,learning_outcomes:[],created_by:state.user.id};
+      res=await supabase.from("academic_exam_sets").insert(payload).select().single();
+    }
+    buttonLoading(btn,false);if(res.error)return toast("บันทึกชุดข้อสอบไม่สำเร็จ",res.error.message,"error");
+    close();state.selectedExamSetId=res.data.id;state.examSection="sets";state.examEditorOpen=true;toast(editing?"บันทึกโครงสร้างแล้ว":"สร้างชุดข้อสอบแล้ว",editing?"":"เปิดหน้า Full Page Editor แล้ว","success");await loadExamWorkspace();try{await examNormalizeItemNumbers(res.data.id);}catch(err){console.warn(err);}await loadExamWorkspace();renderDashboard();
+  };
+}
+async function examNormalizeItemNumbers(examSetId){
+  const set=examSetById(examSetId),sections=examSections(set),items=(state.examItems||[]).filter(x=>x.exam_set_id===examSetId);
+  const ordered=[];sections.forEach(section=>ordered.push(...items.filter(x=>x.item_type===section.item_type).sort((a,b)=>Number(a.item_no||0)-Number(b.item_no||0))));
+  items.filter(x=>!ordered.includes(x)).forEach(x=>ordered.push(x));
+  const updates=ordered.map((x,i)=>{const sectionNo=examSectionForType(set,x.item_type)?.no||1;if(Number(x.item_no)===i+1&&Number(x.section_no||1)===sectionNo)return Promise.resolve({error:null});return supabase.from("academic_exam_items").update({item_no:i+1,section_no:sectionNo,updated_by:state.user.id}).eq("id",x.id);});
+  const results=await Promise.all(updates),bad=results.find(x=>x?.error);if(bad?.error)throw bad.error;
+}
+function examItemModal(type,item=null){
+  const set=examSetById();if(!set)return;const editing=!!item,section=examSectionForType(set,type);if(!section)return toast("ไม่พบตอนสำหรับข้อสอบประเภทนี้","กรุณาแก้โครงสร้างชุดข้อสอบก่อน","error");
+  const style=item?.choice_style||set.default_choice_style||"thai_letters",existing=Array.isArray(item?.options)?item.options:[],defaultCount=Math.max(1,Number(set.default_choice_count||4)),initialOptions=existing.length?existing:Array.from({length:defaultCount},()=>({text:"",correct:false}));
+  const m=document.createElement("div");m.className="modal-backdrop";m.innerHTML=`<div class="modal modal-wide exam-item-modal"><div class="modal-head"><div><span class="eyebrow dark">ตอนที่ ${examNumber(section.no,set.number_style)} · ${escapeHtml(section.title)}</span><h3>${editing?"แก้ไข":"เพิ่ม"}ข้อ${type==="objective"?"ปรนัย":"อัตนัย"}</h3><p>${escapeHtml(set.subject_name_snapshot||"")} · ${escapeHtml(set.class_label_snapshot||"")}</p></div><button class="modal-close">×</button></div><form id="exam-item-form" class="form-grid"><div class="field form-wide"><label>โจทย์ / คำถาม</label><textarea class="input textarea exam-question-input" name="question_text" required>${escapeHtml(item?.question_text||"")}</textarea></div><div class="form-row"><div class="field"><label>คะแนนข้อนี้</label><input class="input" name="score" type="number" min="0" step="0.5" value="${Number(item?.score??1)}"></div>${type==="objective"?`<div class="field"><label>รูปแบบตัวเลือก</label><select class="select" name="choice_style">${[["thai_letters","ก ข ค ง"],["arabic_numbers","1 2 3 4"],["thai_numbers","๑ ๒ ๓ ๔"]].map(([v,t])=>`<option value="${v}" ${style===v?"selected":""}>${t}</option>`).join("")}</select></div>`:""}</div>${type==="objective"?`<div class="exam-options-editor"><div class="panel-head compact"><div><strong>ตัวเลือกและเฉลย</strong><small>เพิ่ม/ลดตัวเลือกได้ และเลือกคำตอบที่ถูกต้อง 1 ตัวเลือก</small></div><button type="button" class="btn btn-secondary btn-sm" id="exam-add-option">＋ เพิ่มตัวเลือก</button></div><div id="exam-option-rows"></div></div>`:""}<div class="modal-actions"><button type="button" class="btn btn-ghost modal-cancel">ยกเลิก</button><button class="btn btn-primary" type="submit">บันทึกข้อสอบ</button></div></form></div>`;document.body.appendChild(m);const close=()=>m.remove();m.querySelector(".modal-close").onclick=close;m.querySelector(".modal-cancel").onclick=close;
+  let options=initialOptions.map(x=>({text:String(x?.text||""),correct:!!x?.correct}));if(type==="objective"&&!options.some(x=>x.correct)&&options.length)options[0].correct=true;
+  const renderOptions=()=>{const box=m.querySelector("#exam-option-rows");if(!box)return;const curStyle=m.querySelector('[name="choice_style"]')?.value||style;box.innerHTML=options.map((o,i)=>`<div class="exam-option-row"><span class="exam-option-marker">${escapeHtml(examChoiceMarker(i,curStyle))}.</span><input class="input" data-exam-option-text="${i}" value="${escapeHtml(o.text)}" placeholder="ข้อความตัวเลือก"><label class="exam-correct-choice"><input type="radio" name="correct_option" value="${i}" ${o.correct?"checked":""}> เฉลย</label><button type="button" class="btn btn-ghost btn-sm danger" data-exam-remove-option="${i}" ${options.length<=1?"disabled":""}>ลบ</button></div>`).join("");box.querySelectorAll("[data-exam-option-text]").forEach(input=>input.addEventListener("input",()=>{options[Number(input.dataset.examOptionText)].text=input.value;}));box.querySelectorAll('[name="correct_option"]').forEach(r=>r.addEventListener("change",()=>{options.forEach((o,j)=>o.correct=j===Number(r.value));}));box.querySelectorAll("[data-exam-remove-option]").forEach(b=>b.onclick=()=>{const i=Number(b.dataset.examRemoveOption),was=options[i]?.correct;options.splice(i,1);if(was&&options.length)options[0].correct=true;renderOptions();});};
+  if(type==="objective"){renderOptions();m.querySelector("#exam-add-option").onclick=()=>{options.push({text:"",correct:false});renderOptions();};m.querySelector('[name="choice_style"]').onchange=renderOptions;}
+  m.querySelector("form").onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.currentTarget),question=String(fd.get("question_text")||"").trim();if(!question)return toast("กรุณากรอกโจทย์","","error");if(type==="objective"){if(!options.length)return toast("ต้องมีตัวเลือกอย่างน้อย 1 ตัวเลือก","","error");if(options.some(o=>!String(o.text||"").trim()))return toast("กรอกตัวเลือกให้ครบ","หากไม่ใช้ตัวเลือกใดให้ลบแถวนั้นออก","error");if(!options.some(o=>o.correct))return toast("กรุณาเลือกเฉลยที่ถูกต้อง","","error");}const btn=e.submitter;buttonLoading(btn,true,"กำลังบันทึก...");const existingItems=examItemsForSet(set.id),payload={exam_set_id:set.id,item_type:type,section_no:section.no,item_no:item?.item_no||existingItems.length+1,question_text:question,score:Number(fd.get("score")||0),choice_style:type==="objective"?String(fd.get("choice_style")||set.default_choice_style):null,options:type==="objective"?options:[],updated_by:state.user.id};const res=editing?await supabase.from("academic_exam_items").update(payload).eq("id",item.id).select().single():await supabase.from("academic_exam_items").insert({...payload,created_by:state.user.id}).select().single();buttonLoading(btn,false);if(res.error)return toast("บันทึกข้อสอบไม่สำเร็จ",res.error.message,"error");close();await loadExamWorkspace();try{await examNormalizeItemNumbers(set.id);}catch(err){console.warn("Normalize exam item numbers failed",err);}await loadExamWorkspace();renderDashboard();};
+}
+async function examDeleteSet(id){const set=examSetById(id);if(!set)return;if(!confirm(`ลบชุดข้อสอบ “${set.subject_name_snapshot||set.exam_name}” หรือไม่?\n\nข้อสอบและข้อมูลปกในชุดนี้จะถูกลบทั้งหมด`))return;const {error}=await supabase.from("academic_exam_sets").delete().eq("id",id);if(error)return toast("ลบชุดข้อสอบไม่สำเร็จ",error.message,"error");if(state.selectedExamSetId===id)state.selectedExamSetId=null;state.examEditorOpen=false;toast("ลบชุดข้อสอบแล้ว","","success");await loadExamWorkspace();renderDashboard();}
+async function examDeleteItem(id){const item=(state.examItems||[]).find(x=>x.id===id);if(!item)return;if(!confirm("ลบข้อสอบข้อนี้หรือไม่? ระบบจะจัดเลขข้อใหม่ให้อัตโนมัติ"))return;const {error}=await supabase.from("academic_exam_items").delete().eq("id",id);if(error)return toast("ลบข้อสอบไม่สำเร็จ",error.message,"error");await loadExamWorkspace();try{await examNormalizeItemNumbers(item.exam_set_id);}catch(err){console.warn(err);}await loadExamWorkspace();renderDashboard();}
+function examOutcomeRowsFromDom(){
+  return [...document.querySelectorAll("[data-exam-outcome-row]")].map((row,index)=>({id:`outcome-${index+1}`,outcome_type:row.querySelector("[data-exam-outcome-type]")?.value||"learning_outcome",section_no:Number(row.querySelector("[data-exam-outcome-section]")?.value||1),item_range:String(row.querySelector("[data-exam-outcome-range]")?.value||"").trim(),text:String(row.querySelector("[data-exam-outcome-text]")?.value||"").trim()})).filter(x=>x.text||x.item_range);
+}
+async function examSaveCover(){
+  const set=examSetById();if(!set)return;const instructions=String(document.querySelector("#exam-cover-instructions")?.value||"").trim(),general=String(document.querySelector("#exam-cover-general")?.value||"").trim(),learning_outcomes=examOutcomeRowsFromDom();const btn=document.querySelector("#exam-save-cover");buttonLoading(btn,true,"กำลังบันทึก...");const {error}=await supabase.from("academic_exam_sets").update({instructions,general_instructions:general,learning_outcomes,updated_by:state.user.id}).eq("id",set.id);buttonLoading(btn,false);if(error)return toast("บันทึกปกไม่สำเร็จ",error.message,"error");toast("บันทึกปกข้อสอบแล้ว",learning_outcomes.length?`บันทึกตัวชี้วัด/ผลลัพธ์ ${learning_outcomes.length} รายการ`:"ไม่ได้บังคับตัวชี้วัด/ผลลัพธ์การเรียนรู้","success");await loadExamWorkspace();renderDashboard();
+}
+function examPdfGeneralList(set){return String(set.general_instructions||EXAM_DEFAULT_GENERAL_INSTRUCTIONS).split(/\r?\n/).map(x=>x.trim()).filter(Boolean);}
+function examPdfPageShell(inner,extra=""){return `<article class="exam-pdf-page exam-pdf-standard ${extra}">${inner}</article>`;}
+function examCoverOutcomeTableHtml(set){
+  const rows=examLearningOutcomes(set);if(!rows.length)return "";
+  return `<section class="exam-cover-outcomes"><table><thead><tr><th colspan="2">ตัวชี้วัด / ผลลัพธ์การเรียนรู้</th></tr><tr><th>ผลลัพธ์การเรียนรู้ / ตัวชี้วัด</th><th>ตอนที่<br>ข้อสอบข้อที่</th></tr></thead><tbody>${rows.map(row=>`<tr><td><b>${row.outcome_type==="indicator"?"ตัวชี้วัด":"ผลลัพธ์การเรียนรู้"}</b><br>${escapeHtml(row.text).replace(/\n/g,"<br>")}</td><td>ตอนที่ ${examNumber(row.section_no,set.number_style)}<br>${escapeHtml(row.item_range||"—")}</td></tr>`).join("")}</tbody></table></section>`;
+}
+function examPdfPageFits(page,tolerance=2){return !!page&&page.scrollHeight<=page.clientHeight+tolerance;}
+function examPdfTryNarrow(page){
+  if(!page||page.classList.contains("exam-pdf-narrow"))return examPdfPageFits(page);
+  page.classList.add("exam-pdf-narrow");
+  if(examPdfPageFits(page))return true;
+  page.classList.remove("exam-pdf-narrow");
+  return false;
+}
+function examPdfClearBalance(page){
+  if(!page)return;
+  page.classList.remove("exam-pdf-balanced");
+  page.style.removeProperty("--exam-balance-shift");
+}
+function examPdfBalancePage(page,{maxShiftMm=20,minFreeMm=5}={}){
+  if(!page||!examPdfPageFits(page))return false;
+  examPdfClearBalance(page);
+  const children=[...page.children].filter(el=>{
+    const cs=getComputedStyle(el);
+    return cs.display!=="none"&&cs.visibility!=="hidden"&&el.getBoundingClientRect().height>0;
+  });
+  if(!children.length)return false;
+  const pageRect=page.getBoundingClientRect(),style=getComputedStyle(page);
+  const padTop=parseFloat(style.paddingTop)||0,padBottom=parseFloat(style.paddingBottom)||0;
+  const firstTop=Math.min(...children.map(el=>el.getBoundingClientRect().top));
+  const lastBottom=Math.max(...children.map(el=>el.getBoundingClientRect().bottom));
+  const contentHeight=Math.max(0,lastBottom-firstTop);
+  const usableHeight=Math.max(0,pageRect.height-padTop-padBottom);
+  const free=Math.max(0,usableHeight-contentHeight);
+  const pxPerMm=pageRect.width/210;
+  const minFree=minFreeMm*pxPerMm;
+  if(free<=minFree)return false;
+  const maxShift=maxShiftMm*pxPerMm;
+  const shift=Math.max(0,Math.min(free/2,maxShift));
+  if(shift<1)return false;
+  page.style.setProperty("--exam-balance-shift",`${shift}px`);
+  page.classList.add("exam-pdf-balanced");
+  return true;
+}
+function examPdfApplyVerticalBalance(host,mode="full"){
+  if(!host)return;
+  // Cover/front sheets deliberately stay top-aligned at the standard A4 margin.
+  // Only a short standalone objective answer sheet may be visually balanced.
+  const objectiveAnswers=[...host.querySelectorAll(".exam-answer-page:not(.exam-subjective-page)")];
+  if(objectiveAnswers.length===1)examPdfBalancePage(objectiveAnswers[0],{maxShiftMm:16,minFreeMm:7});
+}
+function examCoverHeaderHtml(set,logo,continued=false){
+  if(continued)return `<div class="exam-cover-continuation-head"><h1>${escapeHtml(examPeriodDocumentLabel(set.exam_period))}</h1><div>${set.subject_code_snapshot?`รหัสวิชา ${escapeHtml(set.subject_code_snapshot)} · `:""}${escapeHtml(set.subject_name_snapshot||"")} · ${escapeHtml(set.class_label_snapshot||"")}</div></div>`;
+  return `<div class="exam-cover-logo">${logo?`<img src="${logo}" alt="โลโก้โรงเรียน">`:""}</div><h1>${escapeHtml(examSchoolCoverHeading())}</h1><h2>${escapeHtml(examPeriodDocumentLabel(set.exam_period))} ${set.subject_code_snapshot?`รหัสวิชา ${escapeHtml(set.subject_code_snapshot)}`:""} ชื่อวิชา ${escapeHtml(set.subject_name_snapshot||"")}</h2><div class="exam-cover-course"><strong>${escapeHtml(set.class_label_snapshot||"")}</strong><span>เวลา ${examNumber(set.duration_minutes,set.number_style)} นาที</span></div><div class="exam-cover-stars">**************************************************************</div>`;
+}
+function examCoverIntroHtml(set,logo){
+  const instructions=String(set.instructions||examAutoInstruction(set)).split(/\r?\n/).map(x=>x.trim()).filter(Boolean),general=examPdfGeneralList(set);
+  return `${examCoverHeaderHtml(set,logo,false)}<section><h3>คำชี้แจง</h3><ol>${instructions.map(x=>`<li>${escapeHtml(x.replace(/^\d+[.)]?\s*/,""))}</li>`).join("")}</ol></section><section><h3>คำแนะนำทั่วไป</h3><ol>${general.map(x=>`<li>${escapeHtml(x.replace(/^\d+[.)]?\s*/,""))}</li>`).join("")}</ol></section>`;
+}
+function examCoverOutcomeTableShell(){return `<section class="exam-cover-outcomes"><table><thead><tr><th colspan="2">ตัวชี้วัด / ผลลัพธ์การเรียนรู้</th></tr><tr><th>ผลลัพธ์การเรียนรู้ / ตัวชี้วัด</th><th>ตอนที่<br>ข้อสอบข้อที่</th></tr></thead><tbody></tbody></table></section>`;}
+function examCoverOutcomeRowHtml(row,set){return `<tr><td><b>${row.outcome_type==="indicator"?"ตัวชี้วัด":"ผลลัพธ์การเรียนรู้"}</b><br>${escapeHtml(row.text).replace(/\n/g,"<br>")}</td><td>ตอนที่ ${examNumber(row.section_no,set.number_style)}<br>${escapeHtml(row.item_range||"—")}</td></tr>`;}
+function examCoverSignaturesHtml(set){return `<div class="exam-cover-signatures"><div><span>............................................................</span><strong>(หัวหน้ากลุ่มงานบริหารวิชาการ)</strong><small>หัวหน้ากลุ่มงานบริหารวิชาการ</small></div><div><span>............................................................</span><strong>(${escapeHtml(set.teacher_name_snapshot||state.profile?.full_name||"ผู้ออกข้อสอบ")})</strong><small>ผู้ออกข้อสอบ</small></div></div>`;}
+async function examCreateCoverPages(host,set,providedLogo=""){
+  const logo=providedLogo||await schoolLogoDataUrl(),outcomes=examLearningOutcomes(set),instructions=String(set.instructions||examAutoInstruction(set)).split(/\r?\n/).map(x=>x.trim()).filter(Boolean),general=examPdfGeneralList(set);let pageNo=0,page=null;
+  const createPage=(continued=false)=>{pageNo++;page=document.createElement("article");page.className="exam-pdf-page exam-pdf-standard exam-cover-page exam-cover-top-flow";page.innerHTML=examCoverHeaderHtml(set,logo,continued);host.appendChild(page);return page;};
+  createPage(false);
+  const appendList=(title,items)=>{let section=null,ol=null,index=0;const openSection=(continued=false)=>{section=document.createElement("section");section.className="exam-cover-flow-section";section.innerHTML=`<h3>${escapeHtml(title)}${continued?" (ต่อ)":""}</h3><ol ${index?`start="${index+1}"`:""}></ol>`;page.appendChild(section);ol=section.querySelector("ol");};openSection(false);for(;index<items.length;index++){const li=document.createElement("li");li.textContent=String(items[index]).replace(/^\d+[.)]?\s*/,"");ol.appendChild(li);if(examPdfPageFits(page))continue;li.remove();if(!ol.children.length)section.remove();createPage(true);openSection(true);ol.appendChild(li);}};
+  if(instructions.length)appendList("คำชี้แจง",instructions);
+  if(general.length)appendList("คำแนะนำทั่วไป",general);
+  let tbody=null;const ensureTable=()=>{if(tbody&&tbody.isConnected)return tbody;const shell=document.createElement("div");shell.innerHTML=examCoverOutcomeTableShell();const table=shell.firstElementChild;page.appendChild(table);tbody=table.querySelector("tbody");return tbody;};
+  for(const row of outcomes){ensureTable();tbody.insertAdjacentHTML("beforeend",examCoverOutcomeRowHtml(row,set));if(examPdfPageFits(page))continue;const added=tbody.lastElementChild;added?.remove();if(!tbody.children.length)page.querySelector(".exam-cover-outcomes")?.remove();createPage(true);tbody=null;ensureTable();tbody.insertAdjacentHTML("beforeend",examCoverOutcomeRowHtml(row,set));}
+  page.insertAdjacentHTML("beforeend",examCoverSignaturesHtml(set));if(!examPdfPageFits(page)){page.querySelector(".exam-cover-signatures")?.remove();createPage(true);page.insertAdjacentHTML("beforeend",examCoverSignaturesHtml(set));}
+}
+
+function examQuestionBlockHtml(item,index,set,sectionStart=false){
+  const opts=Array.isArray(item.options)?item.options:[],section=examSections(set).find(x=>x.no===Number(item.section_no||examSectionForType(set,item.item_type)?.no||1));
+  return `<div class="exam-pdf-question-group">${sectionStart&&section?`<div class="exam-pdf-section-head"><strong>ตอนที่ ${examNumber(section.no,set.number_style)} ${escapeHtml(section.title)}</strong><span>จำนวน ${examNumber(section.count,set.number_style)} ข้อ · ${escapeHtml(section.instruction)}</span></div>`:""}<div class="exam-pdf-question" data-item-id="${item.id}"><div class="exam-pdf-question-line"><b>ข้อ ${examNumber(index+1,set.number_style)}.</b><span>${escapeHtml(item.question_text||"")}</span></div>${item.item_type==="objective"?`<div class="exam-pdf-options">${opts.map((o,i)=>`<div><b>${escapeHtml(examChoiceMarker(i,item.choice_style||set.default_choice_style))}.</b> ${escapeHtml(o.text||"")}</div>`).join("")}</div>`:""}</div></div>`;
+}
+function examQuestionOfficialHeaderHtml(set,logo){
+  const total=examSetCounts(set).plannedObjective+examSetCounts(set).plannedSubjective;
+  return `<header class="exam-paper-official-head"><div class="exam-paper-logo">${logo?`<img src="${logo}" alt="โลโก้โรงเรียน">`:""}</div><h1>${escapeHtml(set.exam_name||"ข้อสอบ")}</h1><div class="exam-paper-meta"><div><span>รายวิชา <b>${escapeHtml(set.subject_name_snapshot||"")}</b></span><span>จำนวน <b>${examNumber(total,set.number_style)} ข้อ</b></span><span>เวลา <b>${examNumber(set.duration_minutes,set.number_style)} นาที</b></span></div><div><span>ชั้น <b>${escapeHtml(set.class_label_snapshot||"")}</b></span><span>คะแนนเต็ม <b>${examNumber(set.full_score,set.number_style)} คะแนน</b></span><span>ผู้ออกข้อสอบ <b>${escapeHtml(set.teacher_name_snapshot||state.profile?.full_name||"")}</b></span></div></div><div class="exam-paper-double-rule"></div><div class="exam-paper-instruction"><b>คำชี้แจง</b><span>${escapeHtml(String(set.instructions||examAutoInstruction(set)).replace(/\r?\n/g," "))}</span></div></header>`;
+}
+function examQuestionPageHeader(set,pageNo=1){return `<header class="exam-question-page-head"><strong>${escapeHtml(set.exam_name||"ข้อสอบ")}</strong><span>${escapeHtml(set.subject_code_snapshot||"")} ${escapeHtml(set.subject_name_snapshot||"")} · ${escapeHtml(set.class_label_snapshot||"")}</span><small>หน้า ${examNumber(pageNo,set.number_style)}</small></header>`;}
+async function examCreateQuestionPages(host,set,providedLogo=""){
+  const items=examItemsForSet(set.id),logo=providedLogo||await schoolLogoDataUrl();let pageNo=0,page=null,columns=[],columnIndex=0,lastSectionNo=null;
+  const createPage=()=>{pageNo++;const first=pageNo===1;page=document.createElement("article");page.className=`exam-pdf-page exam-pdf-standard exam-question-page ${first?"first":"continued"}`;page.innerHTML=`${first?examQuestionOfficialHeaderHtml(set,logo):examQuestionPageHeader(set,pageNo)}<div class="exam-question-columns"><div class="exam-question-column"></div><div class="exam-question-column"></div></div>`;host.appendChild(page);columns=[...page.querySelectorAll(".exam-question-column")];columnIndex=0;};
+  createPage();
+  items.forEach((item,index)=>{
+    const sectionNo=Number(item.section_no||examSectionForType(set,item.item_type)?.no||1),sectionStart=examSections(set).length>1&&sectionNo!==lastSectionNo;lastSectionNo=sectionNo;
+    const wrap=document.createElement("div");wrap.innerHTML=examQuestionBlockHtml(item,index,set,sectionStart);const node=wrap.firstElementChild;
+    let col=columns[columnIndex];col.appendChild(node);
+    if(col.scrollHeight<=col.clientHeight+2)return;
+    // First use the second column with the normal margin. Only before creating a new page do we try a narrow margin on this page.
+    if(columnIndex===0){col.removeChild(node);columnIndex=1;col=columns[columnIndex];col.appendChild(node);if(col.scrollHeight<=col.clientHeight+2)return;}
+    if(!page.classList.contains("exam-pdf-narrow")){
+      page.classList.add("exam-pdf-narrow");
+      if(col.scrollHeight<=col.clientHeight+2)return;
+      page.classList.remove("exam-pdf-narrow");
+    }
+    col.removeChild(node);createPage();col=columns[0];col.appendChild(node);
+    if(col.scrollHeight>col.clientHeight+2&&!examPdfTryNarrow(page))console.warn("Exam question exceeds one fresh A4 page",item.id);
+  });
+}
+function examAnswerHeaderHtml(set,title,logo,compact=false){
+  return `<header class="exam-answer-head ${compact?"compact":""}"><div class="exam-answer-logo">${logo?`<img src="${logo}" alt="โลโก้โรงเรียน">`:""}</div><h2>${escapeHtml(title)}</h2><strong>${escapeHtml(set.subject_name_snapshot||"")} · ${escapeHtml(set.class_label_snapshot||"")}</strong><p>ชื่อ-สกุล ........................................................................ เลขที่ ................ ชั้น ................</p>${compact?"":`<small>คำชี้แจง: ทำเครื่องหมายลงในกล่องคำตอบที่ถูกต้องเพียงคำตอบเดียว</small>`}</header>`;
+}
+function examObjectiveAnswerPagesHtml(set,logo=""){
+  const all=examItemsForSet(set.id),items=all.filter(x=>x.item_type==="objective");if(!items.length)return "";const perPage=40,pages=[];
+  for(let offset=0;offset<items.length;offset+=perPage){const chunk=items.slice(offset,offset+perPage),half=Math.ceil(chunk.length/2),cols=[chunk.slice(0,half),chunk.slice(half)];pages.push(examPdfPageShell(`${examAnswerHeaderHtml(set,"กระดาษคำตอบปรนัย",logo)}<div class="exam-answer-objective-grid">${cols.map(col=>`<div class="exam-answer-column">${col.map(item=>{const global=all.findIndex(x=>x.id===item.id),opts=Array.isArray(item.options)?item.options:[];return `<div class="exam-answer-row"><b>${examNumber(global+1,set.number_style)}</b><div>${opts.map((o,j)=>`<span class="exam-answer-choice"><i></i><em>${escapeHtml(examChoiceMarker(j,item.choice_style||set.default_choice_style))}</em></span>`).join("")}</div></div>`;}).join("")}</div>`).join("")}</div>`,"exam-answer-page"));}
+  return pages.join("");
+}
+function examSubjectiveAnswerBlockHtml(item,no,set){return `<section class="exam-subjective-answer"><div class="exam-subjective-prompt"><b>ข้อ ${examNumber(no,set.number_style)}.</b> ${escapeHtml(item.question_text||"")}</div><div class="exam-dotted-lines">${Array.from({length:12},()=>"<i></i>").join("")}</div></section>`;}
+function examCreateSubjectiveAnswerPages(host,set,logo=""){
+  const all=examItemsForSet(set.id),items=all.filter(x=>x.item_type==="subjective");
+  for(let i=0;i<items.length;i+=2){
+    const pair=items.slice(i,i+2),page=document.createElement("article");page.className="exam-pdf-page exam-pdf-standard exam-answer-page exam-subjective-page";
+    page.innerHTML=`${examAnswerHeaderHtml(set,"กระดาษคำตอบอัตนัย",logo,true)}<div class="exam-subjective-answer-list">${pair.map(item=>examSubjectiveAnswerBlockHtml(item,all.findIndex(x=>x.id===item.id)+1,set)).join("")}</div>`;host.appendChild(page);
+    if(examPdfPageFits(page))continue;
+    if(examPdfTryNarrow(page))continue;
+    // If two long prompts cannot fit safely, use one standard A4 page per prompt instead of shrinking the font.
+    page.remove();
+    pair.forEach(item=>{const single=document.createElement("article");single.className="exam-pdf-page exam-pdf-standard exam-answer-page exam-subjective-page exam-subjective-single";single.innerHTML=`${examAnswerHeaderHtml(set,"กระดาษคำตอบอัตนัย",logo,true)}<div class="exam-subjective-answer-list">${examSubjectiveAnswerBlockHtml(item,all.findIndex(x=>x.id===item.id)+1,set)}</div>`;host.appendChild(single);if(!examPdfPageFits(single))examPdfTryNarrow(single);});
+  }
+}
+async function examBuildPdf(set,mode="full"){
+  const readiness=examSetReadiness(set);if(mode!=="cover"&&!readiness.ready)throw new Error(`ข้อสอบยังไม่ครบ: ${readiness.issues.slice(0,5).join(" · ")}`);await ensureOfficialPdfFont("16pt");const logo=await schoolLogoDataUrl(),host=document.createElement("div");host.className="exam-pdf-host";document.body.appendChild(host);
+  try{
+    if(mode==="cover"||mode==="full")await examCreateCoverPages(host,set,logo);
+    if(mode==="questions"||mode==="full")await examCreateQuestionPages(host,set,logo);
+    if(mode==="answers"||mode==="full"){
+      host.insertAdjacentHTML("beforeend",examObjectiveAnswerPagesHtml(set,logo));
+      examCreateSubjectiveAnswerPages(host,set,logo);
+      [...host.querySelectorAll(".exam-answer-page:not(.exam-subjective-page)")].forEach(p=>{if(!examPdfPageFits(p))examPdfTryNarrow(p);});
+    }
+    await Promise.all([...host.querySelectorAll("img")].map(img=>img.complete?Promise.resolve():new Promise(r=>{img.onload=img.onerror=r;})));await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+    examPdfApplyVerticalBalance(host,mode);
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+    const pages=[...host.querySelectorAll(".exam-pdf-page")];if(!pages.length)throw new Error("ไม่พบหน้าเอกสารสำหรับ Export");const pdf=new jsPDF({orientation:"portrait",unit:"mm",format:"a4",compress:true});for(let i=0;i<pages.length;i++){if(i)pdf.addPage("a4","portrait");const canvas=await html2canvas(pages[i],{scale:2,useCORS:true,backgroundColor:"#fff",logging:false});pdf.addImage(canvas.toDataURL("image/jpeg",.96),"JPEG",0,0,210,297,undefined,"FAST");}
+    const typeName=mode==="cover"?"ปกข้อสอบ":mode==="questions"?"ตัวข้อสอบ":mode==="answers"?"กระดาษคำตอบ":"ชุดข้อสอบฉบับสมบูรณ์";return {blob:pdf.output("blob"),filename:`${typeName}_${academicRegSafeFileBase(set.subject_name_snapshot||set.exam_name)}_${set.academic_year}_ภาคเรียน${set.semester}.pdf`,pageCount:pages.length};
+  }finally{host.remove();}
+}
+async function examOpenPdf(mode){const set=examSetById();if(!set)return;const btn=document.querySelector(`[data-exam-export="${mode}"]`)||document.querySelector("#exam-preview-cover");buttonLoading(btn,true,"กำลังสร้าง PDF...");try{const built=await examBuildPdf(set,mode);openPdfPreviewModal({title:`${set.subject_name_snapshot||"ชุดข้อสอบ"} · ${mode==="cover"?"ปกข้อสอบ":mode==="questions"?"ตัวข้อสอบ":mode==="answers"?"กระดาษคำตอบ":"ชุดข้อสอบฉบับสมบูรณ์"}`,subtitle:`A4 · ${built.pageCount} หน้า · ${OFFICIAL_PDF_FONT}`,blob:built.blob,filename:built.filename});}catch(err){console.error(err);toast("สร้าง PDF ไม่สำเร็จ",err.message||String(err),"error");}finally{buttonLoading(btn,false);}}
+function bindExamEvents(){
+  document.querySelectorAll("[data-exam-section]").forEach(b=>b.addEventListener("click",()=>{state.examSection=b.dataset.examSection;state.examEditorOpen=false;renderDashboard();}));
+  document.querySelector("#exam-year")?.addEventListener("change",async e=>{state.examAcademicYear=Number(e.currentTarget.value);state.selectedExamSetId=null;state.examEditorOpen=false;await renderDashboard();});
+  document.querySelector("#exam-semester")?.addEventListener("change",async e=>{state.examSemester=Number(e.currentTarget.value);state.selectedExamSetId=null;state.examEditorOpen=false;await renderDashboard();});
+  document.querySelector("#exam-search")?.addEventListener("input",e=>{state.examSearch=e.currentTarget.value;clearTimeout(bindExamEvents._t);bindExamEvents._t=setTimeout(()=>renderDashboard(),180);});
+  document.querySelector("#exam-create-set")?.addEventListener("click",()=>examSetModal());
+  document.querySelector("#exam-edit-set")?.addEventListener("click",()=>examSetModal(examSetById()));
+  document.querySelector("#exam-close-editor")?.addEventListener("click",()=>{state.examEditorOpen=false;renderDashboard();});
+  document.querySelectorAll("[data-exam-open]").forEach(b=>b.addEventListener("click",()=>{state.selectedExamSetId=b.dataset.examOpen;state.examSection="sets";state.examEditorOpen=true;renderDashboard();}));
+  document.querySelectorAll("[data-exam-cover]").forEach(b=>b.addEventListener("click",()=>{state.selectedExamSetId=b.dataset.examCover;state.examSection="cover";state.examEditorOpen=false;renderDashboard();}));
+  document.querySelectorAll("[data-exam-documents]").forEach(b=>b.addEventListener("click",()=>{state.selectedExamSetId=b.dataset.examDocuments;state.examSection="documents";state.examEditorOpen=false;renderDashboard();}));
+  document.querySelectorAll("[data-exam-analysis]").forEach(b=>b.addEventListener("click",()=>{state.selectedExamSetId=b.dataset.examAnalysis;state.examSection="analysis";state.examAnalysisView="entry";state.examEditorOpen=false;renderDashboard();}));
+  document.querySelector("[data-exam-editor-cover]")?.addEventListener("click",()=>{state.examSection="cover";state.examEditorOpen=false;renderDashboard();});
+  document.querySelector("[data-exam-editor-analysis]")?.addEventListener("click",()=>{state.examSection="analysis";state.examAnalysisView="entry";state.examEditorOpen=false;renderDashboard();});
+  document.querySelector("[data-exam-editor-documents]")?.addEventListener("click",()=>{state.examSection="documents";state.examEditorOpen=false;renderDashboard();});
+  document.querySelectorAll("[data-exam-delete-set]").forEach(b=>b.addEventListener("click",()=>examDeleteSet(b.dataset.examDeleteSet)));
+  document.querySelectorAll("[data-exam-add-type]").forEach(b=>b.addEventListener("click",()=>examItemModal(b.dataset.examAddType)));
+  document.querySelectorAll("[data-exam-edit-item]").forEach(b=>b.addEventListener("click",()=>{const item=(state.examItems||[]).find(x=>x.id===b.dataset.examEditItem);if(item)examItemModal(item.item_type,item);}));
+  document.querySelectorAll("[data-exam-delete-item]").forEach(b=>b.addEventListener("click",()=>examDeleteItem(b.dataset.examDeleteItem)));
+  document.querySelector("#exam-selected-set")?.addEventListener("change",e=>{state.selectedExamSetId=e.currentTarget.value;renderDashboard();});
+  document.querySelector("#exam-add-outcome")?.addEventListener("click",()=>{const set=examSetById(),box=document.querySelector("#exam-outcome-rows");if(!set||!box)return;box.insertAdjacentHTML("beforeend",examOutcomeRowHtml({section_no:examSections(set)[0]?.no||1,item_range:"",text:"",outcome_type:"learning_outcome"},set,Date.now()));const row=box.lastElementChild;row?.querySelector("[data-exam-outcome-remove]")?.addEventListener("click",()=>row.remove());});
+  document.querySelectorAll("[data-exam-outcome-remove]").forEach(b=>b.addEventListener("click",()=>{b.closest("[data-exam-outcome-row]")?.remove();}));
+  document.querySelector("#exam-save-cover")?.addEventListener("click",examSaveCover);
+  document.querySelector("#exam-preview-cover")?.addEventListener("click",()=>examOpenPdf("cover"));
+  document.querySelectorAll("[data-exam-export]").forEach(b=>b.addEventListener("click",()=>examOpenPdf(b.dataset.examExport)));
+  document.querySelector("#exam-back-builder")?.addEventListener("click",()=>{state.examSection="sets";state.examEditorOpen=true;renderDashboard();});
+  document.querySelectorAll("[data-exam-analysis-view]").forEach(b=>b.addEventListener("click",()=>{state.examAnalysisView=b.dataset.examAnalysisView||"entry";renderDashboard();}));
+  document.querySelector("#exam-analysis-init-roster")?.addEventListener("click",examAnalysisInitialize);
+  document.querySelector("#exam-analysis-clear")?.addEventListener("click",examAnalysisClear);
+  document.querySelectorAll("[data-exam-analysis-answer]").forEach(el=>el.addEventListener("change",()=>examAnalysisSaveResponse(el,"objective")));
+  document.querySelectorAll("[data-exam-analysis-score]").forEach(el=>el.addEventListener("change",()=>examAnalysisSaveResponse(el,"subjective")));
+  document.querySelectorAll("[data-exam-analysis-status]").forEach(el=>el.addEventListener("change",()=>examAnalysisSaveStatus(el)));
+  document.querySelector("#exam-analysis-export")?.addEventListener("click",examOpenAnalysisPdf);
+}
+
 function moduleView(code) {
   if(code==="procurement_document_control"&&!procurementHasModuleAccess(code))return procurementAccessDeniedHtml("ระบบเลขคุมเอกสารจัดซื้อจัดจ้างและพัสดุ");
   if(code==="procurement_documents"&&!procurementHasModuleAccess(code))return procurementAccessDeniedHtml("ระบบจัดทำเอกสารจัดซื้อจัดจ้างและพัสดุ");
@@ -10513,12 +12225,14 @@ function moduleView(code) {
   if (code === "academic_calendar") return academicCalendarWorkspaceHtml(module);
   if (code === "academic_registration") return academicRegistrationWorkspaceHtml(module);
   if (code === "academic_submissions") return academicSubmissionWorkspaceHtml(module);
+  if (code === "exam_management") return examWorkspaceHtml(module);
   if (code === "learning_sources") return learningSourceWorkspaceHtml(module);
   if (code === "student_followup") return studentFollowupWorkspaceHtml(module);
   if (code === "procurement_document_control") return procurementControlWorkspaceHtml(module);
   if (code === "procurement_documents") return procurementWorkspaceHtml(module);
   if (code === "lesson_plans") return lessonWorkspaceHtml(module);
   if (code === "personnel_records") return personnelWorkspaceHtml(module);
+  if (code === "personnel_pa") return personnelPaWorkspaceHtml(module);
   if (code === "leave_management") return leaveWorkspaceHtml(module);
   if (code === "official_attendance") return officialAttendanceWorkspaceHtml(module);
   if (code === "timetable_management") return timetableWorkspaceHtml(module);
@@ -11513,6 +13227,18 @@ function bindDashboardEvents() {
         state.academicLessonPlanUsageTeacherFilter="";
         state.academicLessonPlanUsageView="mine";
       }
+      if (nextView === "module:exam_management" && state.currentView !== "module:exam_management") {
+        state.examAcademicYear=currentAcademicPeriod().academicYear;
+        state.examSemester=currentAcademicPeriod().semester;
+        state.examSection="sets";
+        state.examEditorOpen=false;
+        state.selectedExamSetId=null;
+        state.examSearch="";
+        state.examAttempts=[];
+        state.examResponses=[];
+        state.examAnalysisView="entry";
+        state.examAnalysisLoadError="";
+      }
       if (nextView === "module:learning_sources" && state.currentView !== "module:learning_sources") {
         state.learningSourceScopeFilter="all";
         state.learningSourceCategoryFilter="all";
@@ -11543,6 +13269,11 @@ function bindDashboardEvents() {
         state.personnelView=isPersonnelReviewer()?"admin":"own";
         state.selectedPersonnelUserId=null;
         state.selectedPersonnelPublicUserId=null;
+      }
+      if (nextView === "module:personnel_pa" && state.currentView !== "module:personnel_pa") {
+        state.personnelPaPhase="agreement";
+        state.personnelPaView=personnelPaIsRequiredUi()?"mine":"dashboard";
+        state.personnelPaSelectedPeriodId=null;
       }
       if (nextView === "module:leave_management" && state.currentView !== "module:leave_management") {
         state.selectedLeaveRequestId = null;
@@ -11596,6 +13327,8 @@ function bindDashboardEvents() {
   if (state.currentView === "module:official_attendance") bindOfficialAttendanceEvents();
   if (state.currentView === "module:learning_sources") bindLearningSourceEvents();
   if (state.currentView === "module:student_followup") bindStudentFollowupEvents();
+  if (state.currentView === "module:exam_management") bindExamEvents();
+  if (state.currentView === "module:personnel_pa") bindPersonnelPaEvents();
   if (state.currentView === "module:procurement_document_control") bindProcurementControlEvents();
   if (state.currentView === "module:procurement_documents") bindProcurementEvents();
   if (state.currentView === "approval_center") bindApprovalCenterEvents();
@@ -12451,6 +14184,9 @@ function subscribeRealtime() {
     .on("postgres_changes", { event: "*", schema: "public", table: "academic_certificate_request_signatures" }, async () => { if(state.currentView==="module:academic_registration") await renderDashboard(); })
     .on("postgres_changes", { event: "*", schema: "public", table: "academic_document_service_requests" }, async () => { if(state.currentView==="module:academic_registration") await renderDashboard(); })
     .on("postgres_changes", { event: "*", schema: "public", table: "academic_document_service_signatures" }, async () => { if(state.currentView==="module:academic_registration") await renderDashboard(); })
+    .on("postgres_changes", { event: "*", schema: "public", table: "personnel_pa_periods" }, async () => { if(state.currentView==="module:personnel_pa") await renderDashboard(); })
+    .on("postgres_changes", { event: "*", schema: "public", table: "personnel_pa_submissions" }, async () => { if(state.currentView==="module:personnel_pa") await renderDashboard(); })
+    .on("postgres_changes", { event: "*", schema: "public", table: "personnel_pa_reports" }, async () => { if(state.currentView==="module:personnel_pa") await renderDashboard(); })
     .on("postgres_changes", { event: "*", schema: "public", table: "student_cards" }, async () => { if(state.currentView==="module:student_cards") await renderDashboard(); })
     .on("postgres_changes", { event: "*", schema: "public", table: "home_visit_settings" }, async () => { if(state.currentView==="module:home_visit_management") await renderDashboard(); })
     .on("postgres_changes", { event: "*", schema: "public", table: "home_visit_household_members" }, async () => { if(state.currentView==="module:home_visit_management"&&state.selectedHomeVisitId) await renderDashboard(); })
@@ -12510,3 +14246,6 @@ supabase.auth.onAuthStateChange(async (event, session) => {
 await loadPublicData();
 await bootstrapApp();
 if (state.user) realtimeChannel = subscribeRealtime();
+
+
+// BNK v5.1.5 — release control numbers from soft-deleted procurement cases while preserving audit history.
