@@ -5274,3 +5274,479 @@ body.procurement-master-open{overflow:hidden!important}
 .pa-auto-sign-toggle>div{display:grid;gap:3px}.pa-auto-sign-toggle>div>strong{font-size:13px;color:#173e2a}.pa-auto-sign-toggle>div>span{font-size:11px;line-height:1.5;color:#67776d}
 @media(max-width:1000px){.pa-document-profile-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:760px){.pa-document-profile-grid{grid-template-columns:1fr}.pa-signature-link-card{display:grid}.pa-signature-link-card .btn{justify-self:start}.pa-auto-sign-toggle{align-items:flex-start}}
+
+/* ===== v5.11.0 · Role-aware Dashboard + PA Tracking Center ===== */
+.home-dashboard-v2{display:grid;gap:18px}
+.home-hero-v2{position:relative;overflow:hidden;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:24px;align-items:center;padding:28px 30px;border-radius:28px;color:#fff;background:linear-gradient(120deg,#0f5c53 0%,#13867c 55%,#d7a62d 145%);box-shadow:0 18px 45px rgba(18,94,83,.18)}
+.home-hero-v2:before,.home-hero-v2:after{content:"";position:absolute;border-radius:999px;pointer-events:none}.home-hero-v2:before{width:260px;height:260px;right:-80px;top:-130px;background:rgba(255,255,255,.1)}.home-hero-v2:after{width:170px;height:170px;left:42%;bottom:-125px;background:rgba(255,205,80,.13)}
+.home-hero-copy,.home-hero-user{position:relative;z-index:1}.home-eyebrow{display:inline-flex;padding:6px 10px;border:1px solid rgba(255,255,255,.22);border-radius:999px;background:rgba(255,255,255,.1);font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}.home-hero-copy h2{margin:10px 0 7px;font-size:29px;letter-spacing:-.025em}.home-hero-copy p{margin:0;max-width:760px;color:rgba(255,255,255,.82);font-size:13px;line-height:1.7}.home-hero-meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}.home-hero-meta span{padding:7px 10px;border-radius:999px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.13);font-size:10px;color:rgba(255,255,255,.86)}.home-hero-meta strong{color:#fff}
+.home-hero-user{min-width:210px;display:flex;align-items:center;gap:12px;padding:13px 15px;border-radius:18px;background:rgba(7,55,50,.24);border:1px solid rgba(255,255,255,.16);backdrop-filter:blur(5px)}.home-hero-avatar{width:52px;height:52px;border-radius:17px;display:grid;place-items:center;background:#fff;color:#0f6d63;font-size:18px;font-weight:900;box-shadow:0 8px 18px rgba(0,0,0,.12)}.home-hero-user div:last-child{display:grid;gap:2px}.home-hero-user small,.home-hero-user span{font-size:10px;color:rgba(255,255,255,.7)}.home-hero-user strong{font-size:13px}
+.home-summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.home-summary-card{position:relative;overflow:hidden;min-height:126px;padding:17px 18px;border-radius:20px;display:flex;justify-content:space-between;gap:14px;align-items:center;border:1px solid rgba(255,255,255,.58);box-shadow:0 12px 30px rgba(15,23,42,.07)}.home-summary-card:after{content:"";position:absolute;width:90px;height:90px;border-radius:50%;right:-25px;bottom:-35px;background:rgba(255,255,255,.25)}.home-summary-card>div{display:grid;gap:4px;position:relative;z-index:1}.home-summary-card span{font-size:11px;font-weight:700;color:rgba(15,23,42,.62)}.home-summary-card strong{font-size:30px;letter-spacing:-.04em;color:#0f2d2a}.home-summary-card small{font-size:9.5px;color:rgba(15,23,42,.48)}.home-summary-card>b{position:relative;z-index:1;width:44px;height:44px;border-radius:14px;display:grid;place-items:center;background:rgba(255,255,255,.64);font-size:12px;color:#174b44}.home-summary-card.tone-1{background:linear-gradient(135deg,#d8f4ef,#b7e9e1)}.home-summary-card.tone-2{background:linear-gradient(135deg,#fff2c8,#ffdf7a)}.home-summary-card.tone-3{background:linear-gradient(135deg,#ddecfb,#bee2f6)}.home-summary-card.tone-4{background:linear-gradient(135deg,#f0e5fb,#dcc7f1)}
+.home-primary-grid{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(320px,.8fr);gap:18px}.home-module-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.home-module-card{width:100%;min-height:92px;border:1px solid #dce8e4;background:linear-gradient(145deg,#fff,#f8fbfa);border-radius:17px;padding:14px;display:grid;grid-template-columns:42px minmax(0,1fr) auto;gap:11px;align-items:center;text-align:left;color:inherit;transition:.18s ease}.home-module-card:hover{transform:translateY(-2px);border-color:#89baaa;box-shadow:0 12px 26px rgba(18,94,83,.09)}.home-module-icon{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;background:#e5f4ef;color:#12695d;font-size:11px;font-weight:900}.home-module-card>div{min-width:0;display:grid;gap:4px}.home-module-card strong{font-size:12.5px;line-height:1.35}.home-module-card small{color:#75847e;font-size:9.5px}.home-module-card em{font-style:normal;color:#2b7c70;font-size:10px;white-space:nowrap}.home-module-card.dep-academic .home-module-icon{background:#e8f2ff;color:#1d62a5}.home-module-card.dep-personnel .home-module-icon{background:#e8f7ef;color:#24714e}.home-module-card.dep-plan_budget .home-module-icon{background:#fff3d7;color:#9b6a0b}.home-module-card.dep-general .home-module-icon{background:#f1e9fb;color:#71509b}
+.home-live-dot{display:inline-flex;gap:6px;align-items:center;font-size:10px;color:#58736b}.home-live-dot i{width:7px;height:7px;border-radius:50%;background:#22a06b;box-shadow:0 0 0 4px rgba(34,160,107,.1)}.home-task-list{display:grid;gap:8px}.home-task{display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 11px;border:1px solid #e1e8e5;border-radius:13px;background:#fbfdfc}.home-task-icon{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;font-size:10px;font-weight:900;background:#eef5f2;color:#366558}.home-task>div{min-width:0;display:grid;gap:2px}.home-task strong{font-size:11.5px}.home-task small{font-size:9.5px;color:#7a8882;line-height:1.4}.home-task .btn{min-height:31px;padding:5px 9px;font-size:9px}.home-task.warn{background:#fffaf0;border-color:#f1dca7}.home-task.warn .home-task-icon{background:#fff0c5;color:#8d610d}.home-task.info{background:#f4f9ff;border-color:#d5e7f7}.home-task.info .home-task-icon{background:#e1f0fc;color:#2b6792}.home-empty-good{background:#f4fbf7;border-color:#cde7d7}
+.home-pa-panel{padding:20px 22px;background:linear-gradient(145deg,#fff,#f9fcfa)}.home-pa-bars{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}.home-pa-bars>div{display:grid;gap:8px}.home-pa-bars>div>div:first-child{display:flex;justify-content:space-between;gap:8px;font-size:10px;color:#60746b}.home-pa-bars strong{color:#1f4f3c}.home-progress{height:8px;border-radius:999px;background:#ecf1ee;overflow:hidden}.home-progress i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#14816e,#d6a62d)}.home-pa-stepper{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.home-pa-stepper>div{display:flex;align-items:center;gap:8px;padding:10px;border-radius:13px;background:#f7f9f8;border:1px solid #e3e9e6;color:#748078}.home-pa-stepper b{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;background:#e8eeeb;font-size:10px}.home-pa-stepper span{font-size:10px;font-weight:700}.home-pa-stepper>div.done{background:#eff9f3;border-color:#cce8d6;color:#1e6947}.home-pa-stepper>div.done b{background:#2f8a5e;color:#fff}.home-inline-note{margin-top:10px;padding:8px 10px;border-radius:10px;background:#fff7df;color:#8a6414;font-size:10px}
+.home-insight-grid{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(300px,.8fr);gap:18px}.home-bar-chart{display:grid;gap:11px}.home-bar-row{display:grid;grid-template-columns:minmax(100px,180px) minmax(0,1fr) 32px;gap:10px;align-items:center}.home-bar-row>span{font-size:10px;color:#5f6f68;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.home-bar-row>div{height:9px;border-radius:999px;background:#eef2f0;overflow:hidden}.home-bar-row i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#168577,#58b8ae)}.home-bar-row strong{font-size:10px;color:#315c52;text-align:right}.home-ring-wrap{display:grid;grid-template-columns:130px 1fr;gap:20px;align-items:center}.home-ring{width:124px;height:124px;border-radius:50%;display:grid;place-items:center;background:conic-gradient(#159181 0 var(--home-ring-pct),#e9eeec var(--home-ring-pct) 100%);position:relative}.home-ring:after{content:"";position:absolute;width:84px;height:84px;border-radius:50%;background:#fff}.home-ring>div{position:relative;z-index:1;text-align:center;display:grid}.home-ring strong{font-size:24px;color:#164f47}.home-ring span{font-size:9px;color:#73817c}.home-ring-legend{display:grid;gap:8px}.home-ring-legend>div{display:grid;grid-template-columns:10px 1fr auto;gap:8px;align-items:center;font-size:10px;color:#63716c}.home-ring-legend i{width:9px;height:9px;border-radius:3px}.home-ring-legend i.new{background:#159181}.home-ring-legend i.read{background:#e1e8e5}.home-ring-legend small{font-size:9px;color:#8a9691;line-height:1.4}.home-activity-panel .list{grid-template-columns:repeat(2,minmax(0,1fr))}.home-activity-panel .list-item{min-width:0}.home-activity-panel .list-time{display:none}
+
+/* PA tracking center */
+.pa-tracking-hero{background:linear-gradient(135deg,#e8f5f0,#fff8e6);border-color:#d7e9e0}.pa-track-summary{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-bottom:14px}.pa-track-summary article{padding:15px 16px;border:1px solid #dce7e2;border-radius:16px;background:#fff;box-shadow:0 8px 22px rgba(15,23,42,.04);display:grid;gap:2px}.pa-track-summary span{font-size:10px;color:#718078}.pa-track-summary strong{font-size:26px;color:#184d3a}.pa-track-summary small{font-size:9px;color:#93a09a}.pa-track-progress-panel{margin-bottom:14px}.pa-track-progress-bars{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.pa-track-progress-bars>div{display:grid;grid-template-columns:auto 1fr auto;gap:9px;align-items:center}.pa-track-progress-bars span,.pa-track-progress-bars strong{font-size:10px}.pa-track-progress-bars span{color:#60736a}.pa-track-progress-bars strong{color:#275d48}.pa-track-progress-bars>div>div{height:8px;border-radius:999px;background:#edf1ef;overflow:hidden}.pa-track-progress-bars i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#158171,#d4a62c)}
+.pa-track-table-panel{overflow:hidden}.pa-track-count{font-size:10px;font-weight:700;color:#4b7161;padding:6px 9px;border-radius:999px;background:#edf7f2}.pa-track-toolbar{display:grid;grid-template-columns:minmax(240px,1.4fr) minmax(160px,.8fr) minmax(170px,.8fr) auto auto;gap:8px;margin-bottom:12px}.pa-track-toolbar .input,.pa-track-toolbar .select{min-height:39px;padding:9px 11px;font-size:11px}.pa-track-toolbar .btn{min-height:39px;padding:8px 11px;font-size:10px}.pa-track-toolbar .btn.active{background:#e7f5ee;border-color:#9bc9b2;color:#246746}.pa-tracking-table{min-width:1020px}.pa-tracking-table th,.pa-tracking-table td{padding:10px 11px}.pa-tracking-table td>strong{font-size:11.5px}.pa-tracking-table td>small{display:block;margin-top:2px;color:#7b8882;font-size:9px}.pa-tracking-table tr.is-selected td{background:#f2faf6}.pa-track-check{width:34px;text-align:center!important}.pa-track-cell{display:inline-flex;align-items:center;gap:6px;padding:5px 8px;border-radius:10px;white-space:nowrap;border:1px solid #e5e9e7;background:#f8faf9;color:#7c8782}.pa-track-cell b{width:18px;height:18px;border-radius:6px;display:grid;place-items:center;background:#edf1ef;font-size:9px}.pa-track-cell span{font-size:9px;font-weight:700}.pa-track-cell.done{background:#edf9f2;border-color:#c5e6d2;color:#216947}.pa-track-cell.done b{background:#2e8c5f;color:#fff}.pa-track-cell.draft{background:#fff8e7;border-color:#efdba7;color:#86600e}.pa-track-cell.draft b{background:#efd585;color:#6f4e08}.pa-track-detail{margin-top:14px}.pa-track-timeline{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin-top:14px}.pa-track-timeline article{min-width:0;display:grid;grid-template-columns:32px minmax(0,1fr);gap:8px;padding:11px;border:1px solid #e0e7e3;border-radius:13px;background:#fbfcfc}.pa-track-timeline article>b{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;background:#edf1ef;color:#68766f}.pa-track-timeline article>div{min-width:0;display:grid;gap:2px}.pa-track-timeline strong{font-size:10px}.pa-track-timeline span{font-size:8.8px;color:#7e8b85}.pa-track-timeline .btn{grid-column:1/-1;min-height:31px;padding:5px 8px;font-size:9px}.pa-track-timeline article.done{background:#f2faf5;border-color:#cae7d4}.pa-track-timeline article.done>b{background:#2f8a5d;color:#fff}.pa-track-committee{margin-top:14px;padding-top:14px;border-top:1px solid #edf1ef}.pa-track-committee h4{margin:0 0 9px;font-size:12px;color:#315d49}.pa-track-committee>div{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.pa-track-committee article{padding:10px 11px;border:1px solid #e2e8e4;border-radius:12px;display:grid;gap:2px}.pa-track-committee span,.pa-track-committee small{font-size:9px;color:#77857f}.pa-track-committee strong{font-size:10.5px}
+
+@media(max-width:1180px){.home-summary-grid{grid-template-columns:repeat(2,1fr)}.home-primary-grid,.home-insight-grid{grid-template-columns:1fr}.home-pa-bars{grid-template-columns:repeat(2,1fr)}.pa-track-toolbar{grid-template-columns:1fr 1fr 1fr}.pa-track-toolbar .btn{width:100%}.pa-track-summary{grid-template-columns:repeat(3,1fr)}.pa-track-timeline{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:760px){.home-hero-v2{grid-template-columns:1fr;padding:21px 18px}.home-hero-copy h2{font-size:23px}.home-hero-user{min-width:0}.home-summary-grid{grid-template-columns:1fr 1fr}.home-summary-card{min-height:112px;padding:14px}.home-summary-card strong{font-size:25px}.home-primary-grid,.home-insight-grid{gap:12px}.home-module-grid{grid-template-columns:1fr}.home-module-card{grid-template-columns:38px minmax(0,1fr) auto}.home-module-icon{width:38px;height:38px}.home-pa-bars,.home-pa-stepper{grid-template-columns:1fr 1fr}.home-ring-wrap{grid-template-columns:110px 1fr}.home-ring{width:104px;height:104px}.home-ring:after{width:70px;height:70px}.home-activity-panel .list{grid-template-columns:1fr}.home-bar-row{grid-template-columns:110px 1fr 26px}.pa-track-summary{grid-template-columns:1fr 1fr}.pa-track-progress-bars{grid-template-columns:1fr 1fr}.pa-track-toolbar{grid-template-columns:1fr}.pa-track-timeline{grid-template-columns:1fr}.pa-track-committee>div{grid-template-columns:1fr}.pa-track-detail .pa-detail-head{display:grid}}
+@media(max-width:480px){.home-summary-grid{grid-template-columns:1fr}.home-pa-bars,.home-pa-stepper,.pa-track-summary,.pa-track-progress-bars{grid-template-columns:1fr}.home-ring-wrap{grid-template-columns:1fr;justify-items:center}.home-ring-legend{width:100%}}
+
+/* ===== v5.11.1 · Dashboard + PA hero visual consistency =====
+   Match the green→gold visual language of Signature Profile while preserving
+   each page's existing content, controls, and role-aware behavior. */
+.home-hero-v2,
+.pa-hero,
+.pa-hero.pa-tracking-hero{
+  position:relative !important;
+  overflow:hidden !important;
+  border:1px solid rgba(13,106,69,.08) !important;
+  border-radius:28px !important;
+  background:var(--hero-grad) !important;
+  color:#fff !important;
+  box-shadow:0 18px 42px rgba(13,106,69,.16) !important;
+}
+.home-hero-v2::before,
+.pa-hero::before,
+.pa-hero.pa-tracking-hero::before{
+  content:"";
+  position:absolute;
+  width:250px;
+  height:250px;
+  right:-82px;
+  top:-118px;
+  border-radius:50%;
+  background:rgba(255,255,255,.08);
+  pointer-events:none;
+  z-index:0;
+}
+.home-hero-v2::after,
+.pa-hero::after,
+.pa-hero.pa-tracking-hero::after{
+  content:"";
+  position:absolute;
+  width:190px;
+  height:190px;
+  left:36%;
+  bottom:-126px;
+  border-radius:50%;
+  background:rgba(238,223,169,.14);
+  pointer-events:none;
+  z-index:0;
+}
+.home-hero-v2 > *,
+.pa-hero > *{position:relative;z-index:1}
+
+/* Dashboard header */
+.home-hero-v2{min-height:220px;padding:30px 36px}
+.home-hero-v2 .home-eyebrow{
+  background:rgba(255,255,255,.10);
+  color:#f8e7a8;
+  border-color:rgba(255,255,255,.20);
+}
+.home-hero-v2 .home-hero-copy h2{color:#fff}
+.home-hero-v2 .home-hero-copy p{color:rgba(255,255,255,.86)}
+.home-hero-v2 .home-hero-meta span{
+  background:rgba(255,255,255,.10);
+  border-color:rgba(255,255,255,.16);
+  color:rgba(255,255,255,.90);
+}
+.home-hero-v2 .home-hero-user{
+  background:rgba(8,72,48,.30);
+  border-color:rgba(255,255,255,.16);
+  box-shadow:0 10px 24px rgba(0,0,0,.08);
+}
+
+/* PA header */
+.pa-hero,
+.pa-hero.pa-tracking-hero{
+  min-height:220px;
+  align-items:center;
+  padding:30px 34px;
+}
+.pa-hero h2,
+.pa-hero.pa-tracking-hero h2{color:#fff !important}
+.pa-hero p,
+.pa-hero.pa-tracking-hero p{color:rgba(255,255,255,.86) !important}
+.pa-hero .eyebrow,
+.pa-hero .eyebrow.dark{
+  background:rgba(255,255,255,.10) !important;
+  color:#f8e7a8 !important;
+  border-color:rgba(255,255,255,.20) !important;
+}
+.pa-hero .pa-period-picker > span{color:rgba(255,255,255,.86)}
+.pa-hero .pa-period-picker .select{
+  background:rgba(255,255,255,.96);
+  color:#173f2d;
+  border-color:rgba(255,255,255,.70);
+  box-shadow:0 8px 20px rgba(7,55,36,.10);
+}
+.pa-hero .btn-secondary{
+  background:rgba(255,255,255,.12);
+  color:#fff;
+  border:1px solid rgba(255,255,255,.28);
+  box-shadow:none;
+}
+.pa-hero .btn-secondary:hover{background:rgba(255,255,255,.18)}
+.pa-hero .pa-window-chip{
+  background:rgba(255,255,255,.94);
+  border-color:rgba(255,255,255,.68);
+  box-shadow:0 8px 20px rgba(7,55,36,.08);
+}
+
+@media(max-width:1000px){
+  .home-hero-v2,.pa-hero,.pa-hero.pa-tracking-hero{min-height:0}
+  .home-hero-v2{padding:26px 24px}
+  .pa-hero,.pa-hero.pa-tracking-hero{padding:26px 24px;align-items:flex-start}
+}
+@media(max-width:640px){
+  .home-hero-v2{padding:22px 18px;border-radius:22px !important}
+  .pa-hero,.pa-hero.pa-tracking-hero{padding:22px 18px;border-radius:22px !important}
+  .home-hero-v2::before,.pa-hero::before{width:190px;height:190px;right:-70px;top:-96px}
+  .home-hero-v2::after,.pa-hero::after{width:145px;height:145px;left:34%;bottom:-105px}
+  .pa-hero .btn-secondary{width:100%}
+}
+
+
+/* ===== v5.11.2 · Procurement six-document summary table =====
+   Reference: รายละเอียดแนบท้าย/ใบสั่งซื้อ-จ้าง/ใบส่งของ/ใบรับ table supplied by school. */
+.procurement-pack-summary-table{
+  width:100%!important;
+  border-collapse:collapse!important;
+  table-layout:fixed!important;
+  margin:3mm 0 4mm!important;
+  font-size:15pt!important;
+  line-height:1.22!important;
+}
+.procurement-pack-summary-table .summary-col-index{width:9%}
+.procurement-pack-summary-table .summary-col-item{width:39%}
+.procurement-pack-summary-table .summary-col-qty{width:17%}
+.procurement-pack-summary-table .summary-col-unit-price{width:17%}
+.procurement-pack-summary-table .summary-col-total{width:18%}
+.procurement-pack-summary-table th,
+.procurement-pack-summary-table td{
+  border:1px solid #000!important;
+  padding:1.2mm 1.4mm!important;
+  overflow-wrap:normal!important;
+  word-break:normal!important;
+}
+.procurement-pack-summary-table thead th{
+  height:8mm;
+  text-align:center!important;
+  vertical-align:middle!important;
+  font-weight:400!important;
+  white-space:nowrap!important;
+}
+.procurement-pack-summary-table .procurement-pack-summary-main-row td{
+  height:45mm;
+  vertical-align:top!important;
+  padding-top:3mm!important;
+}
+.procurement-pack-summary-table .summary-index{
+  text-align:center!important;
+  white-space:nowrap!important;
+}
+.procurement-pack-summary-table .summary-description{
+  text-align:left!important;
+  line-height:1.42!important;
+  font-size:15.5pt!important;
+}
+.procurement-pack-summary-table .summary-description span{white-space:nowrap}
+.procurement-pack-summary-table .summary-qty{
+  text-align:center!important;
+  white-space:normal!important;
+  line-height:1.45!important;
+}
+.procurement-pack-summary-table .summary-money{
+  text-align:right!important;
+  white-space:nowrap!important;
+}
+.procurement-pack-summary-table tfoot td{
+  height:8mm;
+  vertical-align:middle!important;
+  padding:.8mm 1.5mm!important;
+}
+.procurement-pack-summary-table .summary-baht-text{
+  text-align:center!important;
+  vertical-align:bottom!important;
+  padding:0 2mm 2.1mm!important;
+  font-size:14.5pt!important;
+  white-space:nowrap!important;
+}
+.procurement-pack-summary-table .summary-footer-label{
+  text-align:right!important;
+  white-space:nowrap!important;
+}
+.procurement-pack-summary-table .summary-footer-value{
+  text-align:right!important;
+  white-space:nowrap!important;
+}
+.procurement-pack-summary-table .summary-grand-total td{
+  font-weight:400!important;
+}
+
+
+/* BNK v5.11.3 — Procurement approval/signature refinements */
+.procurement-pack-sign-grid-three-centered{
+  grid-template-columns:repeat(3,minmax(0,1fr))!important;
+  gap:4mm!important;
+  width:100%!important;
+  max-width:166mm!important;
+  margin:5mm auto 0!important;
+  align-items:start!important;
+  break-inside:avoid!important;
+}
+.procurement-pack-sign-grid-three-centered .procurement-pack-sign{
+  font-size:12.5pt!important;
+  min-width:0!important;
+}
+.procurement-pack-sign-grid-three-centered .procurement-pack-sign-slot{
+  grid-template-columns:auto minmax(20mm,32mm)!important;
+  gap:1mm!important;
+}
+.procurement-pack-sign-grid-three-centered .procurement-pack-sign-mark{
+  width:32mm!important;
+  min-width:20mm!important;
+  max-width:32mm!important;
+}
+.procurement-pack-sign-grid-two-centered{
+  grid-template-columns:repeat(2,minmax(0,58mm))!important;
+  justify-content:center!important;
+  gap:16mm!important;
+  width:100%!important;
+  max-width:138mm!important;
+  margin:5mm auto 0!important;
+  align-items:start!important;
+  break-inside:avoid!important;
+}
+.procurement-egp-result-v2{
+  display:block!important;
+  padding:3mm 5mm!important;
+}
+.procurement-egp-result-title{
+  font-weight:700;
+  margin-bottom:1.2mm;
+}
+.procurement-egp-choice{
+  display:flex;
+  align-items:center;
+  gap:2.2mm;
+  min-height:6mm;
+  line-height:1.1;
+}
+.procurement-egp-choice.child{padding-left:10mm}
+.procurement-pdf-checkbox{
+  width:5mm;
+  height:5mm;
+  flex:0 0 5mm;
+  border:1px solid #000;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  font-family:"TH SarabunIT๙","THSarabunIT๙",serif;
+  font-size:14pt;
+  font-weight:700;
+  line-height:1;
+}
+.procurement-pdf-checkbox.checked{padding-top:.2mm}
+@media(max-width:700px){
+  .procurement-pack-sign-grid-three-centered,.procurement-pack-sign-grid-two-centered{grid-template-columns:1fr!important;max-width:86mm!important;gap:4mm!important}
+}
+
+
+/* BNK v5.11.4 — Procurement signature hierarchy + resilient edit-save */
+.procurement-pack-sign-hierarchy{
+  width:100%;
+  max-width:154mm;
+  margin:5mm auto 0;
+  break-inside:avoid;
+  page-break-inside:avoid;
+}
+.procurement-pack-sign-director-top{
+  width:62mm;
+  margin:0 auto;
+}
+.procurement-pack-sign-staff-lower{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,58mm));
+  justify-content:center;
+  gap:22mm;
+  margin:8mm auto 0;
+}
+.procurement-pack-sign-hierarchy .procurement-pack-sign{
+  min-width:0;
+  font-size:12.5pt;
+}
+.procurement-pack-sign-hierarchy .procurement-pack-sign-slot{
+  grid-template-columns:auto minmax(20mm,32mm)!important;
+  gap:1mm!important;
+}
+.procurement-pack-sign-hierarchy .procurement-pack-sign-mark{
+  width:32mm!important;
+  min-width:20mm!important;
+  max-width:32mm!important;
+}
+@media(max-width:700px){
+  .procurement-pack-sign-hierarchy{max-width:86mm}
+  .procurement-pack-sign-director-top{width:100%}
+  .procurement-pack-sign-staff-lower{grid-template-columns:1fr;gap:4mm;margin-top:5mm}
+}
+
+
+/* BNK v5.11.5 — Procurement official A4 usable area + uniform 16 pt body typography
+   A4 = 210 x 297 mm. Safe area: L16 / R9 / T10 / B12 mm => 185 x 275 mm.
+   Body/table/signature text stays at 16 pt; overflow must paginate instead of shrinking. */
+.procurement-pack-page,
+.procurement-pdf-page{
+  padding:10mm 9mm 12mm 16mm!important;
+  font-size:16pt!important;
+  line-height:1.22!important;
+}
+.procurement-pack-inner,
+.procurement-pdf-inner{
+  width:100%!important;
+  max-width:100%!important;
+  min-width:0!important;
+  font-size:16pt!important;
+}
+
+/* Never use the legacy compact typography as a fit-to-page mechanism. */
+.procurement-pack-compact{
+  font-size:16pt!important;
+  line-height:1.22!important;
+}
+.procurement-pack-compact .procurement-pack-paragraph,
+.procurement-pack-compact .procurement-memo-body p,
+.procurement-pack-compact .procurement-pack-list,
+.procurement-pack-compact .procurement-pack-list li,
+.procurement-pack-compact .procurement-pack-minor-title{
+  font-size:16pt!important;
+}
+
+/* Standard body copy. Headings remain intentionally larger by hierarchy. */
+.procurement-memo-body,
+.procurement-memo-body p,
+.procurement-memo-continue,
+.procurement-memo-page-no,
+.procurement-pack-paragraph,
+.procurement-pack-note,
+.procurement-pack-list,
+.procurement-pack-list li,
+.procurement-pack-section-label,
+.procurement-pack-minor-title,
+.procurement-pack-subtitle,
+.procurement-pack-right-meta,
+.procurement-pack-total,
+.procurement-pack-two-col,
+.procurement-pack-tax-party,
+.procurement-pack-finance-check,
+.procurement-specific-section{
+  font-size:16pt!important;
+}
+
+/* All procurement tables use the same 16 pt document body size. */
+.procurement-pack-table,
+.procurement-pack-table th,
+.procurement-pack-table td,
+.procurement-pack-summary-table,
+.procurement-pack-summary-table th,
+.procurement-pack-summary-table td,
+.procurement-pack-summary-table .summary-description,
+.procurement-pack-summary-table .summary-baht-text,
+.procurement-pack-spec-table,
+.procurement-pack-spec-table th,
+.procurement-pack-spec-table td,
+.procurement-expense-cover,
+.procurement-expense-cover th,
+.procurement-expense-cover td,
+.procurement-pack-source-grid span,
+.procurement-pack-source-grid strong{
+  font-size:16pt!important;
+}
+.procurement-pack-table th,
+.procurement-pack-table td{
+  padding:.9mm .8mm!important;
+  line-height:1.16!important;
+  overflow-wrap:anywhere!important;
+  word-break:normal!important;
+}
+.procurement-expense-cover th,
+.procurement-expense-cover td{
+  padding:.55mm .4mm!important;
+  line-height:1.06!important;
+}
+.procurement-pack-summary-table .summary-description,
+.procurement-pack-summary-table .summary-qty{
+  line-height:1.28!important;
+}
+
+/* Signature typography is also 16 pt. Give wrapped titles room instead of shrinking them. */
+.procurement-pack-sign,
+.procurement-pack-sign-role,
+.procurement-pack-sign-name,
+.procurement-pack-sign-position,
+.procurement-pack-sign-date,
+.procurement-inspection-signatures .procurement-pack-sign,
+.procurement-dynamic-signatures .procurement-pack-sign,
+.procurement-dynamic-signatures .procurement-pack-sign-role,
+.procurement-dynamic-signatures .procurement-pack-sign-name,
+.procurement-dynamic-signatures .procurement-pack-sign-position,
+.procurement-dynamic-signatures .procurement-pack-sign-date,
+.procurement-pack-sign-grid-four .procurement-pack-sign,
+.procurement-pack-sign-grid-four .procurement-pack-sign-role,
+.procurement-pack-sign-grid-four .procurement-pack-sign-name,
+.procurement-pack-sign-grid-four .procurement-pack-sign-position,
+.procurement-pack-sign-grid-four .procurement-pack-sign-date,
+.procurement-role-only-signatures .procurement-pack-sign,
+.procurement-role-only-signatures .procurement-pack-sign-role,
+.procurement-role-only-signatures .procurement-pack-sign-name,
+.procurement-pack-sign-grid-three-centered .procurement-pack-sign,
+.procurement-pack-sign-hierarchy .procurement-pack-sign,
+.procurement-inspection-signatures.three .procurement-pack-sign,
+.procurement-inspection-signatures.one .procurement-pack-sign,
+.procurement-dynamic-signatures.three .procurement-pack-sign,
+.procurement-dynamic-signatures.two .procurement-pack-sign,
+.procurement-dynamic-signatures.one .procurement-pack-sign,
+.procurement-dynamic-signatures.three .procurement-pack-sign-role,
+.procurement-dynamic-signatures.three .procurement-pack-sign-name,
+.procurement-dynamic-signatures.three .procurement-pack-sign-position,
+.procurement-dynamic-signatures.three .procurement-pack-sign-date,
+.procurement-role-only-signatures.three .procurement-pack-sign,
+.procurement-role-only-signatures.three .procurement-pack-sign-role,
+.procurement-specific-characteristics .procurement-pack-spec-table,
+.procurement-specific-characteristics .procurement-pack-spec-table th,
+.procurement-specific-characteristics .procurement-pack-spec-table td{
+  font-size:16pt!important;
+}
+.procurement-pack-sign{
+  height:auto!important;
+  min-height:38mm!important;
+  grid-template-rows:14mm minmax(6mm,auto) minmax(6mm,auto) minmax(6mm,auto) minmax(6mm,auto)!important;
+}
+.procurement-dynamic-signatures .procurement-pack-sign,
+.procurement-pack-sign-grid-four .procurement-pack-sign{
+  height:auto!important;
+  min-height:40mm!important;
+  grid-template-rows:12mm minmax(7mm,auto) minmax(6mm,auto) minmax(6mm,auto) minmax(6mm,auto)!important;
+}
+.procurement-role-only-signatures .procurement-pack-sign,
+.procurement-role-only-signatures.three .procurement-pack-sign{
+  height:auto!important;
+  min-height:27mm!important;
+  grid-template-rows:10mm minmax(7mm,auto) minmax(7mm,auto)!important;
+}
+.procurement-pack-sign-role,
+.procurement-pack-sign-name,
+.procurement-pack-sign-position,
+.procurement-pack-sign-date{
+  line-height:1.08!important;
+}
+
+/* Preserve A4 boundary even when 16 pt content becomes longer. */
+.procurement-pack-page *,
+.procurement-pdf-page *{
+  max-width:100%;
+}
