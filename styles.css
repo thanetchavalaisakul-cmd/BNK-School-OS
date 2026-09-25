@@ -5258,3 +5258,19 @@ body.procurement-master-open{overflow:hidden!important}
 
 /* BNK v5.9.0 - PA2 PDF export + PA3 summary */
 .pa-export-action-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}.pa3-dashboard-scores{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:16px 0}.pa3-dashboard-scores article{border:1px solid #dbe4df;border-radius:14px;padding:14px;background:#fbfdfc;display:grid;gap:4px}.pa3-dashboard-scores article span{font-size:12px;color:#64748b}.pa3-dashboard-scores article strong{font-size:17px;color:#17231c}.pa3-dashboard-scores article small{color:#64748b}.pa3-panel .pa-detail-actions{margin-top:16px}.pa3-dashboard-metrics{margin-bottom:14px}@media(max-width:760px){.pa-export-action-row{width:100%;justify-content:stretch}.pa-export-action-row .btn{flex:1}.pa3-dashboard-scores{grid-template-columns:1fr}}
+
+
+/* BNK v5.10.0 - PA document profile, salary snapshot, central Auto Sign */
+.pa-document-profile-panel{border-color:#cfe0d4;background:linear-gradient(135deg,#fbfefc,#fffdf7)}
+.pa-document-profile-panel.needs-data{border-color:#ead7a2;background:linear-gradient(135deg,#fffdf7,#fff9e9)}
+.pa-document-profile-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:14px}
+.pa-document-profile-grid article{min-width:0;border:1px solid #dfe8e2;border-radius:14px;background:#fff;padding:13px 14px;display:grid;gap:4px}
+.pa-document-profile-grid article>span{font-size:10px;color:#6d7d73;font-weight:700}
+.pa-document-profile-grid article>strong{font-size:14px;color:#183e2b;overflow-wrap:anywhere}
+.pa-document-profile-grid article>small{font-size:10px;line-height:1.45;color:#74837a}
+.pa-signature-link-card{grid-column:1/-1;display:flex;justify-content:space-between;align-items:center;gap:14px;padding:13px 14px;border:1px solid #d9e5dc;border-radius:14px;background:#f8fbf9}
+.pa-signature-link-card>div{display:grid;gap:3px;min-width:0}.pa-signature-link-card strong{font-size:13px;color:#173e2a}.pa-signature-link-card span{font-size:12px;color:#41594b;overflow-wrap:anywhere}.pa-signature-link-card small{font-size:10px;color:#728177}
+.pa-auto-sign-toggle{grid-column:1/-1;margin:0;padding:13px 14px;border:1px solid #d9e5dc;border-radius:14px;background:#fff}
+.pa-auto-sign-toggle>div{display:grid;gap:3px}.pa-auto-sign-toggle>div>strong{font-size:13px;color:#173e2a}.pa-auto-sign-toggle>div>span{font-size:11px;line-height:1.5;color:#67776d}
+@media(max-width:1000px){.pa-document-profile-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:760px){.pa-document-profile-grid{grid-template-columns:1fr}.pa-signature-link-card{display:grid}.pa-signature-link-card .btn{justify-self:start}.pa-auto-sign-toggle{align-items:flex-start}}
